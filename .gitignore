@@ -5,3 +5,4 @@
 *.log
 .env
 coverage.out
+node_modules/

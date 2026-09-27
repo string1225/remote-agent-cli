@@ -26,6 +26,9 @@ type Agent struct {
 	Providers map[string]Provider
 	Execute   Runner
 	busy      bool
+	saysoOnce sync.Once
+	sayso     *saysoStore
+	saysoErr  error
 }
 
 func New(c Config) *Agent { return &Agent{Config: c, Providers: Detect(), Execute: runProcess} }
@@ -316,6 +319,8 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) error) {
 	fail := func(err error) { _ = send(protocol.Event{ID: req.ID, Type: "error", Error: err.Error()}) }
 	switch req.Type {
+	case "sayso.call":
+		a.handleSayso(p, req, send)
 	case "sessions.list":
 		page, err := a.historyStore().list(req.ServiceID, req.Search, req.Cursor)
 		if err != nil {
@@ -350,7 +355,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: conversation})
 	case "authenticate", "services.list":
 		a.mu.Lock()
-		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": a.Providers, "allowedRoots": a.Config.AllowedRoots, "allowWrite": a.Config.AllowWrite}
+		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": a.Providers, "allowedRoots": a.Config.AllowedRoots, "allowWrite": a.Config.AllowWrite, "sayso": true}
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 	case "services.add":

@@ -9,11 +9,12 @@ import (
 // Decode provider JSONL without storing credentials or protocol boilerplate.
 // The output remains plain text so the web UI never executes model-produced HTML.
 type transcript struct {
-	mu      sync.Mutex
-	pending map[string]string
-	seen    map[string]string
-	text    func(string, string) error
-	native  func(string) error
+	mu         sync.Mutex
+	pending    map[string]string
+	seen       map[string]string
+	text       func(string, string) error
+	native     func(string) error
+	structured bool
 }
 
 func (t *transcript) write(stream, text string) error {
@@ -93,6 +94,12 @@ func (t *transcript) line(stream, line string) error {
 		}
 	}
 	if e.Item.Text != "" {
+		if t.structured && e.Item.Type == "agent_message" {
+			return t.text("result", e.Item.Text+"\n")
+		}
+		if t.structured && e.Item.Type != "agent_message" {
+			return t.text("tool", e.Item.Text+"\n")
+		}
 		if e.Item.ID != "" {
 			old := t.seen[e.Item.ID]
 			t.seen[e.Item.ID] = e.Item.Text

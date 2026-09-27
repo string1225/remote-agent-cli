@@ -1059,3 +1059,25 @@ dialog .muted {
     transition: none !important;
   }
 }
+
+.sayso-launch {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  margin: 8px 0;
+  text-align: left;
+  border: 1px solid #bfd1c3;
+  border-radius: 8px;
+  background: #edf4ee;
+  color: #365742;
+  cursor: pointer;
+}
+#sayso-root {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: #f7f5ef;
+}
+#sayso-root[hidden] {
+  display: none;
+}

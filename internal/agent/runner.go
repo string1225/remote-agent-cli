@@ -151,7 +151,18 @@ func runProcess(ctx context.Context, p Provider, s protocol.Service, prompt stri
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := command(ctx, p.Path, providerSessionArgs(s.Provider, write, s.ResumeID))
+	args := providerSessionArgs(s.Provider, write, s.ResumeID)
+	if s.Provider == "codex" && s.ResumeID == "" {
+		args = args[:len(args)-1]
+		if s.Model != "" && s.Model != "default" {
+			args = append(args, "--model", s.Model)
+		}
+		if s.OutputSchema != "" {
+			args = append(args, "--ephemeral", "--output-schema", s.OutputSchema)
+		}
+		args = append(args, "-")
+	}
+	cmd := command(ctx, p.Path, args)
 	cmd.Dir = s.Workspace
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.Stdout = &outputWriter{send: send, id: id, stream: "stdout", cancel: cancel}

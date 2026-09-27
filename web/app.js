@@ -23,7 +23,7 @@ const state = {
   readRevision: 0,
   listCursor: 0,
 };
-let noticeTimer, searchTimer, drawerOpener;
+let noticeTimer, searchTimer, drawerOpener, closeSayso;
 function notice(message) {
   $("notice").textContent = message;
   $("notice").hidden = false;
@@ -53,6 +53,11 @@ function node(tag, text, className) {
 }
 function signedOut() {
   disconnect();
+  if (closeSayso) {
+    closeSayso();
+    closeSayso = null;
+  }
+  $("sayso-root").hidden = true;
   $("app").hidden = true;
   $("auth").hidden = false;
   closeDrawers();
@@ -202,6 +207,13 @@ function renderDevices() {
       const add = node("button", "＋ 添加项目 / 服务", "text-button");
       add.onclick = showService;
       children.append(add);
+      const sayso = node("button", "♫ SaySo · 讨论转 Action", "sayso-launch");
+      sayso.disabled = !state.sayso;
+      sayso.title = state.sayso
+        ? "录音、讨论、整理需求"
+        : "请更新这台电脑的 Agent 后使用 SaySo";
+      sayso.onclick = () => openSayso().catch((e) => notice(e.message));
+      children.append(sayso);
       if (!services.length)
         children.append(
           node(
@@ -243,6 +255,7 @@ function resetWorkspace() {
     state.selected?.name || "连接设备，打开一个项目";
 }
 function disconnect(reason) {
+  window.dispatchEvent(new Event("remote-agent-disconnected"));
   const peer = state.peer;
   state.peer = null;
   if (peer) {
@@ -281,7 +294,7 @@ function rpc(type, fields = {}) {
       state.pending.delete(id);
       reject(Error("设备响应超时"));
     }, 20000);
-    state.pending.set(id, { resolve, reject, timer });
+    state.pending.set(id, { resolve, reject, timer, chunks: [], chunkSize: 0 });
     try {
       peer.dc.send(JSON.stringify({ id, type, ...fields }));
     } catch (e) {
@@ -292,6 +305,7 @@ function rpc(type, fields = {}) {
   });
 }
 function refreshServices(data) {
+  state.sayso = !!data.sayso;
   state.services = data.services || [];
   state.providers = data.providers || {};
   state.roots = data.allowedRoots || [];
@@ -389,18 +403,45 @@ function connectDevice(agent) {
             return;
           }
           const pending = state.pending.get(msg.id);
+          if (pending && msg.type === "chunk") {
+            const bytes = Uint8Array.from(atob(msg.data), (c) =>
+              c.charCodeAt(0),
+            );
+            pending.chunkSize += bytes.length;
+            if (pending.chunkSize > 32 * 1024 * 1024) {
+              clearTimeout(pending.timer);
+              state.pending.delete(msg.id);
+              pending.reject(Error("设备响应过大"));
+              return;
+            }
+            pending.chunks.push(bytes);
+            clearTimeout(pending.timer);
+            pending.timer = setTimeout(() => {
+              state.pending.delete(msg.id);
+              pending.reject(Error("设备响应超时"));
+            }, 20000);
+            return;
+          }
           if (pending && (msg.type === "result" || msg.type === "error")) {
             clearTimeout(pending.timer);
             state.pending.delete(msg.id);
-            msg.error
-              ? pending.reject(
-                  Error(
-                    msg.error === "unknown request type"
-                      ? "请更新目标电脑上的 Agent，以支持会话历史"
-                      : msg.error,
-                  ),
-                )
-              : pending.resolve(msg.data);
+            if (msg.error) {
+              pending.reject(
+                Error(
+                  msg.error === "unknown request type"
+                    ? "请更新目标电脑上的 Agent，以支持这项功能"
+                    : msg.error,
+                ),
+              );
+            } else {
+              try {
+                pending.resolve(
+                  msg.data?.chunked ? decodeChunks(pending) : msg.data,
+                );
+              } catch {
+                pending.reject(Error("设备返回了无效的分片数据"));
+              }
+            }
             return;
           }
           if (msg.id !== state.running) return;
@@ -956,3 +997,40 @@ setInterval(refresh, 10000);
     if (e.message !== "please sign in") notice(e.message);
   }
 })();
+
+function decodeChunks(pending) {
+  const data = new Uint8Array(pending.chunkSize);
+  let offset = 0;
+  for (const chunk of pending.chunks) {
+    data.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return JSON.parse(new TextDecoder().decode(data));
+}
+async function openSayso() {
+  if (!state.sayso || !state.peer) throw Error("请连接已更新的 Agent");
+  if (state.running) throw Error("请先等待当前任务结束，再打开 SaySo");
+  const peer = state.peer;
+  const module = await import(`${basePath}/sayso/sayso.js`);
+  if (state.peer !== peer) throw Error("设备连接已改变，请重新打开");
+  closeDrawers();
+  const host = $("sayso-root");
+  $("app").hidden = true;
+  host.hidden = false;
+  const dispose = module.mount(
+    host,
+    async (method, path, body) => {
+      if (state.peer !== peer)
+        throw Error("原设备连接已断开，请返回工作台重新连接");
+      return rpc("sayso.call", { method, path, body });
+    },
+    () => {
+      dispose();
+      host.hidden = true;
+      $("app").hidden = false;
+      closeSayso = null;
+    },
+    `${state.selected.name} · ${state.allowWrite ? "允许工作区写入" : "Codex 只读 / 规划模式"}`,
+  );
+  closeSayso = dispose;
+}

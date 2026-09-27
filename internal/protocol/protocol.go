@@ -3,11 +3,13 @@ package protocol
 import "encoding/json"
 
 type Service struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Provider  string `json:"provider"`
-	Workspace string `json:"workspace"`
-	ResumeID  string `json:"-"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Provider     string `json:"provider"`
+	Workspace    string `json:"workspace"`
+	ResumeID     string `json:"-"`
+	Model        string `json:"-"`
+	OutputSchema string `json:"-"`
 }
 
 type ICE struct {
@@ -36,17 +38,20 @@ type Signal struct {
 }
 
 type Request struct {
-	ID        string  `json:"id"`
-	Type      string  `json:"type"`
-	Secret    string  `json:"secret,omitempty"`
-	Service   Service `json:"service,omitempty"`
-	ServiceID string  `json:"serviceId,omitempty"`
-	Prompt    string  `json:"prompt,omitempty"`
-	RunID     string  `json:"runId,omitempty"`
-	SessionID string  `json:"sessionId,omitempty"`
-	Title     string  `json:"title,omitempty"`
-	Search    string  `json:"search,omitempty"`
-	Cursor    uint64  `json:"cursor,omitempty"`
+	ID        string          `json:"id"`
+	Type      string          `json:"type"`
+	Secret    string          `json:"secret,omitempty"`
+	Service   Service         `json:"service,omitempty"`
+	ServiceID string          `json:"serviceId,omitempty"`
+	Prompt    string          `json:"prompt,omitempty"`
+	RunID     string          `json:"runId,omitempty"`
+	SessionID string          `json:"sessionId,omitempty"`
+	Title     string          `json:"title,omitempty"`
+	Search    string          `json:"search,omitempty"`
+	Cursor    uint64          `json:"cursor,omitempty"`
+	Method    string          `json:"method,omitempty"`
+	Path      string          `json:"path,omitempty"`
+	Body      json.RawMessage `json:"body,omitempty"`
 }
 
 type Event struct {

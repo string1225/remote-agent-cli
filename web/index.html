@@ -12,6 +12,7 @@
     <script src="./app.js" defer></script>
   </head>
   <body>
+    <div id="sayso-root" hidden></div>
     <div id="notice" class="notice" role="alert" hidden></div>
     <section id="auth" class="auth-layout">
       <div class="auth-story">
@@ -42,7 +43,7 @@
               required
               minlength="3"
               maxlength="64"
-              pattern="[a-zA-Z0-9][a-zA-Z0-9_.@-]{2,63}" /></label
+              pattern="[a-zA-Z0-9][a-zA-Z0-9_.@\-]{2,63}" /></label
           ><label
             >密码<input
               name="password"

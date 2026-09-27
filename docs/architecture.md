@@ -68,10 +68,11 @@ POST 要求 `application/json`，禁止跨来源写请求及跨来源 WebSocket�
 
 | 请求类型 | 字段 | 结果 |
 | --- | --- | --- |
-| `services.list` | 无 | `services, providers, allowedRoots, allowWrite` |
+| `services.list` | 无 | `services, providers, allowedRoots, allowWrite, sayso` |
 | `services.add` | `service: {name,provider,workspace}` | 规范化服务，随机 ID |
 | `services.remove` | `serviceId` | 成功；有运行任务时拒绝 |
 | `run` | `serviceId,prompt` | `started` → 多个 `output` → `done` |
+| `sayso.call` | `method,path,body` | 目标电脑内的讨论、Action、录音分片操作；不是 HTTP 代理 |
 | `cancel` | `runId` | 仅能取消当前 Peer 创建的匹配任务 |
 
 普通应答 `{id,type:"result",data}`，错误 `{id,type:"error",error}`。输出为 `{id,type:"output",data:{stream:"stdout",text:"..."}}`，另有 stderr。任务完成使用 `{id,type:"done",data:{ok:true}}`，失败时附 `error`。
@@ -85,7 +86,18 @@ POST 要求 `application/json`，禁止跨来源写请求及跨来源 WebSocket�
 - `internal/store`：bbolt 事务及凭证哈希。
 - `cmd/agent`：安装绑定、运行、状态、自启动命令。
 - `internal/agent`：设备配置、Pion、服务管理、提供方适配器、进程生命周期。
-- `web`：内嵌静态前端，没有构建链或远程 CDN 依赖。
+- `web`：内嵌静态前端，无远程 CDN 依赖；SaySo 的 React 构建产物也内嵌在此。
+- `sayso-ui`：SaySo 源界面，仅开发构建时需要 Node，运行时只调用已认证的 DataChannel。
 - `tools/build`：可复现参数的交叉编译及 SHA-256 文件生成；仍需独立签名供应链才能提供发布者真实性保证。
 
 下一阶段可在保持 DataChannel 协议稳定的基础上增加原生会话恢复、细粒度审批、可恢复任务、设备密钥指纹校验、PostgreSQL/Redis 多节点路由和自动升级。
+
+## SaySo 数据协议
+
+认证响应的 `sayso: true` 表示此 Agent 支持集成能力。`sayso.call` 只接受预定义的 `/api/state`、`settings`、`projects`、`sessions`、`actions`、`runs/{id}/cancel` 和 `audio` 操作，不接受任意 URL、文件路径、命令或代理目标。
+
+音频流程：`POST /api/audio/begin`（所属讨论、MIME、大小及时间）返回随机 ID；按偏移依次 `POST /api/audio/{id}/chunk`（base64，每片最多 16000 字节），最后 `finish`。未完成上传可 `abort`，仅原连接可写入/完成/取消。`POST /api/audio/{id}/read` 按偏移返回已完成、仍在讨论索引中的录音。文件名由 Agent 生成，路径不能由浏览器指定。
+
+大快照应答使用连续 `{id,type:"chunk",data:"base64"}`，最后 `{id,type:"result",data:{chunked:true}}`。浏览器合并后解码 UTF-8 JSON，大小上限 32 MiB；发送端沿用 DataChannel 背压与连接取消机制。音频和讨论没有控制服务器 HTTP 路由。
+
+SaySo 与普通聊天共享每台设备最多一个 CLI 执行的限制。所有模型进程均依附创建它的已认证 Peer，连接撤销或租约到期即取消；只有目标电脑配置可授权工作目录和写入权限。
