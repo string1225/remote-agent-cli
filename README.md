@@ -33,8 +33,12 @@ go run ./cmd/server
 2. 点击「添加设备」，输入名称。
 3. 在目标电脑执行生成的安装命令。
 4. 等待设备上线，点击「连接设备」。
-5. 点击「注册服务」，选择已安装的 Codex / Qoder CLI，填写目标电脑上的项目绝对路径。
+5. 可选：点击「注册服务」，选择已安装的 Codex / Qoder CLI，填写目标电脑上的项目绝对路径。
 6. 选择服务、输入请求；实时输出通过数据通道返回。控制台显示实际使用 P2P 还是 TURN。
+
+Agent 可以独立安装、上线和连接，Codex 和 Qoder 均不是必需依赖；两者都未安装时仍可管理设备。只有执行对应的 AI 任务才需要安装并注册该服务。
+
+连接有效期由服务端控制。新版 Agent 使用服务端签发的相对有效期，避免两台机器的时钟偏差导致连接协商失败；服务端仍执行到期和撤销检查。此修复需服务端与 Agent 均更新，旧版本仍应保持系统时间同步。
 
 `localhost` 只适合在同一台电脑开发验证。连接其他电脑前，必须配置一个双方可访问的 **HTTPS 域名**；浏览器页和 Agent 必须使用同一 `PUBLIC_URL`。
 
@@ -123,7 +127,7 @@ printf '%s' 'ONE_TIME_TOKEN' | remote-agent enroll \
 
 - Codex 默认 `exec --json --sandbox read-only`，写入授权后使用 `workspace-write`。非交互审批策略为 `never`，受限操作失败，不自动越权。
 - Qoder 默认 `--print --output-format stream-json --permission-mode plan`，写入授权后使用 `accept_edits`。需要交互批准的操作不在本版本提供网页审批流。
-- 目标电脑需要自行安装、登录各提供方 CLI。Agent 复用该用户本地的 CLI 登录态；不把模型 API Key / OAuth 凭证交给服务器。
+- 各提供方 CLI 均为可选。使用某个服务时，在目标电脑安装并登录对应 CLI 即可。Agent 复用该用户本地的 CLI 登录态；不把模型 API Key / OAuth 凭证交给服务器。
 - 检测 `codex`、`qodercli` 或 `qoder` 的帮助信息。Qoder 桌面编辑器的同名启动器不会被当成 CLI。可设置本机 `RA_CODEX_PATH` / `RA_QODER_PATH` 为 CLI 路径；自启动需要能继承这些环境变量。
 - 若安装 CLI 后未检测到，重新启动 Agent。macOS LaunchAgent 保存安装时的 PATH，可重新执行 `autostart install` 更新。
 - `allowedRoots` 检查规范化的真实目录及符号链接，限制**启动工作目录**；它不是独立 OS 沙箱，不能限制 CLI/MCP/本地配置的一切文件访问。提供方各自的权限机制仍然生效。不要把不受信任项目当成隔离环境。

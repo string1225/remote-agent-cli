@@ -172,9 +172,28 @@ type peer struct {
 }
 
 func (p *peer) close() { p.once.Do(func() { p.cancel(); _ = p.pc.Close() }) }
+func peerLifetime(msg protocol.Signal, now time.Time) (time.Duration, error) {
+	if msg.LeaseSeconds != 0 {
+		if msg.LeaseSeconds < 0 || msg.LeaseSeconds > 30*60 {
+			return 0, errors.New("invalid peer lease duration")
+		}
+		return time.Duration(msg.LeaseSeconds) * time.Second, nil
+	}
+	// Compatibility with older control servers that only send an absolute expiry.
+	lifetime := time.Unix(msg.ExpiresAt, 0).Sub(now)
+	if lifetime <= 0 || lifetime > 31*time.Minute {
+		return 0, errors.New("invalid peer lease expiry; check clock synchronization or update the server")
+	}
+	return lifetime, nil
+}
 func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func(protocol.Signal) error) (*peer, error) {
-	if msg.ExpiresAt <= time.Now().Unix() || msg.ExpiresAt > time.Now().Add(31*time.Minute).Unix() || len(msg.Secret) < 32 {
-		return nil, errors.New("invalid peer lease")
+	lifetime, err := peerLifetime(msg, time.Now())
+	if err != nil {
+		log.Printf("peer negotiation rejected: %v", err)
+		return nil, err
+	}
+	if len(msg.Secret) < 32 {
+		return nil, errors.New("invalid peer secret")
 	}
 	config := webrtc.Configuration{}
 	for _, ice := range msg.ICE {
@@ -184,7 +203,7 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithDeadline(parent, time.Unix(msg.ExpiresAt, 0))
+	ctx, cancel := context.WithTimeout(parent, lifetime)
 	p := &peer{pc: pc, ctx: ctx, cancel: cancel}
 	go func() { <-ctx.Done(); p.close() }()
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {

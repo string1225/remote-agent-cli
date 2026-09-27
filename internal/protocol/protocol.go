@@ -17,18 +17,21 @@ type ICE struct {
 
 // Signal contains connection metadata only. Prompts and output use DataChannel.
 type Signal struct {
-	Type      string          `json:"type"`
-	PeerID    string          `json:"peerId,omitempty"`
-	Secret    string          `json:"secret,omitempty"`
-	ExpiresAt int64           `json:"expiresAt,omitempty"`
-	SDP       json.RawMessage `json:"sdp,omitempty"`
-	Candidate json.RawMessage `json:"candidate,omitempty"`
-	ICE       []ICE           `json:"iceServers,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	OS        string          `json:"os,omitempty"`
-	Arch      string          `json:"arch,omitempty"`
-	Services  []Service       `json:"services,omitempty"`
-	Error     string          `json:"error,omitempty"`
+	Type      string `json:"type"`
+	PeerID    string `json:"peerId,omitempty"`
+	Secret    string `json:"secret,omitempty"`
+	ExpiresAt int64  `json:"expiresAt,omitempty"`
+	// LeaseSeconds is stamped by the authenticated control server, not the browser.
+	// It avoids comparing wall clocks on different machines.
+	LeaseSeconds int64           `json:"leaseSeconds,omitempty"`
+	SDP          json.RawMessage `json:"sdp,omitempty"`
+	Candidate    json.RawMessage `json:"candidate,omitempty"`
+	ICE          []ICE           `json:"iceServers,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	OS           string          `json:"os,omitempty"`
+	Arch         string          `json:"arch,omitempty"`
+	Services     []Service       `json:"services,omitempty"`
+	Error        string          `json:"error,omitempty"`
 }
 
 type Request struct {

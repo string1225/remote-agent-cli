@@ -195,11 +195,14 @@ function refreshServices(data) {
     value = select.value;
   select.replaceChildren();
   if (!state.services.length)
-    select.append(new Option("先注册一个 Codex / Qoder 服务", ""));
+    select.append(new Option("暂无服务 · 可按需添加", ""));
   for (const s of state.services)
     select.append(new Option(`${s.name} · ${s.provider}`, s.id));
   if (state.services.some((s) => s.id === value)) select.value = value;
-  $("policy").textContent = data.allowWrite
+  $("run-form").hidden = !state.services.length;
+  $("policy").textContent = !state.services.length
+    ? "设备已连接。Codex 和 Qoder 均为可选；需要执行 AI 任务时，再安装并注册对应服务。"
+    : data.allowWrite
     ? "已由本机授权：Codex 工作区写入 / Qoder 文件编辑"
     : "本机权限：Codex 只读 / Qoder 规划模式";
   setRunning(state.running);
@@ -323,8 +326,9 @@ async function connectDevice(agent) {
             refreshServices(data);
             $("session-empty").hidden = true;
             $("session-body").hidden = false;
-            $("output").textContent =
-              "已建立加密数据通道。注册或选择服务，开始一个新任务。\n";
+            $("output").textContent = state.services.length
+              ? "已建立加密数据通道。选择服务，开始一个新任务。\n"
+              : "设备连接正常，已建立加密数据通道。可以按需添加本地服务。\n";
             await updateTransport(peer);
           } catch (e) {
             fail(e.message);
@@ -499,10 +503,9 @@ $("add-service").onclick = () => {
     select.append(option);
   }
   select.selectedIndex = [...select.options].findIndex((o) => !o.disabled);
-  $("provider-info").textContent = Object.values(state.providers)
-    .filter((p) => !p.available)
-    .map((p) => `${p.name}: ${p.error}`)
-    .join(" / ");
+  $("provider-info").textContent = select.selectedIndex < 0
+    ? "尚未检测到可用 CLI，设备连接正常。需要执行 AI 任务时，可安装任意一种 CLI 并重启 Agent。"
+    : "Codex 和 Qoder 均为可选，选择本次需要的服务即可。";
   $("roots-info").textContent = "允许的根目录：" + state.roots.join("、");
   $("service-form").elements.workspace.placeholder =
     state.roots[0] || "绝对路径";

@@ -19,4 +19,4 @@ chmod 700 "$temp/agent"
 mv "$temp/agent" "$root/bin/remote-agent"
 printf '%s' '__TOKEN__' | "$root/bin/remote-agent" enroll --server "$server" --config "$root/config.json" --token-stdin
 "$root/bin/remote-agent" autostart install --config "$root/config.json"
-echo 'Agent installed and started. Return to the web console to register Codex or Qoder.'
+echo 'Agent installed and started. Return to the web console to connect this device. Codex and Qoder services are optional.'

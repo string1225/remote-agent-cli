@@ -237,7 +237,10 @@ func (s *Server) browserSocket(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			offered = true
-			if agent.send(protocol.Signal{Type: "offer", PeerID: peerID, Secret: secret, ExpiresAt: expires, SDP: msg.SDP, ICE: ice}) != nil {
+			// Keep expiry enforcement on the server's clock. The Agent uses a bounded
+			// relative lifetime because its wall clock may differ from this host.
+			remaining := max(int64(1), expires-time.Now().Unix())
+			if agent.send(protocol.Signal{Type: "offer", PeerID: peerID, Secret: secret, ExpiresAt: expires, LeaseSeconds: remaining, SDP: msg.SDP, ICE: ice}) != nil {
 				return
 			}
 		case "candidate":

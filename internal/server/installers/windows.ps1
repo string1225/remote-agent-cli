@@ -23,7 +23,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Device enrollment failed.' }
     & $exe autostart install --config $config
     if ($LASTEXITCODE -ne 0) { throw 'Device bound, but autostart failed. Run remote-agent autostart install again.' }
-    Write-Host 'Agent installed and started. Return to the web console to register Codex or Qoder.'
+    Write-Host 'Agent installed and started. Return to the web console to connect this device. Codex and Qoder services are optional.'
 } finally {
     if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
 }
