@@ -2,7 +2,10 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"
+    />
     <meta name="theme-color" content="#192720" />
     <title>Remote Agent · 远程工作台</title>
     <link rel="stylesheet" href="./style.css" />
@@ -59,155 +62,161 @@
         <p class="small muted">登录状态保留 30 天。设备只对所属账号可见。</p>
       </div>
     </section>
-    <div id="app" class="shell" hidden>
-      <aside class="sidebar">
-        <a class="wordmark" href="./"
-          >r<span>↗</span> <b>remote<br />agent</b></a
-        >
-        <p class="nav-label">WORKSPACE</p>
-        <div class="nav-item active">
-          <span>▦</span> 设备工作台 <span class="nav-arrow">↗</span>
+    <div id="app" class="workbench" hidden>
+      <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+      <aside id="devices-pane" class="devices-pane" aria-label="设备和项目">
+        <div class="pane-heading brand-heading">
+          <a class="wordmark" href="./">r<span>↗</span> <b>remote agent</b></a>
+          <button
+            class="icon-button mobile-only close-drawer"
+            aria-label="关闭设备列表"
+          >
+            ×
+          </button>
         </div>
-        <div class="sidebar-note">
-          <span class="live-dot"></span>
-          <p>计算留在本地。<br />连接随你而行。</p>
+        <div class="device-tools">
+          <span class="eyebrow"
+            >设备与项目 <small id="device-count">0</small></span
+          ><button id="refresh" class="icon-button" aria-label="刷新设备">
+            ↻</button
+          ><button id="new-agent" class="icon-button" aria-label="添加设备">
+            ＋
+          </button>
+        </div>
+        <div id="device-list" class="device-tree"></div>
+        <div id="device-empty" class="tree-empty">
+          <p>连接第一台电脑<br /><span>让你的工作空间随时在场。</span></p>
+          <button id="empty-add" class="secondary">＋ 添加设备</button>
         </div>
         <div class="account">
           <div class="avatar">U</div>
           <span id="account-name">我的账号</span
-          ><button
-            id="logout"
-            class="icon-button"
-            title="退出登录"
-            aria-label="退出登录"
-          >
+          ><button id="logout" class="icon-button" aria-label="退出登录">
             ↪
           </button>
         </div>
       </aside>
-      <main>
-        <header>
-          <div class="breadcrumb">工作空间 <span>/</span> 设备工作台</div>
-          <span class="top-label">PRIVATE WORKSPACE</span>
-        </header>
-        <section class="page-heading">
+      <section
+        id="conversations-pane"
+        class="conversations-pane"
+        aria-label="会话列表"
+      >
+        <div class="pane-heading">
           <div>
-            <p class="eyebrow">CONNECTED, WHEREVER YOU ARE</p>
-            <h1>设备工作台<span class="heading-dot">.</span></h1>
-            <p class="muted">连接你的电脑，让本地 Agent 处理远程请求。</p>
+            <p class="eyebrow">CONVERSATIONS</p>
+            <h2>会话 <span id="conversation-count">0</span></h2>
           </div>
-          <button class="primary" id="new-agent">＋ 添加设备</button>
-        </section>
-        <section class="stats">
-          <div>
-            <p>已绑定设备</p>
-            <strong id="stat-total">00</strong><span>YOUR FLEET</span>
-          </div>
-          <div>
-            <p>当前在线</p>
-            <strong id="stat-online">00</strong
-            ><span class="green"
-              ><i class="live-dot"></i> READY TO CONNECT</span
-            >
-          </div>
-          <div>
-            <p>数据传输</p>
-            <strong class="stat-word">端到端加密</strong
-            ><span>WEBRTC · DIRECT / TURN</span>
-          </div>
-        </section>
-        <div class="workspace-grid">
-          <section class="devices-panel">
-            <div class="section-title">
-              <h2>我的设备 <span id="device-count">0</span></h2>
-              <button class="text-button" id="refresh">刷新 ↻</button>
-            </div>
-            <div id="device-list"></div>
-            <div id="device-empty" class="empty-device">
-              <div class="empty-icon">⌘</div>
-              <h3>从第一台电脑开始</h3>
-              <p>添加设备，复制安装命令，<br />让它出现在你的工作台。</p>
-              <button id="empty-add" class="secondary">添加设备 ↗</button>
-            </div>
-          </section>
-          <section class="session-panel">
-            <div class="section-title">
-              <h2>远程会话</h2>
-              <span id="connection-status" class="status neutral">未连接</span>
-            </div>
-            <div id="session-empty" class="session-empty">
-              <div class="orbit">↗</div>
-              <h3>你的下一个想法，从这里出发</h3>
-              <p>
-                选择一台在线设备，建立加密连接。<br />Codex、Qoder 服务可按需添加。
-              </p>
-              <div class="flow">
-                <span>浏览器</span><b>······</b><span>你的设备</span>
-              </div>
-            </div>
-            <div id="session-body" hidden>
-              <div class="session-toolbar">
-                <div>
-                  <p class="small muted">当前设备</p>
-                  <strong id="selected-name"></strong>
-                </div>
-                <button id="disconnect" class="text-button">断开连接</button>
-              </div>
-              <div class="service-bar">
-                <label class="sr-only" for="service-select">选择服务</label
-                ><select id="service-select">
-                  <option value="">请选择服务</option></select
-                ><button id="add-service" class="secondary">＋ 注册服务</button
-                ><button
-                  id="remove-service"
-                  class="icon-button"
-                  title="移除所选服务"
-                  aria-label="移除所选服务"
-                >
-                  −
-                </button>
-              </div>
-              <p id="policy" class="policy"></p>
-              <div class="terminal-head">
-                <span><i></i><i></i><i></i></span>
-                <p>LIVE OUTPUT</p>
-                <button id="clear-output" class="text-button">清空</button>
-              </div>
-              <pre id="output" class="terminal" aria-live="polite">
-连接成功后，在下方输入请求。</pre
-              >
-              <form id="run-form">
-                <label class="sr-only" for="prompt">任务请求</label
-                ><textarea
-                  id="prompt"
-                  rows="3"
-                  maxlength="16000"
-                  placeholder="想让这台电脑做什么？"
-                  required
-                ></textarea>
-                <div class="composer-footer">
-                  <span>Ctrl / ⌘ + Enter 发送 · 单次任务</span>
-                  <div>
-                    <button
-                      id="cancel-run"
-                      class="secondary"
-                      type="button"
-                      hidden
-                    >
-                      停止任务</button
-                    ><button id="send-run" class="primary" type="submit">
-                      发送请求 ↗
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
-          </section>
+          <button
+            class="icon-button mobile-only close-drawer"
+            aria-label="关闭会话列表"
+          >
+            ×</button
+          ><button
+            id="new-session"
+            class="icon-button"
+            aria-label="新建会话"
+            title="新建会话"
+            disabled
+          >
+            ＋
+          </button>
         </div>
-        <footer>
-          <span>REMOTE AGENT</span
-          ><span>服务器协调连接 · 任务在你的设备运行</span>
-        </footer>
+        <label class="search-box"
+          ><span>⌕</span
+          ><input
+            id="session-search"
+            type="search"
+            placeholder="搜索会话…"
+            aria-label="搜索会话"
+            autocomplete="off"
+        /></label>
+        <p id="project-label" class="project-label">先从左侧选择一个项目</p>
+        <div id="conversation-list" class="conversation-list"></div>
+        <p id="conversation-empty" class="list-empty">
+          连接设备，选择项目，<br />从一个新会话开始。
+        </p>
+        <button id="more-sessions" class="text-button" hidden>
+          加载更多会话
+        </button>
+        <div class="history-note">
+          <span class="live-dot"></span>会话保存在目标电脑
+        </div>
+      </section>
+      <main class="chat-pane">
+        <header class="chat-header">
+          <button
+            id="open-devices"
+            class="icon-button mobile-only"
+            aria-label="切换 Agent 和项目"
+          >
+            ☰
+          </button>
+          <div class="chat-heading">
+            <h1 id="chat-title">开始你的下一件事</h1>
+            <p id="selected-name">连接设备，打开一个项目</p>
+          </div>
+          <span id="connection-status" class="status neutral">未连接</span>
+          <button
+            id="disconnect"
+            class="icon-button desktop-only"
+            title="断开设备"
+            aria-label="断开设备"
+            hidden
+          >
+            ⏻
+          </button>
+          <button
+            id="open-conversations"
+            class="icon-button mobile-only"
+            aria-label="切换会话"
+          >
+            ☷
+          </button>
+        </header>
+        <div id="session-empty" class="chat-empty">
+          <div class="orbit">↗</div>
+          <h2>工作，从这里继续。</h2>
+          <p>选择设备、Agent 和项目。<br />你的请求在自己的电脑上执行。</p>
+          <span>Codex 和 Qoder 均为可选能力</span>
+        </div>
+        <section id="session-body" class="chat-body" hidden>
+          <div
+            id="messages"
+            class="messages"
+            role="log"
+            aria-live="polite"
+          ></div>
+          <p id="chat-hint" class="chat-hint">
+            新会话已就绪。输入你的第一个请求。
+          </p>
+          <form id="run-form" class="composer" hidden>
+            <label class="sr-only" for="prompt">发送消息</label
+            ><textarea
+              id="prompt"
+              rows="3"
+              maxlength="16000"
+              placeholder="输入你的想法，交给这个项目的 Agent…"
+              required
+            ></textarea>
+            <div class="composer-footer">
+              <span id="policy">请求在目标电脑执行</span
+              ><button id="cancel-run" class="secondary" type="button" hidden>
+                ■ 停止</button
+              ><button
+                id="send-run"
+                class="primary"
+                type="submit"
+                aria-label="发送请求"
+                disabled
+              >
+                发送 ↑
+              </button>
+            </div>
+            <p class="composer-note">
+              Ctrl / ⌘ + Enter 发送 · 历史保存在目标电脑
+            </p>
+          </form>
+        </section>
       </main>
     </div>
     <dialog id="enroll-dialog">
@@ -251,7 +260,8 @@
           复制 macOS 命令
         </button>
         <p class="small muted">
-          安装后保持设备开机并登录系统。无需安装 Codex 或 Qoder 即可连接设备，服务可稍后按需添加。
+          安装后保持设备开机并登录系统。无需安装 Codex 或 Qoder
+          即可连接设备，服务可稍后按需添加。
         </p>
       </div>
     </dialog>
@@ -263,7 +273,9 @@
         </div>
         <button class="icon-button close-dialog" aria-label="关闭">×</button>
       </div>
-      <p class="muted">本地服务是可选的。添加某个服务时，目标电脑需安装并登录对应的 CLI。</p>
+      <p class="muted">
+        本地服务是可选的。添加某个服务时，目标电脑需安装并登录对应的 CLI。
+      </p>
       <form id="service-form">
         <label
           >服务名称<input

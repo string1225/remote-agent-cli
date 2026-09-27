@@ -7,6 +7,7 @@ type Service struct {
 	Name      string `json:"name"`
 	Provider  string `json:"provider"`
 	Workspace string `json:"workspace"`
+	ResumeID  string `json:"-"`
 }
 
 type ICE struct {
@@ -42,6 +43,10 @@ type Request struct {
 	ServiceID string  `json:"serviceId,omitempty"`
 	Prompt    string  `json:"prompt,omitempty"`
 	RunID     string  `json:"runId,omitempty"`
+	SessionID string  `json:"sessionId,omitempty"`
+	Title     string  `json:"title,omitempty"`
+	Search    string  `json:"search,omitempty"`
+	Cursor    uint64  `json:"cursor,omitempty"`
 }
 
 type Event struct {

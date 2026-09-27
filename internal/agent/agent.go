@@ -316,6 +316,38 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) error) {
 	fail := func(err error) { _ = send(protocol.Event{ID: req.ID, Type: "error", Error: err.Error()}) }
 	switch req.Type {
+	case "sessions.list":
+		page, err := a.historyStore().list(req.ServiceID, req.Search, req.Cursor)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: page})
+	case "sessions.get":
+		page, err := a.historyStore().read(req.SessionID, req.Cursor)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: page})
+	case "sessions.create":
+		var service protocol.Service
+		for _, s := range a.services() {
+			if s.ID == req.ServiceID {
+				service = s
+				break
+			}
+		}
+		if service.ID == "" {
+			fail(errors.New("unknown service"))
+			return
+		}
+		conversation, err := a.historyStore().create(service, req.Title)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: conversation})
 	case "authenticate", "services.list":
 		a.mu.Lock()
 		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": a.Providers, "allowedRoots": a.Config.AllowedRoots, "allowWrite": a.Config.AllowWrite}
@@ -400,6 +432,27 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			return
 		}
 		service.Workspace = workspace
+		history := a.historyStore()
+		var conversation protocol.Conversation
+		if req.SessionID != "" {
+			conversation, err = history.get(req.SessionID)
+			if err == nil && (conversation.ServiceID != service.ID || conversation.Provider != service.Provider || conversation.Workspace != service.Workspace) {
+				err = errors.New("session does not belong to this project")
+			}
+		} else {
+			conversation, err = history.create(service, req.Prompt)
+		}
+		if err != nil {
+			a.mu.Unlock()
+			fail(err)
+			return
+		}
+		service.ResumeID = conversation.NativeID
+		if _, err = history.append(conversation.ID, protocol.ChatEntry{TurnID: req.ID, Role: "user", Text: req.Prompt, Kind: "message"}); err != nil {
+			a.mu.Unlock()
+			fail(err)
+			return
+		}
 		provider := a.Providers[service.Provider]
 		write := a.Config.AllowWrite
 		a.busy = true
@@ -411,8 +464,52 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		p.mu.Unlock()
 		go func() {
 			defer cancel()
-			_ = send(protocol.Event{ID: req.ID, Type: "started"})
-			err := a.Execute(ctx, provider, service, req.Prompt, write, send, req.ID)
+			_ = send(protocol.Event{ID: req.ID, Type: "started", Data: map[string]string{"sessionId": conversation.ID}})
+			decoder := &transcript{
+				native: func(id string) error { return history.nativeID(conversation.ID, id) },
+				text: func(stream, text string) error {
+					role := "assistant"
+					if stream != "stdout" {
+						role = "system"
+					}
+					// Bound each SCTP message, including both display text and history data.
+					runes := []rune(text)
+					for len(runes) > 0 {
+						n := min(len(runes), 2000)
+						chunk := string(runes[:n])
+						runes = runes[n:]
+						entries, err := history.append(conversation.ID, protocol.ChatEntry{TurnID: req.ID, Role: role, Text: chunk, Kind: stream})
+						if err != nil {
+							return err
+						}
+						if err = send(protocol.Event{ID: req.ID, Type: "output", Data: map[string]any{"stream": stream, "text": chunk, "normalized": true, "entries": entries}}); err != nil {
+							return err
+						}
+					}
+					return nil
+				},
+			}
+			err := a.Execute(ctx, provider, service, req.Prompt, write, func(event protocol.Event) error {
+				if event.Type != "output" {
+					return send(event)
+				}
+				data, ok := event.Data.(map[string]string)
+				if !ok {
+					return errors.New("invalid provider output")
+				}
+				return decoder.write(data["stream"], data["text"])
+			}, req.ID)
+			if flushErr := decoder.flush(); err == nil {
+				err = flushErr
+			}
+			ending := protocol.ChatEntry{TurnID: req.ID, Role: "system", Kind: "done"}
+			if err != nil {
+				ending.Kind = "error"
+				ending.Text = err.Error()
+			}
+			if _, saveErr := history.append(conversation.ID, ending); saveErr != nil && err == nil {
+				err = saveErr
+			}
 			p.mu.Lock()
 			p.runCancel = nil
 			p.runID = ""

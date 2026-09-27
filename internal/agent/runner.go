@@ -78,10 +78,16 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 }
 func (b *boundedBuffer) String() string { b.mu.Lock(); defer b.mu.Unlock(); return string(b.data) }
 func providerArgs(name string, write bool) []string {
+	return providerSessionArgs(name, write, "")
+}
+func providerSessionArgs(name string, write bool, resumeID string) []string {
 	if name == "codex" {
 		sandbox := "read-only"
 		if write {
 			sandbox = "workspace-write"
+		}
+		if resumeID != "" {
+			return []string{"exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"" + sandbox + "\"", "-c", "approval_policy=\"never\"", resumeID, "-"}
 		}
 		return []string{"exec", "--json", "--color", "never", "--sandbox", sandbox, "-c", "approval_policy=\"never\"", "--skip-git-repo-check", "-"}
 	}
@@ -90,7 +96,11 @@ func providerArgs(name string, write bool) []string {
 	if write {
 		mode = "accept_edits"
 	}
-	return []string{"--print", "--output-format", "stream-json", "--permission-mode", mode, "--max-turns", "30"}
+	args := []string{"--print", "--output-format", "stream-json", "--permission-mode", mode, "--max-turns", "30"}
+	if resumeID != "" {
+		args = append(args, "--resume", resumeID)
+	}
+	return args
 }
 
 type outputWriter struct {
@@ -141,7 +151,7 @@ func runProcess(ctx context.Context, p Provider, s protocol.Service, prompt stri
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := command(ctx, p.Path, providerArgs(s.Provider, write))
+	cmd := command(ctx, p.Path, providerSessionArgs(s.Provider, write, s.ResumeID))
 	cmd.Dir = s.Workspace
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.Stdout = &outputWriter{send: send, id: id, stream: "stdout", cancel: cancel}
