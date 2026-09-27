@@ -77,7 +77,7 @@ func (a *Agent) connect(ctx context.Context) error {
 	} else {
 		u.Scheme = "ws"
 	}
-	u.Path = "/api/agent/connect"
+	u.Path = strings.TrimSuffix(u.Path, "/") + "/api/agent/connect"
 	q := u.Query()
 	q.Set("id", a.Config.ID)
 	u.RawQuery = q.Encode()

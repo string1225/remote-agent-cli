@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -51,17 +50,8 @@ func Load(path string) (Config, error) {
 	return c, nil
 }
 func ValidateServer(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return errors.New("server must be an HTTPS origin")
-	}
-	if u.Scheme == "https" {
-		return nil
-	}
-	if u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1") {
-		return nil
-	}
-	return errors.New("HTTPS is required except on localhost")
+	_, err := protocol.ParseServerURL(raw)
+	return err
 }
 func (c Config) Save() error {
 	if err := os.MkdirAll(filepath.Dir(c.Path), 0700); err != nil {

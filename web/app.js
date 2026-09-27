@@ -1,5 +1,7 @@
 /* No prompt, output, CLI credential, or peer secret is persisted in browser storage. */
 const $ = (id) => document.getElementById(id);
+// The server redirects its mount URL to a trailing slash before serving this page.
+const basePath = new URL(".", location.href).pathname.replace(/\/$/, "");
 const state = {
   register: false,
   agents: [],
@@ -19,7 +21,7 @@ function notice(message) {
   noticeTimer = setTimeout(() => ($("notice").hidden = true), 6500);
 }
 async function api(path, method = "GET", body) {
-  const res = await fetch(path, {
+  const res = await fetch(basePath + path, {
     method,
     credentials: "same-origin",
     headers: body ? { "Content-Type": "application/json" } : {},
@@ -234,7 +236,7 @@ async function connectDevice(agent) {
   connectionStatus("正在协商连接…");
   $("selected-name").textContent = agent.name;
   const ws = new WebSocket(
-    `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/agents/${agent.id}/signal`,
+    `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${basePath}/api/agents/${agent.id}/signal`,
   );
   const peer = {
     ws,

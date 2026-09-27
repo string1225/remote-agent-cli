@@ -66,7 +66,7 @@ docker compose up --build -d
 
 | 环境变量 | 默认值 | 用途 |
 | --- | --- | --- |
-| `PUBLIC_URL` | `http://localhost:8080` | 唯一网页来源；除 loopback 外必须 HTTPS，不含路径 |
+| `PUBLIC_URL` | `http://localhost:8080` | 对外地址；除 loopback 外必须 HTTPS，支持 `/agents` 等子路径 |
 | `LISTEN_ADDR` | `127.0.0.1:8080` | HTTP 监听地址 |
 | `DATABASE_PATH` | `data/remote-agent.db` | bbolt 数据库路径 |
 | `DOWNLOADS_DIR` | `dist` | 已构建 Agent 及校验文件目录 |
@@ -157,3 +157,18 @@ go run ./tools/build       # 交叉编译所有支持的平台
 - 已提供跨平台安装和构建，但真正跨公网 NAT / TURN、不同 Windows 策略以及 macOS 自启动仍需在目标部署环境验收。分发二进制尚未做代码签名 / Apple 公证。
 
 详细协议见 [docs/architecture.md](docs/architecture.md)。
+
+## 当前服务器部署
+
+访问地址：`https://codex.sunny-string.cn/agents/`（不带末尾斜杠也会自动跳转）。
+
+- `139.224.12.141` 上由独立 `remote-agent.service` 托管，监听 `127.0.0.1:8086`。
+- Nginx 独立站点代理 `/agents/`，保留原路径，并支持 WebSocket Upgrade。
+- TLS 使用独立的 `codex.sunny-string.cn` 证书，由服务器已有 Certbot 定时任务续期。
+- 发布目录 `/opt/remote-agent/releases/`，`/opt/remote-agent/current` 指向当前版本。
+- 数据库 `/var/lib/remote-agent/remote-agent.db`，服务使用 systemd DynamicUser；数据库与发布目录分离。
+- 配置 `/etc/remote-agent/server.env`；日志使用 `journalctl -u remote-agent`。代理访问日志不记录查询参数。
+
+配置模板：[systemd 服务](deploy/remote-agent.service)、[Nginx 站点](deploy/nginx-codex.conf)、[环境变量](deploy/server.env.example)。
+
+子路径部署时必须把完整地址（包含 `/agents`）设为 `PUBLIC_URL`，代理不要移除此前缀。CLI 安装、Cookie 路径、API 与信令会自动跟随此前缀。`/agents/healthz` 可用于健康检查。当前部署未配置 TURN，中继配置方法见前文。

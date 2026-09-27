@@ -46,17 +46,14 @@ type limit struct {
 var usernameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_.@-]{2,63}$`)
 
 func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) {
-	u, err := url.Parse(cfg.PublicURL)
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return nil, nil, errors.New("PUBLIC_URL must be an origin without a path, query or credentials")
-	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")) {
-		return nil, nil, errors.New("PUBLIC_URL requires HTTPS except on localhost")
+	u, err := protocol.ParseServerURL(cfg.PublicURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("PUBLIC_URL: %w", err)
 	}
 	if len(cfg.TURN) > 0 && cfg.TURNSecret == "" {
 		return nil, nil, errors.New("TURN_SECRET is required for TURN_URLS")
 	}
-	cfg.PublicURL = strings.TrimSuffix(cfg.PublicURL, "/")
+	cfg.PublicURL = u.String()
 	s := &Server{Store: db, Config: cfg, hub: newHub(), attempts: map[string]limit{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, map[string]bool{"ok": true}) })
@@ -76,7 +73,30 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("GET /install/{script}", s.installer)
 	mux.HandleFunc("GET /downloads/{file}", s.download)
 	mux.Handle("GET /", http.FileServerFS(web))
-	return s, s.protect(mux), nil
+	var handler http.Handler = s.protect(mux)
+	if u.Path != "" {
+		mount := http.NewServeMux()
+		mount.Handle(u.Path+"/", http.StripPrefix(u.Path, handler))
+		mount.HandleFunc("GET "+u.Path, func(w http.ResponseWriter, r *http.Request) {
+			target := u.Path + "/"
+			if r.URL.RawQuery != "" {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusPermanentRedirect)
+		})
+		handler = mount
+	}
+	return s, handler, nil
+}
+
+func (s *Server) origin() string {
+	u, _ := url.Parse(s.Config.PublicURL)
+	return u.Scheme + "://" + u.Host
+}
+
+func (s *Server) cookiePath() string {
+	u, _ := url.Parse(s.Config.PublicURL)
+	return strings.TrimSuffix(u.Path, "/") + "/"
 }
 func reply(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -112,7 +132,7 @@ func (s *Server) protect(next http.Handler) http.Handler {
 		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/install/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
-		if (r.Method != "GET" && r.Method != "HEAD") && r.Header.Get("Origin") != "" && r.Header.Get("Origin") != s.Config.PublicURL {
+		if (r.Method != "GET" && r.Method != "HEAD") && r.Header.Get("Origin") != "" && r.Header.Get("Origin") != s.origin() {
 			fail(w, 403, "origin denied")
 			return
 		}
@@ -165,7 +185,7 @@ func (s *Server) require(w http.ResponseWriter, r *http.Request) (store.Session,
 	return v, true
 }
 func (s *Server) cookie(w http.ResponseWriter, token string, age int) {
-	http.SetCookie(w, &http.Cookie{Name: "ra_session", Value: token, Path: "/", MaxAge: age, HttpOnly: true, Secure: strings.HasPrefix(s.Config.PublicURL, "https:"), SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "ra_session", Value: token, Path: s.cookiePath(), MaxAge: age, HttpOnly: true, Secure: strings.HasPrefix(s.Config.PublicURL, "https:"), SameSite: http.SameSiteStrictMode})
 }
 func (s *Server) signIn(w http.ResponseWriter, u store.User) {
 	token, err := s.Store.NewSession(u.ID)

@@ -32,19 +32,23 @@ type fixture struct {
 }
 
 func setup(t *testing.T) *fixture {
+	return setupAt(t, "")
+}
+
+func setupAt(t *testing.T, basePath string) *fixture {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, handler, err := server.New(db, server.Config{PublicURL: "http://localhost:8080", AllowSignup: true}, web.Files)
+	s, handler, err := server.New(db, server.Config{PublicURL: "http://localhost:8080" + basePath, AllowSignup: true}, web.Files)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ts := httptest.NewServer(handler)
-	s.Config.PublicURL = ts.URL
+	s.Config.PublicURL = ts.URL + basePath
 	t.Cleanup(func() { s.Close(); ts.Close(); db.Close() })
-	return &fixture{t, db, s, ts.URL}
+	return &fixture{t, db, s, ts.URL + basePath}
 }
 func (f *fixture) request(c *http.Client, method, path string, body any, status int) []byte {
 	f.t.Helper()
@@ -59,6 +63,8 @@ func (f *fixture) request(c *http.Client, method, path string, body any, status 
 		f.t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	u, _ := url.Parse(f.url)
+	req.Header.Set("Origin", u.Scheme+"://"+u.Host)
 	res, err := c.Do(req)
 	if err != nil {
 		f.t.Fatal(err)
@@ -98,7 +104,8 @@ func (f *fixture) enroll(c *http.Client) (store.Agent, string) {
 }
 func (f *fixture) socket(c *http.Client, id string) (*websocket.Conn, *http.Response, error) {
 	u, _ := url.Parse(f.url)
-	header := http.Header{"Origin": []string{f.url}}
+	header := http.Header{"Origin": []string{u.Scheme + "://" + u.Host}}
+	u.Path += "/"
 	for _, cookie := range c.Jar.Cookies(u) {
 		header.Add("Cookie", cookie.String())
 	}
@@ -266,9 +273,10 @@ func (p *testPeer) next(t *testing.T, id, kind string) protocol.Event {
 }
 
 func TestWebRTCDirectRPCAndRevocation(t *testing.T) {
-	for _, revocation := range []string{"device", "logout"} {
-		t.Run(revocation, func(t *testing.T) {
-			f := setup(t)
+	for _, scenario := range []struct{ revocation, basePath string }{{"device", ""}, {"logout", ""}, {"device", "/agents"}, {"logout", "/agents"}} {
+		t.Run(scenario.revocation+scenario.basePath, func(t *testing.T) {
+			revocation := scenario.revocation
+			f := setupAt(t, scenario.basePath)
 			owner := f.user("alice")
 			row, token := f.enroll(owner)
 			root := t.TempDir()

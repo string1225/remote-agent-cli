@@ -39,7 +39,7 @@ func run() error {
 	}
 	flags := flag.NewFlagSet(os.Args[1], flag.ContinueOnError)
 	config := flags.String("config", agent.DefaultPath(), "configuration file")
-	server := flags.String("server", "", "HTTPS control server origin")
+	server := flags.String("server", "", "HTTPS control server URL, optionally including a base path")
 	stdin := flags.Bool("token-stdin", false, "read one-time enrollment token from stdin")
 	roots := flags.String("roots", "", "allowed workspace roots separated by the OS path-list separator (default: home)")
 	write := flags.Bool("allow-write", false, "allow Codex workspace writes / Qoder file edits (enroll only)")

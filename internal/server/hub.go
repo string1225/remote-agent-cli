@@ -82,7 +82,7 @@ func (s *Server) agentSocket(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "agent credentials denied")
 		return
 	}
-	c := upgrade(w, r, s.Config.PublicURL)
+	c := upgrade(w, r, s.origin())
 	if c == nil {
 		return
 	}
@@ -173,7 +173,7 @@ func (s *Server) browserSocket(w http.ResponseWriter, r *http.Request) {
 		fail(w, 429, "too many device connections")
 		return
 	}
-	c := upgrade(w, r, s.Config.PublicURL)
+	c := upgrade(w, r, s.origin())
 	if c == nil {
 		return
 	}

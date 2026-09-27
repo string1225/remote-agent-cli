@@ -1,0 +1,26 @@
+[Unit]
+Description=Remote Agent control server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+WorkingDirectory=/opt/remote-agent/current
+ExecStart=/opt/remote-agent/current/remote-server
+EnvironmentFile=/etc/remote-agent/server.env
+StateDirectory=remote-agent
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
