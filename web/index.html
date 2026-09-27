@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#192720" />
+    <title>Remote Agent · 远程工作台</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div id="notice" class="notice" role="alert" hidden></div>
+    <section id="auth" class="auth-layout">
+      <div class="auth-story">
+        <a class="wordmark" href="/">r<span>↗</span> / remote agent</a>
+        <div>
+          <p class="eyebrow">YOUR MACHINES. ONE WORKSPACE.</p>
+          <h1>你的电脑，<br />随时在场。</h1>
+          <p class="intro">
+            把每台电脑上的 Codex 与 Qoder，<br />带到同一个工作台。
+          </p>
+          <div class="connection-art" aria-hidden="true">
+            <span>浏览器</span><i>↔</i><span class="central">加密直连</span
+            ><i>↔</i><span>你的电脑</span>
+          </div>
+        </div>
+        <p class="auth-foot">远程发起 · 本地执行 · 实时回传</p>
+      </div>
+      <div class="auth-card">
+        <p class="eyebrow">REMOTE AGENT / CONSOLE</p>
+        <h2 id="auth-title">欢迎回来</h2>
+        <p class="muted" id="auth-subtitle">登录账号，连接你的工作设备。</p>
+        <form id="auth-form">
+          <label
+            >用户名<input
+              name="username"
+              autocomplete="username"
+              placeholder="your.name"
+              required
+              minlength="3"
+              maxlength="64"
+              pattern="[a-zA-Z0-9][a-zA-Z0-9_.@-]{2,63}" /></label
+          ><label
+            >密码<input
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              minlength="12"
+              maxlength="72"
+              placeholder="至少 12 个字符" /></label
+          ><button class="primary full" type="submit" id="auth-submit">
+            登录工作台 <span>↗</span>
+          </button>
+        </form>
+        <button class="text-button" id="auth-toggle">
+          还没有账号？创建账号
+        </button>
+        <p class="small muted">登录状态保留 30 天。设备只对所属账号可见。</p>
+      </div>
+    </section>
+    <div id="app" class="shell" hidden>
+      <aside class="sidebar">
+        <a class="wordmark" href="/"
+          >r<span>↗</span> <b>remote<br />agent</b></a
+        >
+        <p class="nav-label">WORKSPACE</p>
+        <div class="nav-item active">
+          <span>▦</span> 设备工作台 <span class="nav-arrow">↗</span>
+        </div>
+        <div class="sidebar-note">
+          <span class="live-dot"></span>
+          <p>计算留在本地。<br />连接随你而行。</p>
+        </div>
+        <div class="account">
+          <div class="avatar">U</div>
+          <span id="account-name">我的账号</span
+          ><button
+            id="logout"
+            class="icon-button"
+            title="退出登录"
+            aria-label="退出登录"
+          >
+            ↪
+          </button>
+        </div>
+      </aside>
+      <main>
+        <header>
+          <div class="breadcrumb">工作空间 <span>/</span> 设备工作台</div>
+          <span class="top-label">PRIVATE WORKSPACE</span>
+        </header>
+        <section class="page-heading">
+          <div>
+            <p class="eyebrow">CONNECTED, WHEREVER YOU ARE</p>
+            <h1>设备工作台<span class="heading-dot">.</span></h1>
+            <p class="muted">连接你的电脑，让本地 Agent 处理远程请求。</p>
+          </div>
+          <button class="primary" id="new-agent">＋ 添加设备</button>
+        </section>
+        <section class="stats">
+          <div>
+            <p>已绑定设备</p>
+            <strong id="stat-total">00</strong><span>YOUR FLEET</span>
+          </div>
+          <div>
+            <p>当前在线</p>
+            <strong id="stat-online">00</strong
+            ><span class="green"
+              ><i class="live-dot"></i> READY TO CONNECT</span
+            >
+          </div>
+          <div>
+            <p>数据传输</p>
+            <strong class="stat-word">端到端加密</strong
+            ><span>WEBRTC · DIRECT / TURN</span>
+          </div>
+        </section>
+        <div class="workspace-grid">
+          <section class="devices-panel">
+            <div class="section-title">
+              <h2>我的设备 <span id="device-count">0</span></h2>
+              <button class="text-button" id="refresh">刷新 ↻</button>
+            </div>
+            <div id="device-list"></div>
+            <div id="device-empty" class="empty-device">
+              <div class="empty-icon">⌘</div>
+              <h3>从第一台电脑开始</h3>
+              <p>添加设备，复制安装命令，<br />让它出现在你的工作台。</p>
+              <button id="empty-add" class="secondary">添加设备 ↗</button>
+            </div>
+          </section>
+          <section class="session-panel">
+            <div class="section-title">
+              <h2>远程会话</h2>
+              <span id="connection-status" class="status neutral">未连接</span>
+            </div>
+            <div id="session-empty" class="session-empty">
+              <div class="orbit">↗</div>
+              <h3>你的下一个想法，从这里出发</h3>
+              <p>
+                选择一台在线设备，连接 Codex 或 Qoder。<br />请求与输出通过加密通道传输。
+              </p>
+              <div class="flow">
+                <span>浏览器</span><b>······</b><span>你的设备</span>
+              </div>
+            </div>
+            <div id="session-body" hidden>
+              <div class="session-toolbar">
+                <div>
+                  <p class="small muted">当前设备</p>
+                  <strong id="selected-name"></strong>
+                </div>
+                <button id="disconnect" class="text-button">断开连接</button>
+              </div>
+              <div class="service-bar">
+                <label class="sr-only" for="service-select">选择服务</label
+                ><select id="service-select">
+                  <option value="">请选择服务</option></select
+                ><button id="add-service" class="secondary">＋ 注册服务</button
+                ><button
+                  id="remove-service"
+                  class="icon-button"
+                  title="移除所选服务"
+                  aria-label="移除所选服务"
+                >
+                  −
+                </button>
+              </div>
+              <p id="policy" class="policy"></p>
+              <div class="terminal-head">
+                <span><i></i><i></i><i></i></span>
+                <p>LIVE OUTPUT</p>
+                <button id="clear-output" class="text-button">清空</button>
+              </div>
+              <pre id="output" class="terminal" aria-live="polite">
+连接成功后，在下方输入请求。</pre
+              >
+              <form id="run-form">
+                <label class="sr-only" for="prompt">任务请求</label
+                ><textarea
+                  id="prompt"
+                  rows="3"
+                  maxlength="16000"
+                  placeholder="想让这台电脑做什么？"
+                  required
+                ></textarea>
+                <div class="composer-footer">
+                  <span>Ctrl / ⌘ + Enter 发送 · 单次任务</span>
+                  <div>
+                    <button
+                      id="cancel-run"
+                      class="secondary"
+                      type="button"
+                      hidden
+                    >
+                      停止任务</button
+                    ><button id="send-run" class="primary" type="submit">
+                      发送请求 ↗
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </section>
+        </div>
+        <footer>
+          <span>REMOTE AGENT</span
+          ><span>服务器协调连接 · 任务在你的设备运行</span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="enroll-dialog">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">BRING A DEVICE ONLINE</p>
+          <h2>添加一台设备</h2>
+        </div>
+        <button class="icon-button close-dialog" aria-label="关闭">×</button>
+      </div>
+      <form id="enroll-form">
+        <label
+          >设备名称<input
+            name="name"
+            required
+            maxlength="80"
+            placeholder="例如：我的 MacBook Pro" /></label
+        ><button class="primary full" type="submit">生成安装命令 ↗</button>
+      </form>
+      <div id="install-result" hidden>
+        <p class="muted">
+          在目标电脑的终端中运行对应命令。它会安装
+          CLI、绑定账号，并启用登录后自启动。
+        </p>
+        <p class="expiry">一次性安装凭证 · 15 分钟有效 · 请勿分享</p>
+        <label
+          >Windows · PowerShell<textarea
+            id="install-windows"
+            readonly
+            rows="3"
+          ></textarea></label
+        ><button class="secondary copy" data-copy="install-windows">
+          复制 Windows 命令</button
+        ><label
+          >macOS · Terminal<textarea
+            id="install-macos"
+            readonly
+            rows="3"
+          ></textarea></label
+        ><button class="secondary copy" data-copy="install-macos">
+          复制 macOS 命令
+        </button>
+        <p class="small muted">
+          安装后保持设备开机并登录系统。设备上线后，可在控制台注册服务。
+        </p>
+      </div>
+    </dialog>
+    <dialog id="service-dialog">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">LOCAL CAPABILITY</p>
+          <h2>注册本地服务</h2>
+        </div>
+        <button class="icon-button close-dialog" aria-label="关闭">×</button>
+      </div>
+      <p class="muted">目标电脑需要先安装并登录对应的 CLI。</p>
+      <form id="service-form">
+        <label
+          >服务名称<input
+            name="name"
+            required
+            maxlength="80"
+            placeholder="例如：Codex · 我的项目" /></label
+        ><label
+          >CLI 提供方<select name="provider" id="provider-select"></select
+        ></label>
+        <p class="small muted" id="provider-info"></p>
+        <label
+          >项目目录（目标电脑上的绝对路径）<input
+            name="workspace"
+            required
+            placeholder="/Users/you/projects/my-project"
+        /></label>
+        <p class="small muted" id="roots-info"></p>
+        <button class="primary full" type="submit">注册服务 ↗</button>
+      </form>
+    </dialog>
+  </body>
+</html>

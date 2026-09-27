@@ -1,0 +1,4 @@
+# Set SERVER_DOMAIN to the same host used in PUBLIC_URL.
+{$SERVER_DOMAIN} {
+    reverse_proxy 127.0.0.1:8080
+}
