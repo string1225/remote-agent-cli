@@ -213,8 +213,8 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Username = strings.ToLower(strings.TrimSpace(in.Username))
-	if !usernameRE.MatchString(in.Username) || len(in.Password) < 12 || len(in.Password) > 72 {
-		fail(w, 400, "username: 3–64 letters/numbers/_.@-; password: 12–72 bytes")
+	if !usernameRE.MatchString(in.Username) || len(in.Password) < 6 || len(in.Password) > 72 {
+		fail(w, 400, "username: 3–64 letters/numbers/_.@-; password: 6–72 bytes")
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), 12)
