@@ -11,10 +11,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
 	"github.com/string1225/remote-agent-cli/internal/agent"
+	"github.com/string1225/remote-agent-cli/internal/buildinfo"
 )
 
 func main() {
@@ -25,7 +27,7 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		fmt.Println("remote-agent: enroll | run | status | autostart install/remove\nUse <command> --help for options.")
+		fmt.Println("remote-agent: enroll | run | status | version | update [--check] | autostart install/remove\nUse <command> --help for options.")
 		return nil
 	}
 	args := os.Args[2:]
@@ -44,6 +46,7 @@ func run() error {
 	roots := flags.String("roots", "", "allowed workspace roots separated by the OS path-list separator (default: home)")
 	write := flags.Bool("allow-write", false, "allow Codex workspace writes / Qoder file edits (enroll only)")
 	logPath := flags.String("log", "", "write operational logs to this file")
+	check := flags.Bool("check", false, "check the published build without downloading or restarting (update only)")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -58,6 +61,13 @@ func run() error {
 		return err
 	}
 	switch os.Args[1] {
+	case "version":
+		fmt.Printf("remote-agent %s (%s/%s)\n", buildinfo.Current(), runtime.GOOS, runtime.GOARCH)
+		return nil
+	case "update":
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		return agent.Update(ctx, path, *check, os.Stdout)
 	case "enroll":
 		if !*stdin {
 			return errors.New("supply --token-stdin to read the one-time token from stdin")
@@ -104,6 +114,6 @@ func run() error {
 	case "autostart":
 		return agent.Autostart(action, path)
 	default:
-		return errors.New("unknown command; use enroll, run, status, or autostart")
+		return errors.New("unknown command; use enroll, run, status, version, update, or autostart")
 	}
 }

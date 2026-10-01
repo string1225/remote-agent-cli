@@ -11,6 +11,7 @@
 - 用户名 / 密码注册、bcrypt 密码哈希、30 天 HttpOnly Cookie 登录态、退出登录。
 - 创建设备并生成 Windows PowerShell / macOS Shell 安装命令；一次性令牌 15 分钟过期，事务保证只能绑定一次。
 - 下载独立 CLI、SHA-256 校验、设备凭证落盘、用户登录后自启动。
+- `remote-agent update` 从绑定服务器更新当前平台的 CLI，保留绑定和会话记录；支持检查更新、版本查看、程序备份及失败回滚。
 - Windows Scheduled Task / macOS LaunchAgent；心跳、掉线重连、在线状态、撤销设备。
 - 在网页通过直连注册 Codex / Qoder 服务及项目目录；配置保存在目标电脑。
 - 添加项目时可按目录名搜索、输入部分路径自动补全，或逐层浏览；支持键盘和手机触摸，目录候选通过 P2P 从目标电脑读取。
@@ -112,12 +113,31 @@ docker compose -f deploy/compose.turn.yaml up -d
 
 ```sh
 remote-agent status
+remote-agent version
+remote-agent update --check
+remote-agent update
 remote-agent run
 remote-agent autostart install
 remote-agent autostart remove
 ```
 
 以上命令使用完整安装路径，或自行将 `~/.remote-agent/bin` 加入 PATH。安装脚本不会修改 shell 配置。
+
+更新命令从配置中的服务器下载对应系统和 CPU 架构的安装包及 SHA-256 文件，通过校验和版本启动检查后替换程序。`update --check` 只比较校验值，不下载程序、不重启服务；重复更新相同安装包会直接结束。Windows / macOS 会重启正在运行且与当前程序、配置匹配的 Scheduled Task / LaunchAgent；检测到 CLI 子任务时拒绝更新，应先结束任务。自启动未运行时保持原状态；手动启动的 Agent 或 Linux 自定义服务需自行重启。替换或重启失败时尝试恢复旧程序，成功后旧版本保留为 `remote-agent.exe.previous` / `remote-agent.previous`。设备凭证、权限配置、项目服务、会话和 SaySo 数据均保留。
+
+Windows PowerShell 可直接使用安装路径：
+
+```powershell
+& "$env:USERPROFILE\.remote-agent\bin\remote-agent.exe" update
+```
+
+macOS：
+
+```sh
+~/.remote-agent/bin/remote-agent update
+```
+
+旧版 CLI 没有 `update` 命令，需要先替换一次为支持更新的版本，之后即可使用上述命令。无需删除配置或重新注册设备。构建发布安装包时可运行 `go run ./tools/build -version <Git提交号>`，尤其是从源码归档构建时，确保 `version` 命令显示发布版本。
 
 手动绑定可指定根目录和写入授权：
 

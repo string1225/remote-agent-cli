@@ -84,6 +84,8 @@ POST 要求 `application/json`，禁止跨来源写请求及跨来源 WebSocket�
 
 ## 文件与部署边界
 
+本机 `update` 命令复用绑定服务器的 `/downloads/` 路由，无需新的服务器管理接口或设备凭证。下载禁用重定向、不发送凭证，限制安装包大小，校验 SHA-256 并在临时程序上验证 `version`；跨进程文件锁防止重复更新。替换前仅管理与本机安装路径及配置匹配的自启动项，并检查其 CLI 子进程。原程序移至 `.previous`，替换或自启动恢复失败时尝试回滚；更新不写配置和任务数据。Linux 及手动运行方式自行重启。
+
 - `cmd/server`：HTTP 入口、配置、关停。
 - `internal/server`：鉴权、设备目录、信令 Hub、安装脚本。
 - `internal/store`：bbolt 事务及凭证哈希。

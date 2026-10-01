@@ -3,14 +3,23 @@ package main
 
 import (
 	"crypto/sha256"
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+
+	"github.com/string1225/remote-agent-cli/internal/buildinfo"
 )
 
 func main() {
+	version := flag.String("version", buildinfo.Current(), "release revision (set explicitly when building from a source archive)")
+	flag.Parse()
+	if !regexp.MustCompile(`^[A-Za-z0-9._-]{1,80}$`).MatchString(*version) {
+		log.Fatal("invalid release version")
+	}
 	if err := os.MkdirAll("dist", 0755); err != nil {
 		log.Fatal(err)
 	}
@@ -21,7 +30,7 @@ func main() {
 				name += ".exe"
 			}
 			path := filepath.Join("dist", name)
-			cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", path, "./cmd/agent")
+			cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w -X github.com/string1225/remote-agent-cli/internal/buildinfo.Version="+*version, "-o", path, "./cmd/agent")
 			cmd.Env = append(os.Environ(), "GOOS="+platform, "GOARCH="+arch, "CGO_ENABLED=0")
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
