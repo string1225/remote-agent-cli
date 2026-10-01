@@ -97,6 +97,16 @@
           </button>
         </div>
       </aside>
+      <div
+        id="devices-resizer"
+        class="pane-resizer"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        aria-label="调整设备和会话列表宽度"
+        aria-controls="devices-pane"
+        title="拖动调整宽度，双击恢复默认；方向键微调"
+      ></div>
       <section
         id="conversations-pane"
         class="conversations-pane"
@@ -143,7 +153,17 @@
           <span class="live-dot"></span>会话保存在目标电脑
         </div>
       </section>
-      <main class="chat-pane">
+      <div
+        id="conversations-resizer"
+        class="pane-resizer"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        aria-label="调整会话列表和会话区域宽度"
+        aria-controls="conversations-pane"
+        title="拖动调整宽度，双击恢复默认；方向键微调"
+      ></div>
+      <main id="chat-pane" class="chat-pane">
         <header class="chat-header">
           <button
             id="open-devices"

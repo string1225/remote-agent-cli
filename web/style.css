@@ -330,7 +330,10 @@ dialog .muted {
 }
 .workbench {
   display: grid;
-  grid-template-columns: minmax(220px, 25%) minmax(220px, 25%) minmax(0, 50%);
+  grid-template-columns:
+    minmax(0, var(--devices-width, 1fr)) 6px
+    minmax(0, var(--conversations-width, 1fr)) 6px
+    minmax(0, var(--chat-width, 2fr));
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
@@ -340,8 +343,35 @@ dialog .muted {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--line);
   overflow: hidden;
+}
+.pane-resizer {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+  background: #f4f6ef;
+  outline: none;
+}
+.pane-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--line);
+}
+.pane-resizer:hover::after,
+.pane-resizer:focus-visible::after,
+.pane-resizer.resizing::after {
+  left: 1px;
+  width: 4px;
+  background: #79985c;
+}
+body.resizing-panes,
+body.resizing-panes * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .devices-pane {
   background: #eef1e9;
@@ -892,9 +922,6 @@ dialog .muted {
   }
 }
 @media (max-width: 1050px) and (min-width: 761px) {
-  .workbench {
-    grid-template-columns: 25% 25% 50%;
-  }
   .pane-heading {
     padding: 22px 15px;
   }
@@ -931,6 +958,9 @@ dialog .muted {
   .chat-pane {
     width: 100%;
     height: 100%;
+  }
+  .pane-resizer {
+    display: none;
   }
   .mobile-only {
     display: inline-flex;

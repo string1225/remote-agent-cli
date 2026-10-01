@@ -717,6 +717,158 @@ setInterval(() => {
   }
   if (atBottom) container.scrollTop = container.scrollHeight;
 }, 25);
+
+function initPaneResizers() {
+  const app = $("app"),
+    panes = [$("devices-pane"), $("conversations-pane"), $("chat-pane")],
+    resizers = [$("devices-resizer"), $("conversations-resizer")],
+    properties = ["--devices-width", "--conversations-width", "--chat-width"],
+    defaults = [0.25, 0.25, 0.5],
+    storageKey = `remote-agent:column-widths:${basePath || "/"}`;
+  let ratios = [...defaults],
+    drag = null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey));
+    if (
+      Array.isArray(saved) &&
+      saved.length === 3 &&
+      saved.every(
+        (value) => Number.isFinite(value) && value > 0 && value < 1,
+      ) &&
+      Math.abs(saved.reduce((sum, value) => sum + value, 0) - 1) < 0.001
+    )
+      ratios = saved.map(
+        (value) => value / saved.reduce((sum, item) => sum + item, 0),
+      );
+  } catch {}
+
+  function save() {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(ratios));
+    } catch {}
+  }
+  function availableWidth() {
+    return (
+      app.clientWidth - resizers.reduce((sum, el) => sum + el.offsetWidth, 0)
+    );
+  }
+  function minimums(width) {
+    const scale = Math.min(1, width / 660);
+    return [180, 180, 300].map((value) => value * scale);
+  }
+  function render() {
+    if (app.hidden || innerWidth <= 760) return;
+    const width = availableWidth();
+    if (width <= 0) return;
+    const mins = minimums(width),
+      desired = ratios.map((ratio) => ratio * width),
+      deficit = desired.reduce(
+        (sum, value, i) => sum + Math.max(0, mins[i] - value),
+        0,
+      ),
+      excess = desired.reduce(
+        (sum, value, i) => sum + Math.max(0, value - mins[i]),
+        0,
+      ),
+      widths = desired.map((value, i) =>
+        value < mins[i]
+          ? mins[i]
+          : value - (excess ? (deficit * (value - mins[i])) / excess : 0),
+      );
+    widths.forEach((value, i) =>
+      app.style.setProperty(properties[i], `${value}px`),
+    );
+    resizers.forEach((el, i) => {
+      el.setAttribute("aria-valuemin", Math.round((100 * mins[i]) / width));
+      el.setAttribute(
+        "aria-valuemax",
+        Math.round((100 * (widths[i] + widths[i + 1] - mins[i + 1])) / width),
+      );
+      el.setAttribute("aria-valuenow", Math.round((100 * widths[i]) / width));
+      el.setAttribute("aria-valuetext", `${Math.round(widths[i])} 像素`);
+    });
+  }
+  function resize(index, start, delta) {
+    const width = start.reduce((sum, value) => sum + value, 0),
+      mins = minimums(width),
+      pair = start[index] + start[index + 1],
+      next = [...start];
+    next[index] = Math.max(
+      mins[index],
+      Math.min(pair - mins[index + 1], start[index] + delta),
+    );
+    next[index + 1] = pair - next[index];
+    ratios = next.map((value) => value / width);
+    render();
+  }
+  function finishDrag() {
+    if (!drag) return;
+    const { el, pointerId } = drag;
+    drag = null;
+    el.classList.remove("resizing");
+    document.body.classList.remove("resizing-panes");
+    if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId);
+    save();
+  }
+  resizers.forEach((el, index) => {
+    el.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !event.isPrimary || drag || innerWidth <= 760)
+        return;
+      event.preventDefault();
+      el.focus({ preventScroll: true });
+      drag = {
+        el,
+        pointerId: event.pointerId,
+        x: event.clientX,
+        widths: panes.map((pane) => pane.getBoundingClientRect().width),
+      };
+      el.setPointerCapture(event.pointerId);
+      el.classList.add("resizing");
+      document.body.classList.add("resizing-panes");
+    });
+    el.addEventListener("pointermove", (event) => {
+      if (drag?.el === el && drag.pointerId === event.pointerId)
+        resize(index, drag.widths, event.clientX - drag.x);
+    });
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"])
+      el.addEventListener(type, (event) => {
+        if (drag?.el === el && drag.pointerId === event.pointerId) finishDrag();
+      });
+    el.addEventListener("keydown", (event) => {
+      if (
+        !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) ||
+        drag
+      )
+        return;
+      event.preventDefault();
+      const delta =
+        event.key === "Home"
+          ? -Infinity
+          : event.key === "End"
+            ? Infinity
+            : (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 48 : 16);
+      resize(
+        index,
+        panes.map((pane) => pane.getBoundingClientRect().width),
+        delta,
+      );
+      save();
+    });
+    el.addEventListener("dblclick", () => {
+      ratios = [...defaults];
+      render();
+      save();
+    });
+  });
+  new ResizeObserver(() => {
+    finishDrag();
+    render();
+  }).observe(app);
+  window.addEventListener("blur", finishDrag);
+  render();
+}
+initPaneResizers();
+
 function closeDrawers() {
   for (const p of [$("devices-pane"), $("conversations-pane")]) {
     p.classList.remove("drawer-open");
