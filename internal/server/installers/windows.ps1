@@ -3,10 +3,6 @@ $ProgressPreference = 'SilentlyContinue'
 $server = '__SERVER__'
 $root = Join-Path $HOME '.remote-agent'
 $config = Join-Path $root 'config.json'
-if (Test-Path -LiteralPath $config) {
-    $bound = Get-Content -LiteralPath $config -Raw | ConvertFrom-Json
-    if ($bound.server.TrimEnd('/') -ne $server.TrimEnd('/')) { throw 'This device is bound to a different server. Use its original installer or remote-agent update.' }
-}
 $arch = if ($env:PROCESSOR_ARCHITEW6432 -eq 'ARM64' -or $env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
 $name = "remote-agent-windows-$arch.exe"
 $bin = Join-Path $root 'bin'

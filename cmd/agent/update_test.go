@@ -56,7 +56,7 @@ func TestUpdateCLI(t *testing.T) {
 	}))
 	defer server.Close()
 	config := filepath.Join(dir, "config.json")
-	binding, _ := json.Marshal(map[string]any{"server": server.URL + "/agents", "id": "fixture-device", "credential": "never-send-this-credential", "allowedRoots": []string{dir}, "allowWrite": false})
+	binding, _ := json.Marshal(map[string]any{"server": server.URL + "/agents", "id": "fixture-device", "name": "央玺服务器", "credential": "never-send-this-credential", "allowedRoots": []string{dir}, "allowWrite": false})
 	if err := os.WriteFile(config, binding, 0600); err != nil {
 		t.Fatal(err)
 	}
