@@ -47,6 +47,7 @@ func run() error {
 	write := flags.Bool("allow-write", false, "allow Codex workspace writes / Qoder file edits (enroll only)")
 	logPath := flags.String("log", "", "write operational logs to this file")
 	check := flags.Bool("check", false, "check the published build without downloading or restarting (update only)")
+	installer := flags.Bool("installer", false, "upgrade the standard installation using this downloaded installer binary (update only)")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -67,7 +68,7 @@ func run() error {
 	case "update":
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
-		return agent.Update(ctx, path, *check, os.Stdout)
+		return agent.Update(ctx, path, agent.UpdateOptions{CheckOnly: *check, Installer: *installer, Server: *server}, os.Stdout)
 	case "enroll":
 		if !*stdin {
 			return errors.New("supply --token-stdin to read the one-time token from stdin")

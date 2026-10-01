@@ -22,7 +22,7 @@ func launchUpdate(name string, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-func prepareServiceUpdate(exe, config string) (serviceUpdate, error) {
+func prepareServiceUpdate(exe, config string, startStopped bool) (serviceUpdate, error) {
 	service := serviceUpdate{stop: func() error { return nil }, start: func() error { return nil }}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -44,7 +44,7 @@ func prepareServiceUpdate(exe, config string) (serviceUpdate, error) {
 	}
 	domain := fmt.Sprintf("gui/%d", os.Getuid())
 	label := domain + "/com.remote-agent.cli"
-	if _, err := launchUpdate("/bin/launchctl", "print", label); err != nil {
+	if _, err := launchUpdate("/bin/launchctl", "print", label); err != nil && !startStopped {
 		return service, nil // An installed but unloaded LaunchAgent stays unloaded.
 	}
 	service.managed = true

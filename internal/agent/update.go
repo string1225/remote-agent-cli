@@ -87,6 +87,10 @@ func downloadUpdate(ctx context.Context, client *http.Client, url, directory, ex
 	if res.ContentLength > maxUpdateSize {
 		return "", errors.New("update exceeds 128 MiB limit")
 	}
+	return stageUpdate(res.Body, directory, expected)
+}
+
+func stageUpdate(source io.Reader, directory, expected string) (path string, err error) {
 	f, err := os.CreateTemp(directory, ".remote-agent-update-*.exe")
 	if err != nil {
 		return "", err
@@ -99,7 +103,7 @@ func downloadUpdate(ctx context.Context, client *http.Client, url, directory, ex
 		}
 	}()
 	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(res.Body, maxUpdateSize+1))
+	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(source, maxUpdateSize+1))
 	if err != nil {
 		return path, err
 	}
@@ -162,10 +166,19 @@ func replaceUpdate(exe, candidate string, service serviceUpdate) error {
 
 // Update obtains the published binary only from the enrolled control server.
 // It never reenrolls or writes configuration, history, or SaySo data.
-func Update(ctx context.Context, configPath string, checkOnly bool, output io.Writer) error {
+type UpdateOptions struct {
+	CheckOnly bool
+	Installer bool   // Use this downloaded helper to upgrade the standard installation.
+	Server    string // Optional check that the installer belongs to the bound server.
+}
+
+func Update(ctx context.Context, configPath string, options UpdateOptions, output io.Writer) error {
 	c, err := Load(configPath)
 	if err != nil {
 		return err
+	}
+	if options.Server != "" && strings.TrimSuffix(options.Server, "/") != strings.TrimSuffix(c.Server, "/") {
+		return errors.New("this device is bound to a different server; use its original installer or remote-agent update")
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -175,10 +188,25 @@ func Update(ctx context.Context, configPath string, checkOnly bool, output io.Wr
 	if err != nil {
 		return err
 	}
+	helper := exe
+	if options.Installer {
+		name := "remote-agent"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		exe, err = filepath.EvalSymlinks(filepath.Join(filepath.Dir(configPath), "bin", name))
+		if err != nil {
+			return fmt.Errorf("cannot find the existing installed CLI: %w", err)
+		}
+	}
 	client := &http.Client{Timeout: 3 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	base, name := strings.TrimSuffix(c.Server, "/"), updateArtifact()
-	fmt.Fprintf(output, "Current version: %s (%s/%s)\nChecking %s\n", buildinfo.Current(), runtime.GOOS, runtime.GOARCH, base)
-	if !checkOnly {
+	label := "Current version"
+	if options.Installer {
+		label = "Installer version"
+	}
+	fmt.Fprintf(output, "%s: %s (%s/%s)\nChecking %s\n", label, buildinfo.Current(), runtime.GOOS, runtime.GOARCH, base)
+	if !options.CheckOnly {
 		unlock, err := lockUpdate(exe + ".update.lock")
 		if err != nil {
 			return err
@@ -194,15 +222,41 @@ func Update(ctx context.Context, configPath string, checkOnly bool, output io.Wr
 		return err
 	}
 	if actual == expected {
+		if options.Installer && !options.CheckOnly {
+			service, err := prepareServiceUpdate(exe, configPath, true)
+			if err != nil {
+				return err
+			}
+			if service.managed {
+				if err := service.stop(); err != nil {
+					return errors.Join(err, service.start())
+				}
+				if err := service.start(); err != nil {
+					return err
+				}
+				fmt.Fprintln(output, "Autostart agent restarted. Reconnect from the web console.")
+			}
+		}
 		fmt.Fprintln(output, "Already up to date with the server's published build.")
 		return nil
 	}
-	if checkOnly {
+	if options.CheckOnly {
 		fmt.Fprintln(output, "A different published build is available. Run remote-agent update to install it.")
 		return nil
 	}
-	fmt.Fprintln(output, "Downloading and verifying the published build...")
-	candidate, err := downloadUpdate(ctx, client, base+"/downloads/"+name, filepath.Dir(exe), expected)
+	var candidate string
+	if options.Installer {
+		fmt.Fprintln(output, "Verifying the downloaded installer against the bound server...")
+		f, openErr := os.Open(helper)
+		if openErr != nil {
+			return openErr
+		}
+		candidate, err = stageUpdate(f, filepath.Dir(exe), expected)
+		f.Close()
+	} else {
+		fmt.Fprintln(output, "Downloading and verifying the published build...")
+		candidate, err = downloadUpdate(ctx, client, base+"/downloads/"+name, filepath.Dir(exe), expected)
+	}
 	if err != nil {
 		return err
 	}
@@ -213,7 +267,7 @@ func Update(ctx context.Context, configPath string, checkOnly bool, output io.Wr
 	if err != nil || !strings.HasPrefix(string(version), "remote-agent ") || len(version) > 256 {
 		return errors.New("downloaded binary failed its version check; installed binary is unchanged")
 	}
-	service, err := prepareServiceUpdate(exe, configPath)
+	service, err := prepareServiceUpdate(exe, configPath, options.Installer)
 	if err != nil {
 		return err
 	}
