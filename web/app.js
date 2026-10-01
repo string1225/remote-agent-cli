@@ -255,6 +255,7 @@ function resetWorkspace() {
     state.selected?.name || "连接设备，打开一个项目";
 }
 function disconnect(reason) {
+  closeDirectoryPicker();
   window.dispatchEvent(new Event("remote-agent-disconnected"));
   const peer = state.peer;
   state.peer = null;
@@ -305,6 +306,7 @@ function rpc(type, fields = {}) {
   });
 }
 function refreshServices(data) {
+  state.directorySearch = !!data.directorySearch;
   state.sayso = !!data.sayso;
   state.services = data.services || [];
   state.providers = data.providers || {};
@@ -809,10 +811,12 @@ function showService() {
       ? "设备连接正常。需要执行 AI 任务时，安装任意一种 CLI 并重启 Agent 即可。"
       : "选择本次需要的 Agent，另一种无需安装。";
   $("roots-info").textContent = "允许的根目录：" + state.roots.join("、");
-  $("service-form").elements.workspace.placeholder =
-    state.roots[0] || "绝对路径";
-  $("service-form").querySelector("button").disabled = select.selectedIndex < 0;
+  $("service-submit").disabled = select.selectedIndex < 0;
   $("service-dialog").showModal();
+  closeDirectoryPicker();
+  $("directory-status").textContent = state.directorySearch
+    ? "输入目录名搜索，或输入路径补全；也可以直接填写绝对路径。"
+    : "这台设备的 Agent 尚不支持目录搜索，可先填写绝对路径，或更新 Agent。";
 }
 
 $("auth-form").onsubmit = async (e) => {
@@ -909,7 +913,7 @@ $("disconnect").onclick = () => {
 };
 $("service-form").onsubmit = async (e) => {
   e.preventDefault();
-  const button = e.target.querySelector("button");
+  const button = $("service-submit");
   button.disabled = true;
   try {
     const s = await rpc("services.add", {
@@ -1034,3 +1038,180 @@ async function openSayso() {
   );
   closeSayso = dispose;
 }
+
+// Directory suggestions are transient and fetched only from the connected Agent.
+let directoryRevision = 0,
+  directorySkipFocus = false,
+  directoryTimer,
+  directoryItems = [],
+  directoryActive = -1,
+  directoryPage;
+function closeDirectoryPicker() {
+  directoryRevision++;
+  clearTimeout(directoryTimer);
+  directoryItems = [];
+  directoryActive = -1;
+  $("directory-picker").hidden = true;
+  $("directory-options").replaceChildren();
+  $("workspace-input").setAttribute("aria-expanded", "false");
+  $("workspace-input").removeAttribute("aria-activedescendant");
+}
+function activateDirectory(index) {
+  directoryActive = index;
+  const input = $("workspace-input");
+  for (const [i, row] of [...$("directory-options").children].entries()) {
+    row.setAttribute("aria-selected", String(i === index));
+    row.classList.toggle("active", i === index);
+  }
+  const row = $("directory-options").children[index];
+  if (row) {
+    input.setAttribute("aria-activedescendant", row.id);
+    row.scrollIntoView({ block: "nearest" });
+  } else input.removeAttribute("aria-activedescendant");
+}
+function chooseDirectory(item) {
+  $("workspace-input").value = item.path;
+  closeDirectoryPicker();
+  directorySkipFocus = true;
+  $("workspace-input").focus({ preventScroll: true });
+  directorySkipFocus = false;
+  $("directory-status").textContent = "已选择目录。再次输入可继续搜索或修改。";
+}
+async function findDirectories(path = "", query = $("workspace-input").value) {
+  if (!state.directorySearch || !$("service-dialog").open) return;
+  const revision = ++directoryRevision,
+    peer = state.peer;
+  clearTimeout(directoryTimer);
+  directoryItems = [];
+  directoryActive = -1;
+  directoryPage = null;
+  $("directory-parent").hidden = true;
+  $("directory-base").textContent = "正在查找…";
+  $("directory-options").replaceChildren();
+  $("workspace-input").removeAttribute("aria-activedescendant");
+  $("directory-picker").hidden = false;
+  $("workspace-input").setAttribute("aria-expanded", "true");
+  $("directory-options").setAttribute("aria-busy", "true");
+  $("directory-status").textContent = "正在目标电脑查找目录…";
+  try {
+    const result = await rpc("directories.search", { path, search: query });
+    if (
+      revision !== directoryRevision ||
+      state.peer !== peer ||
+      !$("service-dialog").open
+    )
+      return;
+    directoryPage = result;
+    directoryItems = result.directories;
+    $("directory-parent").hidden = !result.parent;
+    $("directory-base").textContent = result.base || "根目录与已注册项目";
+    $("directory-base").title = result.base || "";
+    if (result.recursive) $("directory-base").textContent = "按目录名搜索";
+    const fragment = document.createDocumentFragment();
+    for (const [index, item] of directoryItems.entries()) {
+      const row = node("div", undefined, "directory-option");
+      row.id = `directory-option-${index}`;
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", "false");
+      row.title = item.path;
+      const select = node("button", undefined, "directory-select");
+      select.type = "button";
+      select.tabIndex = -1;
+      select.append(node("strong", "▱ " + item.name), node("span", item.path));
+      select.onclick = () => chooseDirectory(item);
+      const browse = node("button", "›", "directory-browse");
+      browse.type = "button";
+      browse.tabIndex = -1;
+      browse.setAttribute("aria-label", "浏览子目录 " + item.name);
+      browse.title = "浏览子目录";
+      browse.onclick = () => browseDirectory(item.path);
+      row.onpointerenter = () => activateDirectory(index);
+      row.append(select, browse);
+      fragment.append(row);
+    }
+    $("directory-options").replaceChildren(fragment);
+    const hint = result.recursive
+      ? "已搜索最多 5 层目录；输入完整路径可继续缩小范围。"
+      : "点击名称选定，点击 › 浏览子目录。";
+    $("directory-status").textContent =
+      (directoryItems.length
+        ? `${directoryItems.length} 个候选。`
+        : "没有匹配目录。尝试更完整的路径，或从授权根目录浏览。") +
+      (result.truncated ? "结果不完整，请细化目录名或路径。" : hint);
+  } catch (error) {
+    if (revision === directoryRevision && state.peer === peer)
+      $("directory-status").textContent = error.message;
+  } finally {
+    if (revision === directoryRevision)
+      $("directory-options").removeAttribute("aria-busy");
+  }
+}
+function browseDirectory(path) {
+  $("workspace-input").value = path;
+  findDirectories(path, "");
+  $("workspace-input").focus({ preventScroll: true });
+}
+$("workspace-input").addEventListener("focus", () => {
+  if (!directorySkipFocus && $("directory-picker").hidden) findDirectories();
+});
+$("workspace-input").addEventListener("input", () => {
+  closeDirectoryPicker();
+  directoryTimer = setTimeout(() => findDirectories(), 250);
+});
+$("workspace-input").addEventListener("keydown", (event) => {
+  if (event.isComposing) return;
+  if (event.key === "Escape" && !$("directory-picker").hidden) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeDirectoryPicker();
+    return;
+  }
+  if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+    event.preventDefault();
+    if ($("directory-picker").hidden) {
+      findDirectories();
+      return;
+    }
+    if (!directoryItems.length) return;
+    activateDirectory(
+      directoryActive < 0
+        ? event.key === "ArrowDown"
+          ? 0
+          : directoryItems.length - 1
+        : (directoryActive +
+            (event.key === "ArrowDown" ? 1 : -1) +
+            directoryItems.length) %
+            directoryItems.length,
+    );
+  } else if (event.key === "Enter" && directoryActive >= 0) {
+    event.preventDefault();
+    chooseDirectory(directoryItems[directoryActive]);
+  } else if (event.key === "ArrowRight" && directoryActive >= 0) {
+    event.preventDefault();
+    browseDirectory(directoryItems[directoryActive].path);
+  }
+});
+$("service-form").addEventListener("focusout", (event) => {
+  if (
+    event.relatedTarget &&
+    event.relatedTarget !== $("workspace-input") &&
+    !$("directory-picker").contains(event.relatedTarget)
+  )
+    closeDirectoryPicker();
+});
+$("directory-roots").onclick = () => {
+  $("workspace-input").value = "";
+  findDirectories("", "");
+  $("workspace-input").focus({ preventScroll: true });
+};
+$("directory-parent").onclick = () => {
+  if (directoryPage?.parent) browseDirectory(directoryPage.parent);
+};
+$("service-dialog").addEventListener("close", closeDirectoryPicker);
+document.addEventListener("pointerdown", (event) => {
+  if (
+    !$("directory-picker").contains(event.target) &&
+    event.target !== $("workspace-input")
+  )
+    closeDirectoryPicker();
+});

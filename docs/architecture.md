@@ -68,7 +68,8 @@ POST 要求 `application/json`，禁止跨来源写请求及跨来源 WebSocket�
 
 | 请求类型 | 字段 | 结果 |
 | --- | --- | --- |
-| `services.list` | 无 | `services, providers, allowedRoots, allowWrite, sayso` |
+| `services.list` | 无 | `services, providers, allowedRoots, allowWrite, sayso, directorySearch` |
+| `directories.search` | `path`（可选浏览目录）、`search`（目录名或部分路径） | `directories: [{name,path}], base, parent, separator, recursive, truncated` |
 | `services.add` | `service: {name,provider,workspace}` | 规范化服务，随机 ID |
 | `services.remove` | `serviceId` | 成功；有运行任务时拒绝 |
 | `run` | `serviceId,prompt` | `started` → 多个 `output` → `done` |
@@ -76,6 +77,8 @@ POST 要求 `application/json`，禁止跨来源写请求及跨来源 WebSocket�
 | `cancel` | `runId` | 仅能取消当前 Peer 创建的匹配任务 |
 
 普通应答 `{id,type:"result",data}`，错误 `{id,type:"error",error}`。输出为 `{id,type:"output",data:{stream:"stdout",text:"..."}}`，另有 stderr。任务完成使用 `{id,type:"done",data:{ok:true}}`，失败时附 `error`。
+
+目录搜索仅在已认证 DataChannel 上提供，不经过服务器 HTTP。Agent 对根目录及符号链接规范化后检查 `allowedRoots`，只返回文件夹，不返回文件内容。空查询返回授权根目录和已注册项目；部分路径补全当前层，目录名搜索最多 5 层，跳过依赖、缓存和隐藏目录的递归遍历。每次搜索最多检查 10,000 项、返回 40 项，并在遍历中检查 2 秒期限；达到限制时返回 `truncated`，用户可细化路径或逐层浏览。网页对输入防抖并丢弃过期响应；旧版 Agent 仍可手动填写绝对路径。
 
 运行器只从本机检测结果挑选固定命令，不接受任意 executable、shell 参数或环境变量。提示通过 stdin 传递；浏览器文本不会拼到 shell 命令。Windows 包装 `.cmd/.ps1` 时只引用本机命令路径和固定参数。取消使用 Windows 进程树终止 / Unix 进程组终止。
 

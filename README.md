@@ -13,6 +13,7 @@
 - 下载独立 CLI、SHA-256 校验、设备凭证落盘、用户登录后自启动。
 - Windows Scheduled Task / macOS LaunchAgent；心跳、掉线重连、在线状态、撤销设备。
 - 在网页通过直连注册 Codex / Qoder 服务及项目目录；配置保存在目标电脑。
+- 添加项目时可按目录名搜索、输入部分路径自动补全，或逐层浏览；支持键盘和手机触摸，目录候选通过 P2P 从目标电脑读取。
 - WebRTC DTLS/SCTP 加密、Trickle ICE、STUN / TURN、短期 TURN 凭证、会话归属校验。
 - 桌面三栏工作台：设备 → Agent → 项目目录、可搜索会话列表、占 50% 的会话区域；手机全屏会话与左右抽屉切换。
 - 会话历史保存在目标电脑 `~/.remote-agent/history.db`，通过加密直连分页读取；支持新建、搜索、刷新后查看，以及按 Codex / Qoder 原生会话 ID 继续对话。

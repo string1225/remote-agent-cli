@@ -319,6 +319,13 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) error) {
 	fail := func(err error) { _ = send(protocol.Event{ID: req.ID, Type: "error", Error: err.Error()}) }
 	switch req.Type {
+	case "directories.search":
+		page, err := a.directories(p.ctx, req.Path, req.Search)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: page})
 	case "sayso.call":
 		a.handleSayso(p, req, send)
 	case "sessions.list":
@@ -355,7 +362,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: conversation})
 	case "authenticate", "services.list":
 		a.mu.Lock()
-		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": a.Providers, "allowedRoots": a.Config.AllowedRoots, "allowWrite": a.Config.AllowWrite, "sayso": true}
+		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": a.Providers, "allowedRoots": a.Config.AllowedRoots, "allowWrite": a.Config.AllowWrite, "sayso": true, "directorySearch": true}
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 	case "services.add":

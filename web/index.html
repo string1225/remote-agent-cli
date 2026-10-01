@@ -289,13 +289,37 @@
         ></label>
         <p class="small muted" id="provider-info"></p>
         <label
-          >项目目录（目标电脑上的绝对路径）<input
+          >项目目录<input
+            id="workspace-input"
             name="workspace"
             required
-            placeholder="/Users/you/projects/my-project"
+            maxlength="4096"
+            autocomplete="off"
+            spellcheck="false"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="false"
+            aria-controls="directory-options"
+            aria-describedby="directory-status"
+            placeholder="搜索目录名，或输入完整路径…"
         /></label>
+        <div id="directory-picker" class="directory-picker" hidden>
+          <div class="directory-toolbar">
+            <button id="directory-roots" type="button">授权根目录</button>
+            <button id="directory-parent" type="button" hidden>↑ 上一级</button>
+            <span id="directory-base"></span>
+          </div>
+          <div
+            id="directory-options"
+            role="listbox"
+            aria-label="项目目录候选"
+          ></div>
+        </div>
+        <p id="directory-status" class="small muted" role="status"></p>
         <p class="small muted" id="roots-info"></p>
-        <button class="primary full" type="submit">注册服务 ↗</button>
+        <button id="service-submit" class="primary full" type="submit">
+          注册服务 ↗
+        </button>
       </form>
     </dialog>
   </body>
