@@ -2,16 +2,17 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 	"unicode/utf16"
 )
 
@@ -30,13 +31,64 @@ func encodedPowerShell(script string) string {
 	return base64.StdEncoding.EncodeToString(data)
 }
 func runSetup(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := command(ctx, name, args)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("autostart: %w: %s", err, out)
 	}
 	return nil
 }
+
+func windowsTaskAction(exe, configPath string) (shell, args string) {
+	shell = filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+	launch := "& " + quotePowerShell(exe) + " run --config " + quotePowerShell(configPath) + " --log " + quotePowerShell(filepath.Join(filepath.Dir(configPath), "agent.log")) + "; exit $LASTEXITCODE"
+	args = "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " + encodedPowerShell(launch)
+	return
+}
+
+func windowsTaskPolicy() string {
+	// Failure retries alone do not cover a launcher interrupted or stopped by Windows.
+	// An indefinite trigger also restarts a stopped task; IgnoreNew keeps a running one.
+	return "$user=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name; " +
+		"$t=New-ScheduledTaskTrigger -AtLogOn -User $user; " +
+		"$watchdog=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1); $watchdog.Repetition.StopAtDurationEnd=$false; " +
+		"$s=New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew; "
+}
+
+func windowsTaskRepairScript(exe, configPath string) string {
+	shell, args := windowsTaskAction(exe, configPath)
+	return "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; " +
+		"$task=Get-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -ErrorAction SilentlyContinue; " +
+		"if (!$task -or !$task.Settings.Enabled -or @($task.Actions).Count -ne 1 -or $task.Actions[0].Execute -ne " + quotePowerShell(shell) + " -or $task.Actions[0].Arguments -ne " + quotePowerShell(args) + ") { return }; " +
+		"$watchdogs=@($task.Triggers | Where-Object { $_.Enabled -and $_.Repetition.Interval -eq 'PT1M' -and !$_.Repetition.Duration -and !$_.EndBoundary -and !$_.Repetition.StopAtDurationEnd }); " +
+		"if ($watchdogs.Count -and $task.Settings.StartWhenAvailable -and $task.Settings.ExecutionTimeLimit -eq 'PT0S' -and $task.Settings.RestartCount -eq 999 -and $task.Settings.RestartInterval -eq 'PT1M' -and !$task.Settings.DisallowStartIfOnBatteries -and !$task.Settings.StopIfGoingOnBatteries -and $task.Settings.MultipleInstances -eq 'IgnoreNew') { return }; " +
+		windowsTaskPolicy() + "Set-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -Trigger @($t,$watchdog) -Settings $s | Out-Null"
+}
+
+// RepairAutostart migrates only this installation's existing, enabled Windows task.
+// Running a new CLI after an update upgrades the old recovery policy automatically.
+func RepairAutostart(configPath string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	exe, err = filepath.Abs(exe)
+	if err != nil {
+		return err
+	}
+	configPath, err = filepath.Abs(configPath)
+	if err != nil {
+		return err
+	}
+	shell, _ := windowsTaskAction(exe, configPath)
+	return runSetup(shell, "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShell(windowsTaskRepairScript(exe, configPath)))
+}
+
 func Autostart(action, configPath string) error {
 	if action != "install" && action != "remove" {
 		return errors.New("use autostart install or autostart remove")
@@ -66,10 +118,9 @@ func Autostart(action, configPath string) error {
 		if action == "remove" {
 			return runSetup(shell, "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; Stop-ScheduledTask -TaskName 'RemoteAgent' -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName 'RemoteAgent' -Confirm:$false")
 		}
-		// A hidden shell prevents a console window appearing at login.
-		launch := "& " + quotePowerShell(exe) + " run --config " + quotePowerShell(configPath) + " --log " + quotePowerShell(logPath) + "; exit $LASTEXITCODE"
-		args := "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " + encodedPowerShell(launch)
-		script := "$ErrorActionPreference='Stop'; $user=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name; $a=New-ScheduledTaskAction -Execute " + quotePowerShell(shell) + " -Argument " + quotePowerShell(args) + "; $t=New-ScheduledTaskTrigger -AtLogOn -User $user; $p=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited; $s=New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries; Register-ScheduledTask -TaskName 'RemoteAgent' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null; Start-ScheduledTask -TaskName 'RemoteAgent'"
+		// Keep the action stable so existing installers/updaters still recognize it.
+		_, args := windowsTaskAction(exe, configPath)
+		script := "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; " + windowsTaskPolicy() + "$a=New-ScheduledTaskAction -Execute " + quotePowerShell(shell) + " -Argument " + quotePowerShell(args) + "; $p=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited; Register-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -Action $a -Trigger @($t,$watchdog) -Principal $p -Settings $s -Force | Out-Null; Start-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent'"
 		return runSetup(shell, "-NoProfile", "-NonInteractive", "-Command", script)
 	case "darwin":
 		home, err := os.UserHomeDir()

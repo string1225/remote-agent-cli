@@ -92,6 +92,15 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		unlock, err := agent.LockRun(path)
+		if errors.Is(err, agent.ErrAgentRunning) {
+			fmt.Fprintln(os.Stdout, "Agent already running; keeping the existing process.")
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		if *logPath != "" {
 			if st, err := os.Stat(*logPath); err == nil && st.Size() > 10*1024*1024 {
 				_ = os.Rename(*logPath, *logPath+".old")
@@ -100,12 +109,23 @@ func run() error {
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			previous := log.Writer()
+			defer func() { log.SetOutput(previous); f.Close() }()
 			log.SetOutput(f)
+		}
+		log.Printf("agent starting (version %s, pid %d)", buildinfo.Current(), os.Getpid())
+		if err := agent.RepairAutostart(path); err != nil {
+			log.Printf("cannot repair autostart recovery policy: %v", err)
 		}
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
-		return agent.New(c).Run(ctx)
+		err = agent.New(c).Run(ctx)
+		if err != nil {
+			log.Printf("agent stopped: %v", err)
+		} else {
+			log.Print("agent stopped after shutdown signal")
+		}
+		return err
 	case "status":
 		c, err := agent.Load(path)
 		if err != nil {

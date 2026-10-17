@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func lockUpdate(path string) (func(), error) {
+func lockFile(path string) (func(), error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
@@ -22,7 +22,10 @@ func lockUpdate(path string) (func(), error) {
 	overlap := &windows.Overlapped{}
 	if err = windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, overlap); err != nil {
 		f.Close()
-		return nil, errors.New("another update is running or the update lock is unavailable")
+		if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
+			return nil, errLockHeld
+		}
+		return nil, err
 	}
 	return func() {
 		_ = windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, overlap)
@@ -45,6 +48,14 @@ func updatePowerShell(script string) (string, error) {
 		return "", fmt.Errorf("update autostart: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func deferWindowsWatchdog(minutes int) string {
+	// Give the replacement a bounded quiet window without disabling recovery.
+	// If the updater itself crashes, the timer still resumes after five minutes.
+	return "$watchdogs=@($task.Triggers | Where-Object { $_.Repetition.Interval -eq 'PT1M' -and !$_.Repetition.Duration -and !$_.EndBoundary }); " +
+		"foreach ($watchdog in $watchdogs) { $watchdog.StartBoundary=(Get-Date).AddMinutes(" + strconv.Itoa(minutes) + ").ToString('s') }; " +
+		"if ($watchdogs.Count) { Set-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -Trigger $task.Triggers | Out-Null }; "
 }
 
 func prepareServiceUpdate(exe, config string, startStopped bool) (serviceUpdate, error) {
@@ -71,12 +82,13 @@ func prepareServiceUpdate(exe, config string, startStopped bool) (serviceUpdate,
 	service.managed = true
 	service.stop = func() error {
 		_, err := updatePowerShell(prelude + "if (!$taskMatches) { throw 'Autostart configuration changed; update cancelled.' }; " + busy + owned +
+			deferWindowsWatchdog(5) +
 			"Stop-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent'; " +
 			terminate + "for ($attempt=0; $attempt -lt 50; $attempt++) { " + processes + "if (!$agentProcesses.Count) { exit 0 }; Start-Sleep -Milliseconds 100 }; throw 'Agent is still running. Stop any manually launched agent before updating.'")
 		return err
 	}
 	service.start = func() error {
-		_, err := updatePowerShell(prelude + "if (!$taskMatches) { throw 'Autostart configuration changed; cannot restart.' }; Start-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent'; " +
+		_, err := updatePowerShell(prelude + "if (!$taskMatches) { throw 'Autostart configuration changed; cannot restart.' }; " + deferWindowsWatchdog(1) + "Start-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent'; " +
 			"for ($attempt=0; $attempt -lt 50; $attempt++) { " + processes + "if ($agentProcesses.Count) { exit 0 }; Start-Sleep -Milliseconds 100 }; throw 'Agent did not start.'")
 		return err
 	}

@@ -48,7 +48,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		if errors.Is(err, store.ErrDenied) {
 			return errors.New("device credential revoked or invalid; enroll again from the web console")
 		}
-		log.Printf("control connection unavailable; retrying in %s", backoff)
+		log.Printf("control connection unavailable (%v); retrying in %s", err, backoff)
 		select {
 		case <-ctx.Done():
 			return nil

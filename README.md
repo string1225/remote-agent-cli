@@ -111,6 +111,10 @@ docker compose -f deploy/compose.turn.yaml up -d
 
 自启动指 **用户登录后** 启动，使用当前用户权限。不是登录前的系统级服务。电脑睡眠 / 关机时离线。macOS 在登录图形会话后安装 LaunchAgent；Windows 组策略若禁止创建任务，需要管理员调整策略或手动运行。
 
+Windows 自启动同时包含登录触发和每分钟的补启动触发：任务仍在运行时忽略重复启动，进程被中断后会再次拉起，错过的触发在系统可用时补执行；不设置最长运行时间，电池供电也能运行。新版 CLI 启动时自动迁移与自身程序、配置匹配的旧任务，不改变被手动禁用的任务。macOS 使用 LaunchAgent `KeepAlive` 自动重启。每份配置有独立的进程锁，防止重复进程互相挤掉连接；进程退出或崩溃时锁由操作系统释放。
+
+设备离线时，先在目标电脑查看 `agent.log` 和自启动状态。网络断开后 Agent 会持续重试；服务器恢复、电脑唤醒或网络恢复后会自动重连。若后台进程已经停止，重新执行原安装命令可升级并恢复自启动，也可执行 `remote-agent update` 后再执行 `remote-agent autostart install`。主动停用请移除或禁用自启动任务。睡眠、关机及退出登录期间仍会离线；RDP 断开但保留登录会话通常不会退出 Agent。
+
 ```sh
 remote-agent status
 remote-agent version
