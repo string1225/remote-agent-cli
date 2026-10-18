@@ -3,10 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -37,12 +41,22 @@ func main() {
 	}
 }
 func run() error {
+	if len(os.Args) > 1 {
+		if os.Args[1] != "admin" {
+			return errors.New("unknown command; use remote-server admin create|grant or run without arguments")
+		}
+		return runAdmin(os.Args[2:], os.Stdin, os.Stdout)
+	}
+	cfg, err := configFromEnv()
+	if err != nil {
+		return err
+	}
 	db, err := store.Open(env("DATABASE_PATH", "data/remote-agent.db"))
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	s, handler, err := server.New(db, server.Config{PublicURL: env("PUBLIC_URL", "http://localhost:8080"), Downloads: env("DOWNLOADS_DIR", "dist"), STUN: split(env("STUN_URLS", "stun:stun.l.google.com:19302")), TURN: split(os.Getenv("TURN_URLS")), TURNSecret: os.Getenv("TURN_SECRET"), AllowSignup: env("ALLOW_SIGNUP", "true") == "true"}, web.Files)
+	s, handler, err := server.New(db, cfg, web.Files)
 	if err != nil {
 		return err
 	}
@@ -74,4 +88,58 @@ func run() error {
 		return nil
 	}
 	return err
+}
+
+func configFromEnv() (server.Config, error) {
+	cfg := server.Config{PublicURL: env("PUBLIC_URL", "http://localhost:8080"), Downloads: env("DOWNLOADS_DIR", "dist"), STUN: split(env("STUN_URLS", "stun:stun.l.google.com:19302")), TURN: split(os.Getenv("TURN_URLS")), TURNSecret: os.Getenv("TURN_SECRET"), GatewayURL: strings.TrimSpace(os.Getenv("CODEX_GATEWAY_URL")), GatewayModel: env("CODEX_MODEL", "gpt-6.1-sol")}
+	if cfg.GatewayURL == "" {
+		return cfg, nil
+	}
+	path := os.Getenv("CODEX_GATEWAY_TOKEN_FILE")
+	if path == "" {
+		return cfg, errors.New("CODEX_GATEWAY_TOKEN_FILE is required when CODEX_GATEWAY_URL is set")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return cfg, fmt.Errorf("cannot open CODEX_GATEWAY_TOKEN_FILE: %w", err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return cfg, fmt.Errorf("cannot inspect CODEX_GATEWAY_TOKEN_FILE: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return cfg, errors.New("CODEX_GATEWAY_TOKEN_FILE must be a regular file")
+	}
+	if runtime.GOOS != "windows" && !privateGatewayToken(path, info.Mode()) {
+		return cfg, errors.New("CODEX_GATEWAY_TOKEN_FILE must be private (chmod 600)")
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, 16385))
+	if err != nil {
+		return cfg, errors.New("cannot read CODEX_GATEWAY_TOKEN_FILE")
+	}
+	cfg.GatewayToken = strings.TrimSpace(string(raw))
+	if len(raw) > 16384 || cfg.GatewayToken == "" || strings.ContainsAny(cfg.GatewayToken, "\r\n") {
+		return cfg, errors.New("CODEX_GATEWAY_TOKEN_FILE must contain one non-empty service token")
+	}
+	return cfg, nil
+}
+
+func systemdCredentialLocation(file, dir string) bool {
+	return filepath.IsAbs(dir) && filepath.Clean(dir) == dir && filepath.Dir(dir) == "/run/credentials" &&
+		filepath.IsAbs(file) && filepath.Clean(file) == file && filepath.Dir(file) == dir
+}
+
+func privateGatewayToken(path string, mode os.FileMode) bool {
+	if mode.Perm()&0077 == 0 {
+		return true
+	}
+	// LoadCredential may expose 0440 files inside a read-only, per-unit
+	// namespace. Keep this exception confined to systemd's canonical directory;
+	// an ordinary group-readable file must still be rejected.
+	if runtime.GOOS != "linux" || mode.Perm() != 0440 || !systemdCredentialLocation(path, os.Getenv("CREDENTIALS_DIRECTORY")) {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	return err == nil && resolved == path
 }

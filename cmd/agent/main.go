@@ -26,9 +26,15 @@ func main() {
 	}
 }
 func run() error {
-	if len(os.Args) < 2 {
-		fmt.Println("remote-agent: enroll | run | status | version | update [--check] | autostart install/remove\nUse <command> --help for options.")
+	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
+		fmt.Println("remote-agent: enroll | run | start | stop | status | version | update [--check] | autostart install/remove | codex install/update/setup | app install/upgrade\nUse <command> --help for options.\nInstall the local CLI independently; start/stop controls the optional remote service.")
 		return nil
+	}
+	if os.Args[1] == "codex" {
+		return runCodex(os.Args[2:])
+	}
+	if os.Args[1] == "app" {
+		return runApp(os.Args[2:])
 	}
 	args := os.Args[2:]
 	action := ""
@@ -48,6 +54,7 @@ func run() error {
 	logPath := flags.String("log", "", "write operational logs to this file")
 	check := flags.Bool("check", false, "check the published build without downloading or restarting (update only)")
 	installer := flags.Bool("installer", false, "upgrade the standard installation using this downloaded installer binary (update only)")
+	preserveStart := flags.Bool("preserve-start", false, "do not enable a stopped service during installer updates")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -68,7 +75,7 @@ func run() error {
 	case "update":
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
-		return agent.Update(ctx, path, agent.UpdateOptions{CheckOnly: *check, Installer: *installer, Server: *server}, os.Stdout)
+		return agent.Update(ctx, path, agent.UpdateOptions{CheckOnly: *check, Installer: *installer, PreserveStart: *preserveStart, Server: *server}, os.Stdout)
 	case "enroll":
 		if !*stdin {
 			return errors.New("supply --token-stdin to read the one-time token from stdin")
@@ -134,6 +141,10 @@ func run() error {
 		return json.NewEncoder(os.Stdout).Encode(map[string]any{"id": c.ID, "name": c.Name, "server": c.Server, "allowedRoots": c.AllowedRoots, "allowWrite": c.AllowWrite, "services": c.Services, "providers": agent.Detect()})
 	case "autostart":
 		return agent.Autostart(action, path)
+	case "start":
+		return agent.Autostart("install", path)
+	case "stop":
+		return agent.Autostart("remove", path)
 	default:
 		return errors.New("unknown command; use enroll, run, status, version, update, or autostart")
 	}

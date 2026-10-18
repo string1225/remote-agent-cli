@@ -52,6 +52,7 @@ function node(tag, text, className) {
   return el;
 }
 function signedOut() {
+  window.platformSignedOut?.();
   disconnect();
   if (closeSayso) {
     closeSayso();
@@ -64,6 +65,9 @@ function signedOut() {
   for (const d of document.querySelectorAll("dialog[open]")) d.close();
 }
 async function signedIn() {
+  state.user = await api("/api/me");
+  $("account-name").textContent = state.user.username;
+  window.platformSignedIn?.(state.user);
   $("auth").hidden = true;
   $("app").hidden = false;
   await refresh();
@@ -977,7 +981,7 @@ $("auth-form").onsubmit = async (e) => {
   button.disabled = true;
   try {
     const data = Object.fromEntries(new FormData(e.target));
-    await api(state.register ? "/api/register" : "/api/login", "POST", data);
+    await api("/api/login", "POST", data);
     $("account-name").textContent = data.username;
     e.target.elements.password.value = "";
     await signedIn();
@@ -986,20 +990,6 @@ $("auth-form").onsubmit = async (e) => {
   } finally {
     button.disabled = false;
   }
-};
-$("auth-toggle").onclick = () => {
-  state.register = !state.register;
-  $("auth-title").textContent = state.register ? "创建你的工作台" : "欢迎回来";
-  $("auth-subtitle").textContent = state.register
-    ? "一个账号，连接你所有的工作设备。"
-    : "登录账号，连接你的工作设备。";
-  $("auth-submit").textContent = state.register ? "创建账号 ↗" : "登录工作台 ↗";
-  $("auth-toggle").textContent = state.register
-    ? "已有账号？去登录"
-    : "还没有账号？创建账号";
-  $("auth-form").elements.password.autocomplete = state.register
-    ? "new-password"
-    : "current-password";
 };
 $("logout").onclick = async () => {
   disconnect();
@@ -1148,9 +1138,6 @@ window.addEventListener("beforeunload", () => {
 setInterval(refresh, 10000);
 (async () => {
   try {
-    const config = await api("/api/config");
-    $("auth-toggle").hidden = !config.allowSignup;
-    await api("/api/me");
     await signedIn();
   } catch (e) {
     if (e.message !== "please sign in") notice(e.message);

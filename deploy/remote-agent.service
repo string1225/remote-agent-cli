@@ -9,6 +9,8 @@ DynamicUser=yes
 WorkingDirectory=/opt/remote-agent/current
 ExecStart=/opt/remote-agent/current/remote-server
 EnvironmentFile=/etc/remote-agent/server.env
+# Omit when the model gateway is disabled. Source file must be root:root 0600.
+LoadCredential=codex-gateway.token:/etc/remote-agent/codex-gateway.token
 StateDirectory=remote-agent
 StateDirectoryMode=0700
 UMask=0077

@@ -6,10 +6,14 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
-      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
       STUN_URLS: ${STUN_URLS-stun:stun.l.google.com:19302}
       TURN_URLS: ${TURN_URLS:-}
       TURN_SECRET: ${TURN_SECRET:-}
+      # Configure a reachable gateway and mount its private token before enabling.
+      # Host loopback services are not reachable through container loopback.
+      CODEX_GATEWAY_URL: ${CODEX_GATEWAY_URL:-}
+      CODEX_GATEWAY_TOKEN_FILE: ${CODEX_GATEWAY_TOKEN_FILE:-}
+      CODEX_MODEL: ${CODEX_MODEL:-gpt-6.1-sol}
     volumes:
       - agent-data:/data
 volumes:

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +28,14 @@ func Detect() map[string]Provider {
 	for _, name := range []string{"codex", "qoder"} {
 		p := Provider{Name: name}
 		candidates := []string{name}
+		if name == "codex" {
+			home, _ := os.UserHomeDir()
+			executable := "codex"
+			if runtime.GOOS == "windows" {
+				executable += ".exe"
+			}
+			candidates = []string{filepath.Join(home, ".remote-agent", "bin", executable), name}
+		}
 		if name == "qoder" {
 			candidates = []string{"qodercli", "qoder"}
 		}

@@ -167,15 +167,22 @@ func replaceUpdate(exe, candidate string, service serviceUpdate) error {
 // Update obtains the published binary only from the enrolled control server.
 // It never reenrolls or writes configuration, history, or SaySo data.
 type UpdateOptions struct {
-	CheckOnly bool
-	Installer bool   // Use this downloaded helper to upgrade the standard installation.
-	Server    string // Optional check that the installer belongs to the bound server.
+	CheckOnly     bool
+	Installer     bool   // Use this downloaded helper to upgrade the standard installation.
+	PreserveStart bool   // Updating the local CLI must not enable a stopped remote service.
+	Server        string // Optional check that the installer belongs to the bound server.
 }
 
 func Update(ctx context.Context, configPath string, options UpdateOptions, output io.Writer) error {
 	c, err := Load(configPath)
 	if err != nil {
-		return err
+		if !os.IsNotExist(err) || options.Server == "" {
+			return err
+		}
+		if err := ValidateServer(options.Server); err != nil {
+			return err
+		}
+		c = Config{Server: strings.TrimSuffix(options.Server, "/")}
 	}
 	if options.Server != "" && strings.TrimSuffix(options.Server, "/") != strings.TrimSuffix(c.Server, "/") {
 		return errors.New("this device is bound to a different server; use its original installer or remote-agent update")
@@ -222,7 +229,7 @@ func Update(ctx context.Context, configPath string, options UpdateOptions, outpu
 		return err
 	}
 	if actual == expected {
-		if options.Installer && !options.CheckOnly {
+		if options.Installer && !options.CheckOnly && !options.PreserveStart {
 			service, err := prepareServiceUpdate(exe, configPath, true)
 			if err != nil {
 				return err
@@ -267,7 +274,7 @@ func Update(ctx context.Context, configPath string, options UpdateOptions, outpu
 	if err != nil || !strings.HasPrefix(string(version), "remote-agent ") || len(version) > 256 {
 		return errors.New("downloaded binary failed its version check; installed binary is unchanged")
 	}
-	service, err := prepareServiceUpdate(exe, configPath, options.Installer)
+	service, err := prepareServiceUpdate(exe, configPath, options.Installer && !options.PreserveStart)
 	if err != nil {
 		return err
 	}

@@ -3,8 +3,63 @@ package agent
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestWindowsStopRemovesOnlyOwnedAgentTree(t *testing.T) {
+	exe, config := filepath.Join(t.TempDir(), "agent's test.exe"), filepath.Join(t.TempDir(), "中文 config.json")
+	shell, args := windowsTaskAction(exe, config)
+	for _, scenario := range []string{"owned", "missing", "unrelated", "reused"} {
+		t.Run(scenario, func(t *testing.T) {
+			script := "$ErrorActionPreference='Stop'; $global:disabled=0; $global:stopped=0; $global:removed=0; $global:killed=@(); " +
+				"$global:fixture=[pscustomobject]@{Actions=@([pscustomobject]@{Execute=" + quotePowerShell(shell) + "; Arguments=" + quotePowerShell(args) + "})}; " +
+				"$global:processes=@([pscustomobject]@{ProcessId=100;ParentProcessId=1;ExecutablePath=" + quotePowerShell(shell) + ";CommandLine=" + quotePowerShell(args) + ";CreationDate='launcher'}, " +
+				"[pscustomobject]@{ProcessId=200;ParentProcessId=100;ExecutablePath=" + quotePowerShell(exe) + ";CommandLine='agent run --config fixture';CreationDate='owned'}, " +
+				"[pscustomobject]@{ProcessId=201;ParentProcessId=1;ExecutablePath=" + quotePowerShell(exe) + ";CommandLine='agent run --config fixture';CreationDate='foreground'}, " +
+				"[pscustomobject]@{ProcessId=300;ParentProcessId=200;ExecutablePath='codex.exe';CommandLine='codex exec';CreationDate='child'}); " +
+				"$scenario=" + quotePowerShell(scenario) + "; if ($scenario -eq 'missing') {$global:fixture=$null}; if ($scenario -eq 'unrelated') {$global:fixture.Actions[0].Arguments='another configuration'}; " +
+				"function Get-ScheduledTask { param($TaskPath,$TaskName,$ErrorAction); $global:fixture }; " +
+				"function Disable-ScheduledTask { param($TaskPath,$TaskName); $global:disabled++ }; " +
+				"function Stop-ScheduledTask { param($TaskPath,$TaskName,$ErrorAction); $global:stopped++; $global:processes=@($global:processes | Where-Object ProcessId -ne 100); if ($scenario -eq 'reused') {$global:processes[0]=[pscustomobject]@{ProcessId=200;ParentProcessId=1;ExecutablePath=" + quotePowerShell(exe) + ";CommandLine='agent run';CreationDate='replacement'}} }; " +
+				"function Unregister-ScheduledTask { param($TaskPath,$TaskName,[switch]$Confirm); $global:removed++; $global:fixture=$null }; " +
+				"function Get-CimInstance { param($ClassName,$Filter); if ($Filter -match '^ProcessId=([0-9]+)$') {$global:processes | Where-Object ProcessId -eq ([int]$matches[1])} else {$global:processes} }; " +
+				"function taskkill.exe { if ($args.Count -ne 4 -or $args[0] -ne '/PID' -or $args[2] -ne '/T' -or $args[3] -ne '/F') {throw 'unsafe taskkill arguments'}; $target=[int]$args[1]; $global:killed+= $target; $global:processes=@($global:processes | Where-Object {$_.ProcessId -ne $target -and $_.ParentProcessId -ne $target}); $global:LASTEXITCODE=0 }; " +
+				"function Invoke-Remove { " + windowsTaskRemoveScript(exe, config) + " }; $failure=''; try {Invoke-Remove; if ($scenario -eq 'owned') {Invoke-Remove}} catch {$failure=$_.Exception.Message}; " +
+				"[ordered]@{disabled=$global:disabled; stopped=$global:stopped; removed=$global:removed; killed=@($global:killed); remaining=@($global:processes | ForEach-Object ProcessId); failure=$failure} | ConvertTo-Json -Compress"
+			out, err := updatePowerShell(script)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got struct {
+				Disabled, Stopped, Removed int
+				Killed, Remaining          []int
+				Failure                    string
+			}
+			if err := json.Unmarshal([]byte(out), &got); err != nil {
+				t.Fatal(err, out)
+			}
+			switch scenario {
+			case "owned":
+				if got.Disabled != 1 || got.Stopped != 1 || got.Removed != 1 || len(got.Killed) != 1 || got.Killed[0] != 200 || len(got.Remaining) != 1 || got.Remaining[0] != 201 || got.Failure != "" {
+					t.Fatalf("owned tree survived or unrelated foreground process changed: %s", out)
+				}
+			case "missing":
+				if got.Disabled != 0 || got.Stopped != 0 || got.Removed != 0 || len(got.Killed) != 0 || got.Failure != "" {
+					t.Fatalf("missing task removal was not idempotent: %s", out)
+				}
+			case "unrelated":
+				if got.Disabled != 0 || got.Stopped != 0 || got.Removed != 0 || len(got.Killed) != 0 || !strings.Contains(got.Failure, "another") {
+					t.Fatalf("unrelated task was modified: %s", out)
+				}
+			case "reused":
+				if got.Removed != 1 || len(got.Killed) != 0 || len(got.Remaining) != 3 || got.Failure != "" {
+					t.Fatalf("reused process ID was terminated: %s", out)
+				}
+			}
+		})
+	}
+}
 
 func TestWindowsAutostartPolicyAndScopedMigration(t *testing.T) {
 	exe, config := filepath.Join(t.TempDir(), "agent's test.exe"), filepath.Join(t.TempDir(), "中文 config.json")

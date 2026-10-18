@@ -16,6 +16,9 @@ func TestEnrollmentAtomicAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if err := db.CreateUser(User{ID: "alice", Username: "alice"}); err != nil {
+		t.Fatal(err)
+	}
 	a, token, err := db.Enroll("alice", "workstation")
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +68,9 @@ func TestExpiredCredentialsDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if err := db.CreateUser(User{ID: "alice", Username: "alice"}); err != nil {
+		t.Fatal(err)
+	}
 	a, invite, err := db.Enroll("alice", "old invitation")
 	if err != nil {
 		t.Fatal(err)
@@ -97,6 +103,9 @@ func TestSessionsPersistAndLogout(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	db, err := Open(path)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateUser(User{ID: "alice", Username: "alice"}); err != nil {
 		t.Fatal(err)
 	}
 	token, err := db.NewSession("alice")

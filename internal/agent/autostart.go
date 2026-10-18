@@ -67,6 +67,22 @@ func windowsTaskRepairScript(exe, configPath string) string {
 		windowsTaskPolicy() + "Set-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -Trigger @($t,$watchdog) -Settings $s | Out-Null"
 }
 
+func windowsTaskRemoveScript(exe, configPath string) string {
+	shell, args := windowsTaskAction(exe, configPath)
+	// Scheduler can stop only its PowerShell launcher and leave the Agent child
+	// alive. Capture ownership before stopping, then recheck process identity so
+	// a foreground Agent or a reused PID cannot be terminated by this command.
+	return "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; " +
+		"$task=Get-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -ErrorAction SilentlyContinue; if (!$task) { return }; " +
+		"if (@($task.Actions).Count -ne 1 -or $task.Actions[0].Execute -ne " + quotePowerShell(shell) + " -or $task.Actions[0].Arguments -ne " + quotePowerShell(args) + ") { throw 'Autostart belongs to another Agent configuration; it was not changed.' }; " +
+		"Disable-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' | Out-Null; " +
+		"$ownedAgents=@(); $agents=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq " + quotePowerShell(exe) + ` -and $_.CommandLine -match '\srun(\s|$)' }); ` +
+		"foreach ($agentProcess in $agents) { $launcher=Get-CimInstance Win32_Process -Filter ('ProcessId=' + $agentProcess.ParentProcessId); if ($launcher -and $launcher.ExecutablePath -eq " + quotePowerShell(shell) + " -and $launcher.CommandLine.Contains(" + quotePowerShell(strings.TrimPrefix(args, "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ")) + ")) { $ownedAgents += $agentProcess } }; " +
+		"Stop-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent'; " +
+		"foreach ($ownedAgent in $ownedAgents) { $remaining=Get-CimInstance Win32_Process -Filter ('ProcessId=' + $ownedAgent.ProcessId); if ($remaining -and $remaining.ExecutablePath -eq " + quotePowerShell(exe) + " -and $remaining.CreationDate -eq $ownedAgent.CreationDate) { & taskkill.exe /PID $remaining.ProcessId /T /F | Out-Null; if ($LASTEXITCODE -ne 0) { $remaining=Get-CimInstance Win32_Process -Filter ('ProcessId=' + $ownedAgent.ProcessId); if ($remaining -and $remaining.CreationDate -eq $ownedAgent.CreationDate) { throw 'Could not stop the owned Agent process tree.' } } } }; " +
+		"Unregister-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -Confirm:$false"
+}
+
 // RepairAutostart migrates only this installation's existing, enabled Windows task.
 // Running a new CLI after an update upgrades the old recovery policy automatically.
 func RepairAutostart(configPath string) error {
@@ -116,7 +132,7 @@ func Autostart(action, configPath string) error {
 	case "windows":
 		shell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 		if action == "remove" {
-			return runSetup(shell, "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; Stop-ScheduledTask -TaskName 'RemoteAgent' -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName 'RemoteAgent' -Confirm:$false")
+			return runSetup(shell, "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShell(windowsTaskRemoveScript(exe, configPath)))
 		}
 		// Keep the action stable so existing installers/updaters still recognize it.
 		_, args := windowsTaskAction(exe, configPath)

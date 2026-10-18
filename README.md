@@ -1,14 +1,18 @@
 # Remote Agent
 
-把 Windows / macOS / Linux 电脑上的 Codex、Qoder CLI 接到一个私人网页工作台。
+把 Windows / macOS / Linux 电脑上的 Codex、Qoder CLI 接到一个私人网页工作台，并为 Codex App / CLI 提供账号管理、个人模型 Token 和本机配置工具。生产入口为 [codex.sunny-string.cn/agents](https://codex.sunny-string.cn/agents/)。
 
-**服务器负责账号、设备目录、保活和 WebRTC 信令；任务请求和输出通过浏览器 ↔ Agent 的加密 DataChannel 传输。** ICE 优先尝试直连，无法穿透时可使用自建 TURN 中继。中继仍然转发端到端加密的数据，但会占用 TURN 服务器带宽。
+**远程任务请求和输出通过浏览器 ↔ Agent 的加密 DataChannel 传输；配置了平台模型服务的 Codex 另外通过 HTTPS 模型入口访问服务器上的受限适配器。** 服务器负责账号、Token、设备目录、保活、信令及可选的模型转发。ICE 优先尝试直连，无法穿透时可使用自建 TURN 中继。中继仍然转发端到端加密的数据，但会占用 TURN 服务器带宽。
 
 这是可运行的单节点 MVP：Go 服务端、Go CLI、内嵌中文网页；无需 Node.js、npm 或数据库服务。
 
 ## 已实现
 
-- 用户名 / 密码注册、bcrypt 密码哈希、30 天 HttpOnly Cookie 登录态、退出登录。
+- 仅管理员创建账号，公开注册始终关闭；bcrypt 密码哈希、30 天 HttpOnly Cookie 登录态、账号停用和最后一名有效管理员保护。
+- 用户确认当前密码后可修改用户名或密码；用户名支持 1–64 个 Unicode 字符，去首尾空白并按 Unicode 大小写折叠保持唯一。修改后退出所有浏览器登录，账号 ID、设备归属和会话数据保持不变。
+- 用户自行创建、查看和撤销个人模型 Token；管理员可管理所有账号和 Token。Token 只在创建时显示一次，服务器仅保存 SHA-256 验证值。
+- 可选的 `/agents/codex/v1` 模型入口接入现有网关，支持 Responses / Compact / 模型目录、SSE 和账号停用取消；保留既有 `/openai/` 接口、旧 Token 及 OAuth 状态。
+- 持久本地 CLI 可独立安装，无需绑定设备或启用远程服务；支持官方 Codex CLI 安装/更新、App 安装/升级、本机 TOML 配置，以及可选的 `start` / `stop`。
 - 创建设备并生成 Windows PowerShell / macOS Shell / Linux Bash 安装命令；一次性令牌 15 分钟过期，事务保证只能绑定一次。
 - 下载独立 CLI、SHA-256 校验、设备凭证落盘、跨平台自启动。
 - `remote-agent update` 从绑定服务器更新当前平台的 CLI，保留绑定和会话记录；支持检查更新、版本查看、程序备份及失败回滚。
@@ -25,22 +29,55 @@
 
 需要 **Go 1.26.0 或更高版本**。从仓库根目录运行：
 
-```sh
+```bash
 go mod download
 go run ./tools/build
+read -r -s -p 'Administrator password: ' ADMIN_PASSWORD
+printf '\n'
+printf '%s' "$ADMIN_PASSWORD" | go run ./cmd/server admin create --username admin --password-stdin
+unset ADMIN_PASSWORD
 go run ./cmd/server
 ```
 
-打开 [http://localhost:8080](http://localhost:8080)。第一条构建命令会生成六个平台的 Agent 和校验文件到 `dist/`；服务器将从该目录提供安装包。首次交叉编译需要一些时间。
+打开 [http://localhost:8080](http://localhost:8080)。`go run ./tools/build` 会生成六个平台的 Agent 和校验文件到 `dist/`；服务器将从该目录提供安装包。首次交叉编译需要一些时间。
 
-1. 注册账号并登录。
+1. 使用刚创建的管理员账号登录；其他账号由管理员在网页的「管理员」中创建。
 2. 点击「添加设备」，输入名称。
 3. 在目标电脑执行生成的安装命令。
 4. 等待设备上线，点击「连接设备」。
 5. 可选：点击「注册服务」，选择已安装的 Codex / Qoder CLI，填写目标电脑上的项目绝对路径。
 6. 左侧选择 Agent 下的项目文件夹，中间新建或选择会话，右侧输入请求；实时输出通过数据通道返回。手机左上角切换设备 / 项目，右上角切换会话。
 
-Agent 可以独立安装、上线和连接，Codex 和 Qoder 均不是必需依赖；两者都未安装时仍可管理设备。只有执行对应的 AI 任务才需要安装并注册该服务。
+本机仅使用 Codex App / CLI 时，可从「本机配置」安装持久 CLI、创建个人 Token 并复制配置命令，无需添加设备。需要远程操作时再绑定设备并运行 `remote-agent start`。模型网关未启用时，设备安装仍可使用；安装器会跳过自动 Codex 配置，Codex 和 Qoder 仍是可选服务。
+
+`remote-server admin create --username NAME --password-stdin` 创建管理员，`remote-server admin grant --username NAME` 将已有账号提升为管理员。命令读取 `DATABASE_PATH`，必须在服务停止、数据库无其他进程打开时执行；服务不提供匿名的首个管理员初始化接口。已有库升级后账号默认仍是普通用户，需明确提升管理员。
+
+## 本机 Codex 与持久 CLI
+
+网页「本机配置」提供 Windows、macOS、Linux 的本地 CLI 安装命令，入口为 `/install/cli-windows.ps1`、`cli-macos.sh`、`cli-linux.sh`。这些命令不兑换设备绑定令牌，也不启用远程服务；重复执行会保留已有绑定、项目、权限、历史和服务启停状态。`codex-*` 安装入口会交互读取个人 Token 并完成 Codex 配置。
+
+```sh
+remote-agent --help
+remote-agent codex install --server https://codex.sunny-string.cn/agents
+remote-agent codex update --server https://codex.sunny-string.cn/agents
+remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-stdin
+remote-agent app install
+remote-agent app upgrade
+remote-agent start
+remote-agent stop
+```
+
+`codex setup --token-stdin` 从标准输入读取网页创建的个人模型 Token，先验证入口，再配置本机；无需设备绑定。已绑定设备也可运行 `remote-agent codex setup`，使用本机设备凭证为该设备新签发专属模型 Token，保留已有 Token；安装或配置失败不会使原有连接失效。`codex install/update` 从服务器转发的官方发布包安装托管 CLI，强制校验官方 SHA-256，不依赖 Node.js；`setup` 会保留已检测到的兼容 CLI，并在缺失时安装。Windows App 命令调用 Microsoft Store 的 `winget`，macOS 调用 `brew install/upgrade --cask codex-app`；本工具不支持 Linux Codex App 安装，但支持 Linux Codex CLI。缺少系统包管理器时可使用官方 App 安装器或 App 自带更新入口。
+
+CLI 安装保留官方完整包和辅助资源：Unix 使用 `codex-package-*`，保留 `bin/codex`、资源目录及相对符号链接命令入口；Windows 保留架构主程序，另以硬链接或复制提供 `codex.exe`。更新先发布辅助文件、最后替换主入口，失败时回滚。下载超时为 25 分钟；压缩包最多 256 MiB、单文件最多 512 MiB、解压总量最多 2 GiB、条目最多 10000 个，拒绝包内链接、特殊文件和越界路径。
+
+网页在 Token 首次显示时提供「复制安装并配置命令」。该一条命令内含个人 Token，可能进入终端历史、剪贴板或屏幕录制；不要分享，使用后清理敏感历史，泄露时在网页撤销。更适合日常操作的方式是下载 `codex-*` 安装脚本并在隐藏输入提示中粘贴 Token，或使用不会把秘密写进命令文本的 stdin 管道。不要将个人 Token 写进安装下载 URL。
+
+本机配置默认写入 `~/.codex/config.toml`，尊重 `CODEX_HOME`。工具先保存私有的 `config.toml.backup-*`，解析 TOML 后原子写入，保留既有模型、其他提供方、项目、通知、MCP 等设置及独立的 OAuth 文件。默认选中的 profile 也会切换到 `sunny_agents`，显式选择的其他 profile 保持原样；旧的 `extrahigh` 推理设置转为 `xhigh`。TOML 格式无效或配置被其他进程同时修改时会停止更新。
+
+提供方使用 `wire_api = "responses"`、`requires_openai_auth = false`、`supports_websockets = false`，把个人 Token 放在私有 TOML 的 `http_headers.Authorization` 中。Windows 限制为当前用户/SYSTEM，Unix 使用私有文件权限；备份也包含凭证，应同样保护。这使 Codex App、终端和后台 Agent 使用同一份配置，无需依赖某个终端的临时环境变量。完全退出并重启 App 后新建本地对话；旧对话可能继续沿用原提供方。此模型入口不代替 ChatGPT 登录、云任务或插件服务。
+
+远程设备安装器支持 Windows `-NoStart` / `-SkipCodex`、macOS/Linux `--no-start` / `--skip-codex`：前者完成安装绑定但保持远程服务停止，后者跳过自动 Codex 配置。Shell 管道形式可写为 `curl -fsSL '设备安装URL' | bash -s -- --no-start --skip-codex`；PowerShell 在生成的脚本块调用末尾附加相应开关。`start` 启用自启动并启动已绑定设备；`stop` 停止并移除对应自启动项，保留持久 CLI、本机 Codex 配置、设备绑定和历史。仅安装本地 CLI 的入口无需这些开关。
 
 连接有效期由服务端控制。新版 Agent 使用服务端签发的相对有效期，避免两台机器的时钟偏差导致连接协商失败；服务端仍执行到期和撤销检查。此修复需服务端与 Agent 均更新，旧版本仍应保持系统时间同步。
 
@@ -64,6 +101,10 @@ $env:LISTEN_ADDR = '127.0.0.1:8080'
 
 在前方放置 Caddy / Nginx 终止 TLS，并代理 WebSocket Upgrade。示例见 [deploy/Caddyfile](deploy/Caddyfile)。不要缓存 `/api/`、`/install/` 响应；访问日志应去掉安装 URL 的查询参数，避免记录尚未使用的绑定令牌。
 
+模型入口只代理 `GET /models`、`POST /responses`、`POST /responses/compact`，完整生产路径为 `https://codex.sunny-string.cn/agents/codex/v1`。客户端仅发送自己的 `Authorization: Bearer ra_codex_...`；适配器逐次检查账号和设备状态，再替换为服务器私有的网关服务凭证。Cookie、代理授权和上游账号选择覆盖字段不会转发，凭证查询参数、浏览器 Origin 请求、重定向和其他模型路由会被拒绝。上游必须为明确配置的 HTTP loopback IP 根地址，例如 `http://127.0.0.1:8088`，不能使用公网地址、`localhost` DNS 名或任意客户端代理目标。
+
+模型请求全实例最多同时 **2** 个，超出返回 `429`；请求体最多 **32 MiB**，单次请求最长 **30 分钟**，SSE 到达即刷新。停用账号会取消该账号的活动模型请求，包括未完成上传和阻塞输出，并关闭其设备/浏览器连接；其他账号不受影响。撤销个人 Token 对后续请求生效，撤销设备同时撤销其专属模型 Token。网关错误使用 `{error:{message,type}}`，上游凭证不会出现在错误响应中。
+
 也可使用 Docker：
 
 ```sh
@@ -72,18 +113,45 @@ docker compose up --build -d
 
 默认映射 `127.0.0.1:8080`，数据库保存在 volume 中。生产部署设置 `PUBLIC_URL` 并在宿主机配置 HTTPS 反向代理。镜像构建会同时打包 Windows / macOS / Linux Agent。
 
+Compose 默认不启用模型网关。容器内的 `127.0.0.1` 不指向宿主机；连接宿主机已有的 loopback 网关时，在支持的 Linux 部署上使用经过审查的 host network 配置，并将服务监听地址限制为 loopback、私有 Token 文件只读挂载到正确路径。普通 bridge 网络下不能把 `host.docker.internal` 当作替代，因为适配器只允许字面 loopback IP。不要为所有容器或环境统一打开网关配置；没有同一网络命名空间中的固定 loopback 网关时，保持 `CODEX_GATEWAY_URL` 为空。
+
 | 环境变量 | 默认值 | 用途 |
 | --- | --- | --- |
 | `PUBLIC_URL` | `http://localhost:8080` | 对外地址；除 loopback 外必须 HTTPS，支持 `/agents` 等子路径 |
 | `LISTEN_ADDR` | `127.0.0.1:8080` | HTTP 监听地址 |
 | `DATABASE_PATH` | `data/remote-agent.db` | bbolt 数据库路径 |
 | `DOWNLOADS_DIR` | `dist` | 已构建 Agent 及校验文件目录 |
-| `ALLOW_SIGNUP` | `true` | 创建个人账号后可设为 `false` 关闭新注册 |
+| `ALLOW_SIGNUP` | 不再使用 | 兼容旧部署配置；公开注册始终返回 `403`，设为 `true` 也不会开放 |
+| `CODEX_GATEWAY_URL` | 空 | 可选固定 HTTP loopback 根地址；空值禁用模型转发 |
+| `CODEX_GATEWAY_TOKEN_FILE` | 空 | 启用网关时必填，服务启动时读取的私有服务凭证文件；不要放个人 Token |
+| `CODEX_MODEL` | `gpt-6.1-sol` | 网页和已绑定设备配置返回的默认模型；保留已有本机模型选择 |
 | `STUN_URLS` | `stun:stun.l.google.com:19302` | 逗号分隔；空值禁用，可替换为自己的 STUN |
 | `TURN_URLS` | 空 | 例如 `turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp` |
 | `TURN_SECRET` | 空 | 与 coturn 相同的共享认证密钥；不要提交到 Git |
 
 服务器使用 socket 来源 IP 做认证限流，不信任任意 `X-Forwarded-For`。反向代理部署时，后端会把同一代理视作一个来源；大规模部署前需在可信代理层做更细粒度限流。bbolt 只支持一个写入进程；不要给同一数据库启动多个实例。备份时停止服务器后复制数据库文件。
+
+### 生产升级、管理员和回滚
+
+生产账号 `string` 已在本次 139 升级中明确提升为管理员，原密码保持不变；其他部署同样需要明确授权。升级前先停止 `remote-agent.service` 并确认数据库不再被打开，在私有备份目录保留数据库、旧服务二进制与 `dist/`、环境文件、Nginx 配置和 systemd unit，保留原属主和权限。新版首次打开数据库（包括执行管理员命令）会在一个事务中迁移到稳定用户 ID + Unicode 名称索引；保留原密码哈希、登录记录、设备凭证和归属，不会自动给任何账号加管理员权限。名称归一化冲突会中止迁移，原数据库事务不会被部分提交。
+
+```sh
+sudo systemctl stop remote-agent.service
+# 在此完成停止状态检查和上述备份，再使用已验证的新版本：
+sudo env DATABASE_PATH=/var/lib/remote-agent/remote-agent.db /opt/remote-agent/current/remote-server admin grant --username string
+```
+
+若账号尚不存在，使用 `admin create --username string --password-stdin`，通过私有 stdin 输入密码。离线命令应有原数据库访问权限；不要意外创建服务无法读取的 root-only 新数据库。使用 DynamicUser 时保留 StateDirectory 的既有属主/权限安排。管理员后续在网页创建普通用户、重置密码或停用账号；不能停用或降级最后一名有效管理员。
+
+按 [deploy/server.env.example](deploy/server.env.example) 配置新进程，保持现有网关和 `/openai/personal/v1` 路由、旧 Token、OAuth 状态及其他站点配置。网关服务凭证源文件应为 `root:root 0600`，由 [deploy/remote-agent.service](deploy/remote-agent.service) 的 `LoadCredential` 安全提供给 DynamicUser 进程；`CODEX_GATEWAY_TOKEN_FILE` 指向 `/run/credentials/remote-agent.service/codex-gateway.token`，不要直接指向服务不可读的 root-only 源文件，也不要将秘密放进 env 文件。未启用网关时去掉对应 `LoadCredential`，保留 URL 空值。
+
+服务通常拒绝任何组或其他用户可读的凭证文件。Linux systemd 的运行时 `0440` 文件仅在环境变量声明的规范化、无符号链接的 `CREDENTIALS_DIRECTORY` 内获得例外，目录必须为 `/run/credentials/<unit>`。systemd 负责保护该凭证命名空间；应用校验路径和权限，不检查文件系统挂载。普通组可读文件仍会被拒绝；源文件继续保持 `root:root 0600`。
+
+仅为目标站点和 `/agents` 安装 [deploy/nginx-codex.conf](deploy/nginx-codex.conf) 所需规则，保留 URI 前缀；模型位置单独允许 `32m`、关闭响应与请求缓冲、支持 1800 秒流式请求，普通账号接口保留较小限制。校验证书、`nginx -t`、环境文件和 systemd unit 后再 reload/restart，验收旧接口、新登录、Token、模型流、设备连接和停用取消。2026-10-19 已完成 139 r2 线上部署和账号/模型烟雾验收：保留 4 个账号、4 台设备，通过离线管理会话验证管理员会话和查询，Token 创建、模型目录、实际模型 SSE 的 `PROXY_OK`、撤销后 `401` 及公开注册 `403` 均通过；管理员原密码、既有网关路由、旧 Token 和 OAuth 状态保持不变，旧 `/openai/docs` 返回 `200`、匿名旧模型目录返回 `401`。本地浏览器登录和密码修改已实际测试。
+
+r2 已完成 25 分钟下载超时及官方完整包布局修复。官方 Windows Codex 0.163 的完整 167080091 字节 ZIP 已通过 SHA-256、本地实际安装和原生 `--version`；Linux/macOS 官方包也已在 Windows 宿主上实际提取并逐文件比对 SHA-256。Codex 0.163 原生提供方的鉴权 SSE 测试上游验证和 Chrome 账号/Token/配置/手机流程重跑通过。r2 公网 Windows 下载/安装和 Linux 139 原生完整安装验收仍待完成；线上账号、Token 和实际模型流验收保持通过。
+
+回滚也先停服务，成套恢复旧数据库快照、二进制、环境、Nginx 和 systemd 配置并校验后启动；旧二进制不能直接使用已迁移的新账号索引。回滚到快照会丢失快照之后的账号/Token/设备变更，应在维护窗口执行。网关本身及原有 OAuth 数据不属于此次账号库迁移，不要用新平台备份覆盖它们。
 
 ## NAT 穿透与 TURN
 
@@ -129,7 +197,7 @@ remote-agent autostart install
 remote-agent autostart remove
 ```
 
-以上命令使用完整安装路径，或自行将 `~/.remote-agent/bin` 加入 PATH。安装脚本不会修改 shell 配置。
+本地 CLI / Codex 安装模式会将 `~/.remote-agent/bin` 加入用户 PATH：Windows 更新用户 PATH，macOS 更新 `.profile` / `.zshrc`，Linux 更新 `.profile` / `.bashrc`，同一行不会重复添加。启用自动 Codex 配置的设备安装也会执行此步骤；新终端才会继承持久修改。未刷新 PATH 时可使用上面的完整安装路径。
 
 更新命令从配置中的服务器下载对应系统和 CPU 架构的安装包及 SHA-256 文件，通过校验和版本启动检查后替换程序。`update --check` 只比较校验值，不下载程序、不重启服务；重复更新相同安装包会直接结束。Windows / macOS / Linux 会重启正在运行且与当前程序、配置匹配的 Scheduled Task / LaunchAgent / 安装器创建的 systemd 用户服务；检测到 CLI 子任务时拒绝更新，应先结束任务。自启动未运行时保持原状态；手动启动的 Agent 或自定义服务需自行重启。替换或重启失败时尝试恢复旧程序，成功后旧版本保留为 `remote-agent.exe.previous` / `remote-agent.previous`。设备凭证、权限配置、项目服务、会话和 SaySo 数据均保留。
 
@@ -155,7 +223,7 @@ journalctl --user -u remote-agent.service -n 50 --no-pager
 
 Linux 的 `autostart remove` 只停止并移除该安装对应的用户单元，保留绑定和会话，也不会关闭可能被其他用户服务使用的 linger。
 
-**已经安装的电脑可以重新执行原来的安装命令来升级。** 安装脚本发现配置已存在时，使用刚下载并校验的新版 CLI 更新现有安装，不调用账号绑定接口，也不再次兑换安装令牌，因此原链接的绑定令牌已使用或过期也能升级。设备仍绑定原账号，权限、项目和会话记录保留；不同服务器的安装脚本会拒绝升级。重装会启动或重启与本机安装匹配的自启动项，即使程序已经是最新版本。这个入口也支持没有 `update` 命令的旧版 CLI。成功后可继续使用 `remote-agent update`；已有配置损坏或 CLI 文件丢失时应先修复本机安装。
+**已经安装的电脑可以重新执行原来的安装命令来升级。** 安装脚本发现配置已存在时，使用刚下载并校验的新版 CLI 更新现有安装，不调用账号绑定接口，也不再次兑换安装令牌，因此原链接的绑定令牌已使用或过期也能升级。设备仍绑定原账号，权限、项目和会话记录保留；不同服务器的安装脚本会拒绝升级。普通设备重装会启动或重启匹配的自启动项，即使程序已经是最新版本；指定 `--no-start` / `-NoStart` 会保持服务停止，仅本地 CLI/Codex 模式重装则保留原启停状态。这个入口也支持没有 `update` 命令的旧版 CLI。成功后可继续使用 `remote-agent update`；已有配置损坏或 CLI 文件丢失时应先修复本机安装。
 
 构建发布安装包时可运行 `go run ./tools/build -version <Git提交号>`，尤其是从源码归档构建时，确保 `version` 命令显示发布版本。
 
@@ -171,7 +239,7 @@ printf '%s' 'ONE_TIME_TOKEN' | remote-agent enroll \
 
 - Codex 默认 `exec --json --sandbox read-only`，写入授权后使用 `workspace-write`。非交互审批策略为 `never`，受限操作失败，不自动越权。
 - Qoder 默认 `--print --output-format stream-json --permission-mode plan`，写入授权后使用 `accept_edits`。需要交互批准的操作不在本版本提供网页审批流。
-- 各提供方 CLI 均为可选。使用某个服务时，在目标电脑安装并登录对应 CLI 即可。Agent 复用该用户本地的 CLI 登录态；不把模型 API Key / OAuth 凭证交给服务器。
+- 各提供方 CLI 均为可选。可继续使用本机已有登录；启用平台提供方的 Codex 使用本机私有 TOML 中的个人 Token，经平台适配器访问现有模型网关。Qoder 等其他提供方仍使用其本机凭证；配置工具不读取、上传或删除已有 OAuth 文件。
 - 检测 `codex`、`qodercli` 或 `qoder` 的帮助信息。Qoder 桌面编辑器的同名启动器不会被当成 CLI。可设置本机 `RA_CODEX_PATH` / `RA_QODER_PATH` 为 CLI 路径；自启动需要能继承这些环境变量。
 - 若安装 CLI 后未检测到，重新启动 Agent。macOS LaunchAgent / Linux systemd 用户服务保存安装时的 PATH，可重新执行 `autostart install` 更新。
 - `allowedRoots` 检查规范化的真实目录及符号链接，限制**启动工作目录**；它不是独立 OS 沙箱，不能限制 CLI/MCP/本地配置的一切文件访问。提供方各自的权限机制仍然生效。不要把不受信任项目当成隔离环境。
@@ -197,7 +265,7 @@ printf '%s' 'ONE_TIME_TOKEN' | remote-agent enroll \
 
 ## 撤销与卸载
 
-网页「撤销设备」立即禁用设备凭证及未使用的绑定令牌，并关闭相关会话。退出登录只关闭当前浏览器登录态所建立的会话。控制连接断开时 Agent 取消该连接下的任务；静默网络故障最多需要约 65 秒被心跳检测。
+网页「撤销设备」立即禁用设备凭证、未使用的绑定令牌和设备专属模型 Token，并关闭相关会话。退出登录只关闭当前浏览器登录态所建立的会话；修改用户名/密码关闭该账号所有浏览器登录，停用账号还关闭设备连接并取消活动模型请求。控制连接断开时 Agent 取消该连接下的任务；静默网络故障最多需要约 65 秒被心跳检测。`remote-agent stop` 仅停止远程服务，不卸载持久 CLI 或取消独立个人 Token。
 
 在目标电脑运行 `remote-agent autostart remove`，再手动删除 `~/.remote-agent`。Windows 请等进程停止再删除可执行文件。CLI 不提供远程任意删除本地文件的接口。
 
@@ -207,17 +275,20 @@ printf '%s' 'ONE_TIME_TOKEN' | remote-agent enroll \
 go test ./...
 go vet ./...
 node --check web/app.js     # 只验证工作台原生 JS 语法
+node --check web/platform.js
 (cd sayso-ui && npm ci && npm run build) # 修改 SaySo 界面时需要（PowerShell 可进入目录后运行）
 go run ./tools/build       # 交叉编译所有支持的平台
 ```
 
-测试覆盖绑定令牌并发兑换、账号隔离、CSRF 来源校验、登录态持久化、工作目录边界、UTF-8 流、stdin 传递，以及真实 Pion ↔ Pion WebRTC 建连 / 数据传输 / 撤销中止任务。集成测试使用模拟 CLI，不调用付费模型或改动真实项目。GitHub Actions 在 Linux / Windows / macOS 上运行测试，另执行 Linux race detector 和交叉编译。
+测试覆盖账号迁移、Unicode 唯一性/搜索、管理员权限与并发保护、密码和登录态失效、Token 归属/配置失败保留/撤销、网关固定凭证替换、SSE/部分上传取消及并发限额、本机 TOML 备份/profile/权限和安装校验，还包含绑定令牌并发兑换、CSRF、工作目录边界、UTF-8/stdin 与真实 Pion ↔ Pion WebRTC 数据传输及撤销中止。集成测试使用模拟 CLI/上游，不调用付费模型或改动真实项目。GitHub Actions 在 Linux / Windows / macOS 上运行测试，另执行 Linux race detector 和交叉编译；本地 CGO 关闭且无 C 编译器时无法运行 race detector。
+
+`20261019-codex-platform-r2` 已通过完整 Go tests/vet、两份 JavaScript 语法检查和六平台构建；官方 Windows 0.163 本地实际安装、Unix 官方完整包提取后的逐文件哈希、新版原生提供方鉴权 SSE 测试上游和 Chrome 流程复验均通过。公网 Windows 完整下载安装和 Linux 139 原生完整安装仍待各自验收结果。
 
 ## 当前范围
 
 - 单实例服务端和本地数据库；尚未实现多节点路由、组织共享、密码找回或 MFA。
 - 每个请求开启一次 CLI 进程，同一会话后续请求使用原生会话 ID 恢复上下文。尚未实现交互终端、文件上传、网页审批或导入此前直接在 CLI 中创建的历史会话。
-- 任务和输出不会落在应用服务器，也没有中央任务历史；关闭连接会取消任务，已收到的会话输出保存在目标电脑。
+- 远程任务和会话历史保存在目标电脑，服务端没有中央任务历史；配置平台提供方时模型请求/响应会经服务器转发，但适配器不写入账号数据库或应用日志。关闭远程连接会取消其任务，已有会话输出保存在目标电脑。
 - 设备元数据、服务名称及项目路径会随心跳保存在服务器。服务端仍是登录、信令和网页代码的信任根，不宣称能抵抗已被攻陷的控制服务器。
 - 每台设备最多 8 个连接 / 1 个任务；每次任务最长 20 分钟，连接最长 30 分钟；单次提示最多 32 KiB，stdout/stderr 各最多 16 MiB，会话历史按页读取；SaySo 使用前述独立数据限额。
 - 已提供跨平台安装和构建，但真正跨公网 NAT / TURN、不同 Windows 策略以及 macOS 自启动仍需在目标部署环境验收。分发二进制尚未做代码签名 / Apple 公证。

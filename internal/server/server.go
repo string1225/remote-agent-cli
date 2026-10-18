@@ -3,7 +3,6 @@ package server
 import (
 	"crypto/hmac"
 	"crypto/sha1"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -13,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,26 +22,31 @@ import (
 )
 
 type Config struct {
-	PublicURL   string
-	Downloads   string
-	STUN        []string
-	TURN        []string
-	TURNSecret  string
-	AllowSignup bool
+	PublicURL    string
+	Downloads    string
+	STUN         []string
+	TURN         []string
+	TURNSecret   string
+	AllowSignup  bool
+	GatewayURL   string
+	GatewayToken string
+	GatewayModel string
 }
 type Server struct {
-	Store    *store.Store
-	Config   Config
-	hub      *hub
-	mu       sync.Mutex
-	attempts map[string]limit
+	Store         *store.Store
+	Config        Config
+	hub           *hub
+	mu            sync.Mutex
+	attempts      map[string]limit
+	gatewayClient *http.Client
+	gatewaySlots  chan struct{}
+	gatewayMu     sync.Mutex
+	gatewayCalls  map[string]map[*inferenceCall]struct{}
 }
 type limit struct {
 	Count int
 	Until time.Time
 }
-
-var usernameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_.@-]{2,63}$`)
 
 func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) {
 	u, err := protocol.ParseServerURL(cfg.PublicURL)
@@ -54,16 +57,34 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 		return nil, nil, errors.New("TURN_SECRET is required for TURN_URLS")
 	}
 	cfg.PublicURL = u.String()
-	s := &Server{Store: db, Config: cfg, hub: newHub(), attempts: map[string]limit{}}
+	if cfg.GatewayModel == "" {
+		cfg.GatewayModel = "gpt-6.1-sol"
+	}
+	if err := validateGateway(cfg); err != nil {
+		return nil, nil, err
+	}
+	s := &Server{Store: db, Config: cfg, hub: newHub(), attempts: map[string]limit{}, gatewayClient: newGatewayClient(), gatewaySlots: make(chan struct{}, 2), gatewayCalls: map[string]map[*inferenceCall]struct{}{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, map[string]bool{"ok": true}) })
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, 200, map[string]bool{"allowSignup": cfg.AllowSignup})
+		reply(w, 200, map[string]bool{"allowSignup": false})
 	})
 	mux.HandleFunc("POST /api/register", s.register)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.HandleFunc("GET /api/me", s.me)
+	mux.HandleFunc("GET /api/account", s.me)
+	mux.HandleFunc("PATCH /api/account", s.changeAccount)
+	mux.HandleFunc("GET /api/admin/users", s.adminUsers)
+	mux.HandleFunc("POST /api/admin/users", s.adminCreateUser)
+	mux.HandleFunc("PATCH /api/admin/users/{id}", s.adminUpdateUser)
+	mux.HandleFunc("GET /api/tokens", s.tokens)
+	mux.HandleFunc("POST /api/tokens", s.createToken)
+	mux.HandleFunc("DELETE /api/tokens/{id}", s.revokeToken)
+	mux.HandleFunc("GET /api/admin/tokens", s.adminTokens)
+	mux.HandleFunc("DELETE /api/admin/tokens/{id}", s.adminRevokeToken)
+	mux.HandleFunc("GET /api/codex", s.codex)
+	mux.HandleFunc("POST /api/agent/codex", s.agentCodex)
 	mux.HandleFunc("GET /api/agents", s.agents)
 	mux.HandleFunc("POST /api/agents", s.enroll)
 	mux.HandleFunc("DELETE /api/agents/{id}", s.revoke)
@@ -71,6 +92,8 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("GET /api/agent/connect", s.agentSocket)
 	mux.HandleFunc("GET /api/agents/{id}/signal", s.browserSocket)
 	mux.HandleFunc("GET /install/{script}", s.installer)
+	mux.HandleFunc("GET /install/codex-release", s.codexRelease)
+	mux.HandleFunc("GET /downloads/codex/{file}", s.codexDownload)
 	mux.HandleFunc("GET /downloads/{file}", s.download)
 	mux.Handle("GET /", http.FileServerFS(web))
 	var handler http.Handler = s.protect(mux)
@@ -129,8 +152,16 @@ func (s *Server) protect(next http.Handler) http.Handler {
 		if strings.HasPrefix(s.Config.PublicURL, "https:") {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
+		if strings.HasPrefix(r.URL.Path, "/codex/v1/") {
+			s.gateway(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/install/") {
 			w.Header().Set("Cache-Control", "no-store")
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/api/register" {
+			s.register(w, r)
+			return
 		}
 		if (r.Method != "GET" && r.Method != "HEAD") && r.Header.Get("Origin") != "" && r.Header.Get("Origin") != s.origin() {
 			fail(w, 403, "origin denied")
@@ -188,50 +219,16 @@ func (s *Server) cookie(w http.ResponseWriter, token string, age int) {
 	http.SetCookie(w, &http.Cookie{Name: "ra_session", Value: token, Path: s.cookiePath(), MaxAge: age, HttpOnly: true, Secure: strings.HasPrefix(s.Config.PublicURL, "https:"), SameSite: http.SameSiteStrictMode})
 }
 func (s *Server) signIn(w http.ResponseWriter, u store.User) {
-	token, err := s.Store.NewSession(u.ID)
+	token, err := s.Store.NewSessionForUser(u)
 	if err != nil {
 		fail(w, 500, "cannot create session")
 		return
 	}
 	s.cookie(w, token, 30*24*3600)
-	reply(w, 200, map[string]string{"id": u.ID, "username": u.Username})
+	reply(w, 200, map[string]any{"id": u.ID, "username": u.Username, "admin": u.Admin})
 }
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
-	if !s.Config.AllowSignup {
-		fail(w, 403, "registration disabled")
-		return
-	}
-	if s.limited(r) {
-		fail(w, 429, "too many attempts; retry in a minute")
-		return
-	}
-	var in struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	in.Username = strings.ToLower(strings.TrimSpace(in.Username))
-	if !usernameRE.MatchString(in.Username) || len(in.Password) < 6 || len(in.Password) > 72 {
-		fail(w, 400, "username: 3–64 letters/numbers/_.@-; password: 6–72 bytes")
-		return
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), 12)
-	if err != nil {
-		fail(w, 500, "cannot hash password")
-		return
-	}
-	u := store.User{ID: store.Token(), Username: in.Username, Password: hash}
-	if err = s.Store.CreateUser(u); err != nil {
-		if errors.Is(err, store.ErrExists) {
-			fail(w, 409, "account already exists")
-		} else {
-			fail(w, 500, "cannot create account")
-		}
-		return
-	}
-	s.signIn(w, u)
+	fail(w, 403, "registration disabled")
 }
 
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing"), 12)
@@ -248,13 +245,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	u, err := s.Store.User(strings.ToLower(strings.TrimSpace(in.Username)))
+	u, err := s.Store.User(in.Username)
 	hash := u.Password
 	if err != nil {
 		hash = dummyHash
 	}
 	check := bcrypt.CompareHashAndPassword(hash, []byte(in.Password))
-	if err != nil || check != nil {
+	if err != nil || check != nil || u.Disabled {
 		fail(w, 401, "incorrect username or password")
 		return
 	}
@@ -275,7 +272,12 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.require(w, r)
 	if ok {
-		reply(w, 200, map[string]any{"id": v.UserID, "expiresAt": v.ExpiresAt})
+		u, err := s.Store.UserByID(v.UserID)
+		if err != nil {
+			fail(w, 401, "please sign in")
+			return
+		}
+		reply(w, 200, map[string]any{"id": u.ID, "username": u.Username, "admin": u.Admin, "expiresAt": v.ExpiresAt})
 	}
 }
 func (s *Server) agents(w http.ResponseWriter, r *http.Request) {
@@ -372,12 +374,7 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 	reply(w, 200, map[string]bool{"ok": true})
 }
 func (s *Server) authenticateAgent(r *http.Request) (store.Agent, error) {
-	a, err := s.Store.Agent(r.URL.Query().Get("id"))
-	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if err != nil || a.Revoked || !a.Enrolled || subtle.ConstantTimeCompare([]byte(a.TokenHash), []byte(store.Hash(token))) != 1 {
-		return a, store.ErrDenied
-	}
-	return a, nil
+	return s.Store.AuthenticateAgent(r.URL.Query().Get("id"), bearer(r))
 }
 func (s *Server) ice(userID string) []protocol.ICE {
 	ice := []protocol.ICE{}
@@ -392,4 +389,8 @@ func (s *Server) ice(userID string) []protocol.ICE {
 	}
 	return ice
 }
-func (s *Server) Close() { s.hub.closeAll() }
+func (s *Server) Close() {
+	s.cancelInference("")
+	s.gatewayClient.CloseIdleConnections()
+	s.hub.closeAll()
+}

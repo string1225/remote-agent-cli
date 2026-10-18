@@ -25,7 +25,7 @@ func (c *socket) close() { _ = c.conn.Close() }
 
 type browser struct {
 	*socket
-	agentID, sessionHash string
+	agentID, sessionHash, userID string
 }
 type hub struct {
 	mu       sync.Mutex
@@ -53,6 +53,15 @@ func (h *hub) closeSession(hash string) {
 	defer h.mu.Unlock()
 	for _, b := range h.browsers {
 		if b.sessionHash == hash {
+			b.close()
+		}
+	}
+}
+func (h *hub) closeUserBrowsers(userID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, b := range h.browsers {
+		if b.userID == userID {
 			b.close()
 		}
 	}
@@ -112,6 +121,10 @@ func (s *Server) agentSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		s.hub.mu.Unlock()
 	}()
+	// Re-check after registration so disable/revoke cannot race the upgrade.
+	if _, err := s.authenticateAgent(r); err != nil {
+		return
+	}
 	for {
 		_ = c.conn.SetReadDeadline(time.Now().Add(65 * time.Second))
 		var msg protocol.Signal
@@ -192,7 +205,7 @@ func (s *Server) browserSocket(w http.ResponseWriter, r *http.Request) {
 		c.close()
 		return
 	}
-	s.hub.browsers[peerID] = &browser{c, a.ID, store.Hash(token)}
+	s.hub.browsers[peerID] = &browser{socket: c, agentID: a.ID, sessionHash: store.Hash(token), userID: v.UserID}
 	s.hub.mu.Unlock()
 	defer func() {
 		c.close()

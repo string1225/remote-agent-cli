@@ -10,6 +10,7 @@
     <title>Remote Agent · 远程工作台</title>
     <link rel="stylesheet" href="./style.css" />
     <script src="./app.js" defer></script>
+    <script src="./platform.js" defer></script>
   </head>
   <body>
     <div id="sayso-root" hidden></div>
@@ -41,9 +42,9 @@
               autocomplete="username"
               placeholder="your.name"
               required
-              minlength="3"
+              minlength="1"
               maxlength="64"
-              pattern="[a-zA-Z0-9][a-zA-Z0-9_.@\-]{2,63}" /></label
+              /></label
           ><label
             >密码<input
               name="password"
@@ -57,9 +58,7 @@
             登录工作台 <span>↗</span>
           </button>
         </form>
-        <button class="text-button" id="auth-toggle">
-          还没有账号？创建账号
-        </button>
+        <p class="small muted">账号由管理员创建；登录后可修改用户名和密码。</p>
         <p class="small muted">登录状态保留 30 天。设备只对所属账号可见。</p>
       </div>
     </section>
@@ -89,6 +88,12 @@
           <p>连接第一台电脑<br /><span>让你的工作空间随时在场。</span></p>
           <button id="empty-add" class="secondary">＋ 添加设备</button>
         </div>
+        <nav class="platform-nav" aria-label="平台服务">
+          <button data-platform="setup">↗ Codex 接入与帮助</button>
+          <button data-platform="tokens">◇ 我的代理 Token</button>
+          <button data-platform="account">⚙ 账号设置</button>
+          <button data-platform="admin" id="admin-entry" hidden>▤ 账号管理</button>
+        </nav>
         <div class="account">
           <div class="avatar">U</div>
           <span id="account-name">我的账号</span
@@ -260,7 +265,7 @@
       <div id="install-result" hidden>
         <p class="muted">
           在目标电脑的终端中运行对应命令。它会安装
-          Agent、绑定账号，并配置自启动。
+          本地 CLI、绑定设备，并按服务器设置安装和配置 Codex。
         </p>
         <p class="expiry">一次性安装凭证 · 15 分钟有效 · 请勿分享</p>
         <label
@@ -291,10 +296,44 @@
         </button>
         <p class="small muted">
           Windows / macOS 安装后保持设备开机并登录系统。Linux 使用 systemd
-          用户服务；启用 linger 后可在退出登录后继续运行并开机启动。无需安装
-          Codex 或 Qoder 即可连接设备，服务可稍后按需添加。
+          用户服务；启用 linger 后可在退出登录后继续运行并开机启动。
+          如只需要本地配置，请使用「Codex 接入与帮助」里的本地 CLI 安装命令。
+          Windows 安装命令末尾加 -NoStart，macOS / Linux 改用 bash -s -- --no-start，可只绑定而不启动远程服务。
         </p>
       </div>
+    </dialog>
+    <dialog id="platform-dialog" class="platform-dialog">
+      <div class="dialog-head"><div><p class="eyebrow">CODEX / YOUR WORKSPACE</p><h2>Codex 服务中心</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
+      <nav class="platform-tabs" aria-label="服务中心"><button data-platform="setup">接入与帮助</button><button data-platform="tokens">我的 Token</button><button data-platform="account">账号设置</button><button data-platform="admin" id="admin-tab" hidden>账号管理</button></nav>
+      <section id="platform-setup" class="platform-panel">
+        <h3>一个本地 CLI，按需启用远程工作</h3>
+        <p class="muted">先安装 remote-agent。它可以单独管理 Codex CLI、桌面 App 和 TOML 配置；需要网页远程执行时，再添加并连接设备。</p>
+        <p id="gateway-state" class="platform-note" role="status"></p>
+        <label>操作系统<select id="setup-platform"><option value="windows">Windows · PowerShell</option><option value="macos">macOS · Terminal</option><option value="linux">Linux · Bash</option></select></label>
+        <label>安装本地 CLI（不启用远程服务）<textarea id="local-cli-command" rows="3" readonly></textarea></label><button class="secondary" id="copy-local-cli">复制安装命令</button>
+        <ol class="setup-steps"><li>运行安装命令，然后打开新终端。</li><li>在「我的 Token」创建代理 Token，复制生成的一键配置命令。</li><li>命令会补装缺少的 Codex CLI，备份并更新 TOML。重启 Codex App，新建本地会话即可使用。</li><li>需要远程任务时，在工作台添加设备、运行绑定命令，再连接设备并添加项目。</li></ol>
+        <h3>本地 CLI 命令</h3>
+        <p class="small muted">安装目录：Windows %USERPROFILE%\.remote-agent\bin；macOS / Linux ~/.remote-agent/bin。脚本将它加入用户 PATH。</p>
+        <div id="cli-help" class="cli-help"></div>
+        <details><summary>配置文件、备份和恢复</summary><p>使用 CODEX_HOME 指定的目录，默认 ~/.codex/config.toml。修改前在同目录创建 config.toml.backup-*，保留模型、项目和其他 provider 设置。凭据只保存在受保护的本机配置内。恢复时先退出 Codex 和远程任务，再用对应备份替换 config.toml。</p></details>
+        <details><summary>Codex App、旧会话和官方账号功能</summary><p>代理承接模型调用。桌面端的账号资料、云端任务和插件仍使用官方服务。更新配置后请完全退出并重新打开 App，先新建本地会话验证；旧会话可能保留原来的 provider。不要用旧连接助手的「更新配置」覆盖这里生成的配置。</p><p>Windows App 安装与升级使用 winget / Microsoft Store；macOS 使用 Homebrew 的 codex-app。若 App 通过其他渠道安装，请使用其内置更新或官方安装器。</p><p><a href="https://openai.com/codex/" target="_blank" rel="noreferrer">官方 Codex 下载 ↗</a> · <a href="/openai/docs" target="_blank" rel="noreferrer">原连接助手与登录指引 ↗</a></p></details>
+        <details><summary>只绑定、不启动；启动和停止远程 Agent</summary><p>本地 CLI 安装入口不创建远程连接。绑定安装器默认启用远程服务；Windows 可在安装命令末尾添加 -NoStart，macOS / Linux 将末尾的 bash 改为 bash -s -- --no-start。以后使用 remote-agent start 启用自启动并连接，remote-agent stop 停止并移除自启动；设备绑定和历史保留。Linux 启动服务需要 systemd 用户会话。</p></details>
+      </section>
+      <section id="platform-tokens" class="platform-panel" hidden>
+        <h3>我的代理 Token</h3><p class="muted">每个 Token 可用于一台或多台自己的设备。明文只在创建时显示，撤销后新的模型请求立即失效。</p>
+        <form id="token-form" class="inline-form"><label>名称<input name="name" required maxlength="80" placeholder="例如：我的笔记本"></label><button class="primary" type="submit">创建 Token</button></form>
+        <div id="token-secret-box" class="token-secret" hidden><strong>请保存；关闭窗口后不再显示</strong><label>Token<input id="token-secret" readonly autocomplete="off"></label><button id="copy-token-secret" class="secondary">复制 Token</button><label>一键安装本地 CLI 并更新 Codex 配置<textarea id="token-config-command" readonly rows="4"></textarea></label><button id="copy-token-command" class="primary">复制一键配置命令</button><p class="small muted">命令包含你的 Token，请只在自己的电脑执行，不要转发。操作系统在「接入与帮助」中选择。</p></div>
+        <div id="token-list" class="platform-list"></div>
+      </section>
+      <section id="platform-account" class="platform-panel" hidden>
+        <h3>账号设置</h3><p class="muted">用户名支持中文，忽略大小写且不能重复。修改后需重新登录，设备与 Token 归属保留。</p>
+        <form id="account-form"><label>用户名<input name="username" required maxlength="64" autocomplete="username"></label><label>当前密码<input name="currentPassword" required type="password" autocomplete="current-password"></label><label>新密码（留空保持原密码）<input name="password" type="password" minlength="6" maxlength="72" autocomplete="new-password"></label><button class="primary" type="submit">保存并重新登录</button></form>
+      </section>
+      <section id="platform-admin" class="platform-panel" hidden>
+        <h3>账号管理</h3><form id="admin-create-form" class="admin-create"><label>用户名<input name="username" required maxlength="64" autocomplete="off"></label><label>初始密码<input name="password" required type="password" minlength="6" maxlength="72" autocomplete="new-password"></label><label class="check-label"><input name="admin" type="checkbox">管理员</label><button class="primary" type="submit">创建账号</button></form>
+        <form id="admin-search-form" class="inline-form"><label>查询账号<input name="search" type="search" placeholder="按用户名查询"></label><button class="secondary" type="submit">查询</button></form><div id="admin-user-list" class="platform-list"></div>
+        <h3>全部代理 Token</h3><div id="admin-token-list" class="platform-list"></div>
+      </section>
     </dialog>
     <dialog id="service-dialog">
       <div class="dialog-head">

@@ -1,8 +1,10 @@
 package store
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -19,9 +21,12 @@ var ErrDenied = errors.New("invalid or expired credentials")
 var ErrExists = errors.New("account already exists")
 
 type User struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Password []byte `json:"password,omitempty"`
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	Password  []byte `json:"password,omitempty"`
+	Admin     bool   `json:"admin"`
+	Disabled  bool   `json:"disabled"`
+	CreatedAt int64  `json:"createdAt,omitempty"`
 }
 type Session struct {
 	UserID    string `json:"userId"`
@@ -62,12 +67,12 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, name := range []string{"users", "sessions", "agents", "enrollments"} {
+		for _, name := range []string{"users", "accounts", "usernames", "sessions", "agents", "enrollments", "codex_tokens", "codex_verifiers", "meta"} {
 			if _, e := tx.CreateBucketIfNotExists([]byte(name)); e != nil {
 				return e
 			}
 		}
-		return nil
+		return migrateAccounts(tx)
 	})
 	if err != nil {
 		db.Close()
@@ -91,26 +96,68 @@ func get(tx *bolt.Tx, bucket, key string, v any) error {
 	return json.Unmarshal(b, v)
 }
 func (s *Store) CreateUser(u User) error {
+	name, key, err := NormalizeUsername(u.Username)
+	if err != nil {
+		return err
+	}
+	u.Username = name
+	if u.ID == "" {
+		u.ID = Token()
+	}
+	if u.CreatedAt == 0 {
+		u.CreatedAt = time.Now().Unix()
+	}
 	return s.db.Update(func(tx *bolt.Tx) error {
-		if tx.Bucket([]byte("users")).Get([]byte(u.Username)) != nil {
+		if tx.Bucket([]byte("usernames")).Get([]byte(key)) != nil || tx.Bucket([]byte("accounts")).Get([]byte(u.ID)) != nil {
 			return ErrExists
 		}
-		return put(tx, "users", u.Username, u)
+		if err := put(tx, "accounts", u.ID, u); err != nil {
+			return err
+		}
+		return tx.Bucket([]byte("usernames")).Put([]byte(key), []byte(u.ID))
 	})
 }
 func (s *Store) User(name string) (u User, err error) {
-	err = s.db.View(func(tx *bolt.Tx) error { return get(tx, "users", name, &u) })
+	_, key, e := NormalizeUsername(name)
+	if e != nil {
+		return u, ErrDenied
+	}
+	err = s.db.View(func(tx *bolt.Tx) error {
+		id := tx.Bucket([]byte("usernames")).Get([]byte(key))
+		if id == nil {
+			return ErrDenied
+		}
+		return get(tx, "accounts", string(id), &u)
+	})
 	return
 }
 func (s *Store) NewSession(userID string) (string, error) {
+	return s.newSession(userID, nil)
+}
+func (s *Store) NewSessionForUser(u User) (string, error) {
+	return s.newSession(u.ID, u.Password)
+}
+func (s *Store) newSession(userID string, expectedPassword []byte) (string, error) {
 	token := Token()
 	err := s.db.Update(func(tx *bolt.Tx) error {
+		var u User
+		if get(tx, "accounts", userID, &u) != nil || u.Disabled || (expectedPassword != nil && !bytes.Equal(expectedPassword, u.Password)) {
+			return ErrDenied
+		}
 		return put(tx, "sessions", Hash(token), Session{userID, time.Now().Add(30 * 24 * time.Hour).Unix()})
 	})
 	return token, err
 }
 func (s *Store) Session(token string) (v Session, err error) {
-	err = s.db.View(func(tx *bolt.Tx) error { return get(tx, "sessions", Hash(token), &v) })
+	err = s.db.View(func(tx *bolt.Tx) error {
+		if err := get(tx, "sessions", Hash(token), &v); err != nil {
+			return err
+		}
+		if !activeUser(tx, v.UserID) {
+			return ErrDenied
+		}
+		return nil
+	})
 	if v.ExpiresAt <= time.Now().Unix() {
 		err = ErrDenied
 	}
@@ -123,6 +170,9 @@ func (s *Store) Enroll(userID, name string) (a Agent, token string, err error) {
 	a = Agent{ID: Token(), UserID: userID, Name: name, Services: []protocol.Service{}}
 	token = Token()
 	err = s.db.Update(func(tx *bolt.Tx) error {
+		if !activeUser(tx, userID) {
+			return ErrDenied
+		}
 		if e := put(tx, "agents", a.ID, a); e != nil {
 			return e
 		}
@@ -143,6 +193,9 @@ func (s *Store) Redeem(token, osName, arch string) (a Agent, credential string, 
 		if err := get(tx, "agents", e.AgentID, &a); err != nil || a.Revoked || a.Enrolled {
 			return ErrDenied
 		}
+		if !activeUser(tx, a.UserID) {
+			return ErrDenied
+		}
 		a.Enrolled = true
 		a.OS = osName
 		a.Arch = arch
@@ -156,6 +209,15 @@ func (s *Store) Redeem(token, osName, arch string) (a Agent, credential string, 
 }
 func (s *Store) Agent(id string) (a Agent, err error) {
 	err = s.db.View(func(tx *bolt.Tx) error { return get(tx, "agents", id, &a) })
+	return
+}
+func (s *Store) AuthenticateAgent(id, credential string) (a Agent, err error) {
+	err = s.db.View(func(tx *bolt.Tx) error {
+		if credential == "" || get(tx, "agents", id, &a) != nil || a.Revoked || !a.Enrolled || !activeUser(tx, a.UserID) || subtle.ConstantTimeCompare([]byte(a.TokenHash), []byte(Hash(credential))) != 1 {
+			return ErrDenied
+		}
+		return nil
+	})
 	return
 }
 func (s *Store) Agents(userID string) (list []Agent, err error) {
@@ -178,7 +240,7 @@ func (s *Store) Agents(userID string) (list []Agent, err error) {
 func (s *Store) Heartbeat(id string, msg protocol.Signal) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		var a Agent
-		if err := get(tx, "agents", id, &a); err != nil || a.Revoked {
+		if err := get(tx, "agents", id, &a); err != nil || a.Revoked || !activeUser(tx, a.UserID) {
 			return ErrDenied
 		}
 		a.LastSeen = time.Now().Unix()
@@ -194,7 +256,10 @@ func (s *Store) Revoke(userID, id string) error {
 		}
 		a.Revoked = true
 		a.TokenHash = ""
-		return put(tx, "agents", id, a)
+		if err := put(tx, "agents", id, a); err != nil {
+			return err
+		}
+		return revokeAgentTokens(tx, id)
 	})
 }
 

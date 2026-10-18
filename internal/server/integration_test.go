@@ -22,6 +22,7 @@ import (
 	"github.com/string1225/remote-agent-cli/internal/server"
 	"github.com/string1225/remote-agent-cli/internal/store"
 	"github.com/string1225/remote-agent-cli/web"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type fixture struct {
@@ -83,7 +84,14 @@ func (f *fixture) user(name string) *http.Client {
 	f.t.Helper()
 	jar, _ := cookiejar.New(nil)
 	c := &http.Client{Jar: jar, Timeout: 10 * time.Second}
-	f.request(c, "POST", "/api/register", map[string]string{"username": name, "password": "a-long-test-password"}, 200)
+	hash, err := bcrypt.GenerateFromPassword([]byte("a-long-test-password"), bcrypt.MinCost)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if err := f.db.CreateUser(store.User{ID: store.Token(), Username: name, Password: hash}); err != nil {
+		f.t.Fatal(err)
+	}
+	f.request(c, "POST", "/api/login", map[string]string{"username": name, "password": "a-long-test-password"}, 200)
 	return c
 }
 func (f *fixture) enroll(c *http.Client) (store.Agent, string) {
