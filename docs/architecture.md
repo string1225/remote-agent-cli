@@ -87,7 +87,7 @@ sequenceDiagram
 
 ## 持久本机工具与 Codex 配置
 
-`remote-agent` 本地 CLI 可独立于设备绑定存在。`cli-windows.ps1` / `cli-macos.sh` / `cli-linux.sh` 安装该工具且不启用远程服务，已有绑定和服务启停状态保留。`codex-*` 模式隐藏读取个人模型 Token 后调用 `codex setup --server URL --token-stdin`；设备安装模式用一次性令牌 enroll，再按服务端是否启用网关决定自动配置 Codex。Windows `-NoStart/-SkipCodex`、Unix `--no-start/--skip-codex` 分别控制远程服务和自动配置。
+`remote-agent` 本地 CLI 可独立于设备绑定存在。网页侧栏「Codex 接入与帮助」提供本机安装和配置说明，「账号管理」提供管理员账号操作。`cli-windows.ps1` / `cli-macos.sh` / `cli-linux.sh` 安装该工具且不启用远程服务，已有绑定和服务启停状态保留。`codex-*` 模式隐藏读取个人模型 Token 后调用 `codex setup --server URL --token-stdin`；设备安装模式用一次性令牌 enroll，再按服务端是否启用网关决定自动配置 Codex。Windows `-NoStart/-SkipCodex`、Unix `--no-start/--skip-codex` 分别控制远程服务和自动配置。
 
 `codex install/update --server URL` 通过平台官方发布转发下载和强制 SHA-256 校验官方 CLI，托管在 `~/.remote-agent/bin`。`setup` 保留已检测到的兼容安装，缺失时补装。App 安装/升级独立调用 Windows Microsoft Store `winget` 或 macOS Homebrew cask `codex-app`；Linux 只支持此处的 CLI 流程。`start` 等同启用匹配的自启动并启动已绑定设备，`stop` 移除对应自启动并停止进程，保留工具、绑定、配置和历史。
 
@@ -148,7 +148,9 @@ Unix 选择完整 `codex-package-*` 官方包，保留 `bin/codex` 与资源目�
 
 Docker bridge 的 loopback 与宿主机隔离。要使用宿主机已有 loopback 网关，须在支持的 Linux 部署采用 host network 并将应用监听限制为 loopback、只读挂载私有凭证；普通 `host.docker.internal` 不符合本适配器的固定 loopback IP 要求。没有符合条件的网关时保留 URL 空值，不向所有环境统一下发网关配置。139 已于 2026-10-19 完成 r2 线上部署和账号/模型烟雾验收，保留 4 个账号和 4 台设备；使用离线管理会话的管理员会话和查询、Token 创建、模型目录、实际模型 SSE 的 `PROXY_OK`、撤销后 `401` 和公开注册 `403` 均通过。管理员原密码、既有网关路由、旧 Token 和 OAuth 状态保持不变，旧 `/openai/docs` 返回 `200`、匿名旧模型目录返回 `401`。本地浏览器登录和密码修改已实际测试；其他部署和回滚仍需各自验收。
 
-r2 的 Go tests/vet、两份 JS 语法检查与六平台构建 `20261019-codex-platform-r2` 已通过，上线前复核全部六平台包和 Linux 服务端 SHA-256。官方 Windows Codex 0.163 完整 ZIP（167080091 字节）经 SHA-256、实际安装及原生 `--version` 验证通过。Linux 包 43 个文件共 429934293 字节、macOS 包 41 个文件共 365155871 字节，均在 Windows 宿主上通过实际安装提取及逐文件 SHA-256 比对。0.163 原生提供方鉴权 SSE 测试上游、Chrome 管理员创建 Unicode 用户/Token/标准输入配置、本人改名改密后重新登录、普通账号 `403` 和 390px 布局重跑均通过。公网 Windows 完整下载/安装与 Linux 139 原生完整安装仍待完成，已完成的包提取验证不代表目标 Unix 原生执行验收。
+r2 的 Go tests/vet、两份 JS 语法检查与六平台构建 `20261019-codex-platform-r2` 已通过，上线前复核全部六平台包和 Linux 服务端 SHA-256。官方 Windows Codex 0.163 完整 ZIP（167080091 字节）经 SHA-256、实际安装及原生 `--version` 验证通过。Windows 在隔离 USERPROFILE 中进一步通过真实公网元数据与下载入口完成全包安装，主程序 341270320 字节，原生版本为 `codex-cli 0.163.0`，未改动真实 Codex 配置。Linux 包 43 个文件共 429934293 字节、macOS 包 41 个文件共 365155871 字节，均在 Windows 宿主上通过实际安装提取及逐文件 SHA-256 比对。Linux 139 另在隔离 HOME 中经真实公网地址完成原生完整安装，新 SSH 独立执行 `--version` 返回 `codex-cli 0.163.0`，根别名相对指向 `bin/codex`，未残留安装暂存、归档或锁。0.163 原生提供方鉴权 SSE 测试上游、Chrome 管理员创建 Unicode 用户/Token/标准输入配置、本人改名改密后重新登录、普通账号 `403` 和 390px 布局重跑均通过。核心实现 [5b8107f](https://github.com/string1225/remote-agent-cli/commit/5b8107f) 已推送至 `origin/codex/unified-codex-platform`。
+
+macOS 原生运行和 Windows/macOS Codex App 安装、升级、重启生命周期尚未在真实目标硬件上验收；macOS 证据限于官方包提取与逐文件哈希。
 
 - `cmd/server`：HTTP 入口、配置、关停。
 - `internal/server`：鉴权、设备目录、信令 Hub、安装脚本。

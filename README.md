@@ -41,20 +41,20 @@ go run ./cmd/server
 
 打开 [http://localhost:8080](http://localhost:8080)。`go run ./tools/build` 会生成六个平台的 Agent 和校验文件到 `dist/`；服务器将从该目录提供安装包。首次交叉编译需要一些时间。
 
-1. 使用刚创建的管理员账号登录；其他账号由管理员在网页的「管理员」中创建。
+1. 使用刚创建的管理员账号登录；其他账号由管理员在网页的「账号管理」中创建。
 2. 点击「添加设备」，输入名称。
 3. 在目标电脑执行生成的安装命令。
 4. 等待设备上线，点击「连接设备」。
 5. 可选：点击「注册服务」，选择已安装的 Codex / Qoder CLI，填写目标电脑上的项目绝对路径。
 6. 左侧选择 Agent 下的项目文件夹，中间新建或选择会话，右侧输入请求；实时输出通过数据通道返回。手机左上角切换设备 / 项目，右上角切换会话。
 
-本机仅使用 Codex App / CLI 时，可从「本机配置」安装持久 CLI、创建个人 Token 并复制配置命令，无需添加设备。需要远程操作时再绑定设备并运行 `remote-agent start`。模型网关未启用时，设备安装仍可使用；安装器会跳过自动 Codex 配置，Codex 和 Qoder 仍是可选服务。
+本机仅使用 Codex App / CLI 时，可从「Codex 接入与帮助」安装持久 CLI、创建个人 Token 并复制配置命令，无需添加设备。需要远程操作时再绑定设备并运行 `remote-agent start`。模型网关未启用时，设备安装仍可使用；安装器会跳过自动 Codex 配置，Codex 和 Qoder 仍是可选服务。
 
 `remote-server admin create --username NAME --password-stdin` 创建管理员，`remote-server admin grant --username NAME` 将已有账号提升为管理员。命令读取 `DATABASE_PATH`，必须在服务停止、数据库无其他进程打开时执行；服务不提供匿名的首个管理员初始化接口。已有库升级后账号默认仍是普通用户，需明确提升管理员。
 
 ## 本机 Codex 与持久 CLI
 
-网页「本机配置」提供 Windows、macOS、Linux 的本地 CLI 安装命令，入口为 `/install/cli-windows.ps1`、`cli-macos.sh`、`cli-linux.sh`。这些命令不兑换设备绑定令牌，也不启用远程服务；重复执行会保留已有绑定、项目、权限、历史和服务启停状态。`codex-*` 安装入口会交互读取个人 Token 并完成 Codex 配置。
+网页「Codex 接入与帮助」提供 Windows、macOS、Linux 的本地 CLI 安装命令，入口为 `/install/cli-windows.ps1`、`cli-macos.sh`、`cli-linux.sh`。这些命令不兑换设备绑定令牌，也不启用远程服务；重复执行会保留已有绑定、项目、权限、历史和服务启停状态。`codex-*` 安装入口会交互读取个人 Token 并完成 Codex 配置。
 
 ```sh
 remote-agent --help
@@ -149,7 +149,7 @@ sudo env DATABASE_PATH=/var/lib/remote-agent/remote-agent.db /opt/remote-agent/c
 
 仅为目标站点和 `/agents` 安装 [deploy/nginx-codex.conf](deploy/nginx-codex.conf) 所需规则，保留 URI 前缀；模型位置单独允许 `32m`、关闭响应与请求缓冲、支持 1800 秒流式请求，普通账号接口保留较小限制。校验证书、`nginx -t`、环境文件和 systemd unit 后再 reload/restart，验收旧接口、新登录、Token、模型流、设备连接和停用取消。2026-10-19 已完成 139 r2 线上部署和账号/模型烟雾验收：保留 4 个账号、4 台设备，通过离线管理会话验证管理员会话和查询，Token 创建、模型目录、实际模型 SSE 的 `PROXY_OK`、撤销后 `401` 及公开注册 `403` 均通过；管理员原密码、既有网关路由、旧 Token 和 OAuth 状态保持不变，旧 `/openai/docs` 返回 `200`、匿名旧模型目录返回 `401`。本地浏览器登录和密码修改已实际测试。
 
-r2 已完成 25 分钟下载超时及官方完整包布局修复。官方 Windows Codex 0.163 的完整 167080091 字节 ZIP 已通过 SHA-256、本地实际安装和原生 `--version`；Linux/macOS 官方包也已在 Windows 宿主上实际提取并逐文件比对 SHA-256。Codex 0.163 原生提供方的鉴权 SSE 测试上游验证和 Chrome 账号/Token/配置/手机流程重跑通过。r2 公网 Windows 下载/安装和 Linux 139 原生完整安装验收仍待完成；线上账号、Token 和实际模型流验收保持通过。
+r2 已完成 25 分钟下载超时及官方完整包布局修复。官方 Windows Codex 0.163 的完整 167080091 字节 ZIP 已通过 SHA-256、本地实际安装和原生 `--version`；Linux/macOS 官方包也已在 Windows 宿主上实际提取并逐文件比对 SHA-256。Codex 0.163 原生提供方的鉴权 SSE 测试上游验证和 Chrome 账号/Token/配置/手机流程重跑通过。Linux 139 已在隔离 HOME 中经真实公网地址完成完整安装，独立复查原生命令返回 `codex-cli 0.163.0`，根命令别名指向 `bin/codex`，未残留安装临时目录、归档或锁。Windows 也已在隔离 USERPROFILE 中通过真实公网元数据与下载入口完成完整 ZIP 校验及全包安装，主程序 341270320 字节，原生 `--version` 返回 `codex-cli 0.163.0`，没有修改真实 Codex 配置。核心实现已以 [5b8107f](https://github.com/string1225/remote-agent-cli/commit/5b8107f) 推送至 `origin/codex/unified-codex-platform`。
 
 回滚也先停服务，成套恢复旧数据库快照、二进制、环境、Nginx 和 systemd 配置并校验后启动；旧二进制不能直接使用已迁移的新账号索引。回滚到快照会丢失快照之后的账号/Token/设备变更，应在维护窗口执行。网关本身及原有 OAuth 数据不属于此次账号库迁移，不要用新平台备份覆盖它们。
 
@@ -282,7 +282,7 @@ go run ./tools/build       # 交叉编译所有支持的平台
 
 测试覆盖账号迁移、Unicode 唯一性/搜索、管理员权限与并发保护、密码和登录态失效、Token 归属/配置失败保留/撤销、网关固定凭证替换、SSE/部分上传取消及并发限额、本机 TOML 备份/profile/权限和安装校验，还包含绑定令牌并发兑换、CSRF、工作目录边界、UTF-8/stdin 与真实 Pion ↔ Pion WebRTC 数据传输及撤销中止。集成测试使用模拟 CLI/上游，不调用付费模型或改动真实项目。GitHub Actions 在 Linux / Windows / macOS 上运行测试，另执行 Linux race detector 和交叉编译；本地 CGO 关闭且无 C 编译器时无法运行 race detector。
 
-`20261019-codex-platform-r2` 已通过完整 Go tests/vet、两份 JavaScript 语法检查和六平台构建；官方 Windows 0.163 本地实际安装、Unix 官方完整包提取后的逐文件哈希、新版原生提供方鉴权 SSE 测试上游和 Chrome 流程复验均通过。公网 Windows 完整下载安装和 Linux 139 原生完整安装仍待各自验收结果。
+`20261019-codex-platform-r2` 已通过完整 Go tests/vet、两份 JavaScript 语法检查和六平台构建；官方 Windows 0.163 本地与公网实际安装、Unix 官方完整包提取后的逐文件哈希、Linux 139 公网原生完整安装、新版原生提供方鉴权 SSE 测试上游和 Chrome 流程复验均通过。
 
 ## 当前范围
 
@@ -292,6 +292,7 @@ go run ./tools/build       # 交叉编译所有支持的平台
 - 设备元数据、服务名称及项目路径会随心跳保存在服务器。服务端仍是登录、信令和网页代码的信任根，不宣称能抵抗已被攻陷的控制服务器。
 - 每台设备最多 8 个连接 / 1 个任务；每次任务最长 20 分钟，连接最长 30 分钟；单次提示最多 32 KiB，stdout/stderr 各最多 16 MiB，会话历史按页读取；SaySo 使用前述独立数据限额。
 - 已提供跨平台安装和构建，但真正跨公网 NAT / TURN、不同 Windows 策略以及 macOS 自启动仍需在目标部署环境验收。分发二进制尚未做代码签名 / Apple 公证。
+- macOS Codex CLI 原生运行，以及 Windows/macOS Codex App 安装、升级和重启生命周期尚未在真实目标硬件上验收；macOS 官方包已完成提取和逐文件哈希校验。
 
 详细协议见 [docs/architecture.md](docs/architecture.md)。
 
