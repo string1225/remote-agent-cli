@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -42,7 +43,14 @@ func TestSubpathMountAndInstallers(t *testing.T) {
 		t.Fatal("session cookie escaped its application path")
 	}
 	_, token := f.enroll(owner)
-	for _, script := range []string{"windows.ps1", "macos.sh"} {
+	commands := f.request(owner, "POST", "/api/agents", map[string]string{"name": "Linux server"}, 201)
+	var linuxCommand struct {
+		Linux string `json:"linux"`
+	}
+	if err := json.Unmarshal(commands, &linuxCommand); err != nil || !strings.HasPrefix(linuxCommand.Linux, "curl -fsSL '"+f.url+"/install/linux.sh?token=") || !strings.HasSuffix(linuxCommand.Linux, "' | bash") {
+		t.Fatalf("missing mounted Linux installation command: %s / %v", commands, err)
+	}
+	for _, script := range []string{"windows.ps1", "macos.sh", "linux.sh"} {
 		res, err := client.Get(f.url + "/install/" + script + "?token=" + token)
 		if err != nil {
 			t.Fatal(err)

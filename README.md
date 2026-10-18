@@ -1,6 +1,6 @@
 # Remote Agent
 
-把 Windows / macOS 电脑上的 Codex、Qoder CLI 接到一个私人网页工作台。
+把 Windows / macOS / Linux 电脑上的 Codex、Qoder CLI 接到一个私人网页工作台。
 
 **服务器负责账号、设备目录、保活和 WebRTC 信令；任务请求和输出通过浏览器 ↔ Agent 的加密 DataChannel 传输。** ICE 优先尝试直连，无法穿透时可使用自建 TURN 中继。中继仍然转发端到端加密的数据，但会占用 TURN 服务器带宽。
 
@@ -9,10 +9,10 @@
 ## 已实现
 
 - 用户名 / 密码注册、bcrypt 密码哈希、30 天 HttpOnly Cookie 登录态、退出登录。
-- 创建设备并生成 Windows PowerShell / macOS Shell 安装命令；一次性令牌 15 分钟过期，事务保证只能绑定一次。
-- 下载独立 CLI、SHA-256 校验、设备凭证落盘、用户登录后自启动。
+- 创建设备并生成 Windows PowerShell / macOS Shell / Linux Bash 安装命令；一次性令牌 15 分钟过期，事务保证只能绑定一次。
+- 下载独立 CLI、SHA-256 校验、设备凭证落盘、跨平台自启动。
 - `remote-agent update` 从绑定服务器更新当前平台的 CLI，保留绑定和会话记录；支持检查更新、版本查看、程序备份及失败回滚。
-- Windows Scheduled Task / macOS LaunchAgent；心跳、掉线重连、在线状态、撤销设备。
+- Windows Scheduled Task / macOS LaunchAgent / Linux systemd 用户服务；心跳、掉线重连、在线状态、撤销设备。
 - 在网页通过直连注册 Codex / Qoder 服务及项目目录；配置保存在目标电脑。
 - 添加项目时可按目录名搜索、输入部分路径自动补全，或逐层浏览；支持键盘和手机触摸，目录候选通过 P2P 从目标电脑读取。
 - WebRTC DTLS/SCTP 加密、Trickle ICE、STUN / TURN、短期 TURN 凭证、会话归属校验。
@@ -104,16 +104,20 @@ docker compose -f deploy/compose.turn.yaml up -d
 安装位置：
 
 - Windows：`%USERPROFILE%\.remote-agent\bin\remote-agent.exe`
-- macOS：`~/.remote-agent/bin/remote-agent`
+- macOS / Linux：`~/.remote-agent/bin/remote-agent`
 - 配置：`~/.remote-agent/config.json`
 - 会话数据库：`~/.remote-agent/history.db`，保存网页创建的会话、请求、回复和原生 CLI 会话 ID；不会上传到控制服务器或写入浏览器持久存储。
 - 日志：`~/.remote-agent/agent.log`（仅运行状态，不记录任务正文；启动时对超过 10 MiB 的旧日志做一次轮换）
 
-自启动指 **用户登录后** 启动，使用当前用户权限。不是登录前的系统级服务。电脑睡眠 / 关机时离线。macOS 在登录图形会话后安装 LaunchAgent；Windows 组策略若禁止创建任务，需要管理员调整策略或手动运行。
+Windows / macOS 自启动指 **用户登录后** 启动，使用当前用户权限。电脑睡眠 / 关机时离线。macOS 在登录图形会话后安装 LaunchAgent；Windows 组策略若禁止创建任务，需要管理员调整策略或手动运行。
+
+Linux 安装命令适用于使用 systemd 的 amd64 / arm64 系统，网页「添加设备」会分别提供 Windows、macOS、Linux 命令。请在目标用户的正常登录会话里运行 Linux 命令，勿在整条安装命令前加 sudo。安装器预先检查 systemd 用户会话，下载并校验 Linux 程序，绑定账号，然后启用 `systemctl --user` 的 `remote-agent.service`；服务异常退出后 5 秒重启，无限重试。单元文件位于 `${XDG_CONFIG_HOME:-~/.config}/systemd/user/remote-agent.service`。
+
+Linux 安装器还会尝试 `loginctl enable-linger`，必要时使用无需密码的 `sudo -n loginctl enable-linger`，使当前用户的服务在退出 SSH 后继续运行并随系统开机启动。如果没有相应权限，会给出需管理员执行的具体命令，已启动的服务仍可在当前登录会话中使用。可通过 `loginctl show-user "$USER" -p Linger` 检查，结果为 `yes` 才具备退出登录和开机恢复能力。
 
 Windows 自启动同时包含登录触发和每分钟的补启动触发：任务仍在运行时忽略重复启动，进程被中断后会再次拉起，错过的触发在系统可用时补执行；不设置最长运行时间，电池供电也能运行。新版 CLI 启动时自动迁移与自身程序、配置匹配的旧任务，不改变被手动禁用的任务。macOS 使用 LaunchAgent `KeepAlive` 自动重启。每份配置有独立的进程锁，防止重复进程互相挤掉连接；进程退出或崩溃时锁由操作系统释放。
 
-设备离线时，先在目标电脑查看 `agent.log` 和自启动状态。网络断开后 Agent 会持续重试；服务器恢复、电脑唤醒或网络恢复后会自动重连。若后台进程已经停止，重新执行原安装命令可升级并恢复自启动，也可执行 `remote-agent update` 后再执行 `remote-agent autostart install`。主动停用请移除或禁用自启动任务。睡眠、关机及退出登录期间仍会离线；RDP 断开但保留登录会话通常不会退出 Agent。
+设备离线时，先在目标电脑查看 `agent.log` 和自启动状态。网络断开后 Agent 会持续重试；服务器恢复、电脑唤醒或网络恢复后会自动重连。若后台进程已经停止，重新执行原安装命令可升级并恢复自启动，也可执行 `remote-agent update` 后再执行 `remote-agent autostart install`。主动停用请移除或禁用自启动任务。睡眠、关机期间仍会离线；Windows / macOS 退出登录时也会离线，Linux 启用 linger 后可继续运行；RDP 断开但保留登录会话通常不会退出 Agent。
 
 ```sh
 remote-agent status
@@ -127,7 +131,7 @@ remote-agent autostart remove
 
 以上命令使用完整安装路径，或自行将 `~/.remote-agent/bin` 加入 PATH。安装脚本不会修改 shell 配置。
 
-更新命令从配置中的服务器下载对应系统和 CPU 架构的安装包及 SHA-256 文件，通过校验和版本启动检查后替换程序。`update --check` 只比较校验值，不下载程序、不重启服务；重复更新相同安装包会直接结束。Windows / macOS 会重启正在运行且与当前程序、配置匹配的 Scheduled Task / LaunchAgent；检测到 CLI 子任务时拒绝更新，应先结束任务。自启动未运行时保持原状态；手动启动的 Agent 或 Linux 自定义服务需自行重启。替换或重启失败时尝试恢复旧程序，成功后旧版本保留为 `remote-agent.exe.previous` / `remote-agent.previous`。设备凭证、权限配置、项目服务、会话和 SaySo 数据均保留。
+更新命令从配置中的服务器下载对应系统和 CPU 架构的安装包及 SHA-256 文件，通过校验和版本启动检查后替换程序。`update --check` 只比较校验值，不下载程序、不重启服务；重复更新相同安装包会直接结束。Windows / macOS / Linux 会重启正在运行且与当前程序、配置匹配的 Scheduled Task / LaunchAgent / 安装器创建的 systemd 用户服务；检测到 CLI 子任务时拒绝更新，应先结束任务。自启动未运行时保持原状态；手动启动的 Agent 或自定义服务需自行重启。替换或重启失败时尝试恢复旧程序，成功后旧版本保留为 `remote-agent.exe.previous` / `remote-agent.previous`。设备凭证、权限配置、项目服务、会话和 SaySo 数据均保留。
 
 Windows PowerShell 可直接使用安装路径：
 
@@ -135,11 +139,21 @@ Windows PowerShell 可直接使用安装路径：
 & "$env:USERPROFILE\.remote-agent\bin\remote-agent.exe" update
 ```
 
-macOS：
+macOS / Linux：
 
 ```sh
 ~/.remote-agent/bin/remote-agent update
 ```
+
+Linux 服务管理与诊断：
+
+```sh
+systemctl --user status remote-agent.service
+systemctl --user restart remote-agent.service
+journalctl --user -u remote-agent.service -n 50 --no-pager
+```
+
+Linux 的 `autostart remove` 只停止并移除该安装对应的用户单元，保留绑定和会话，也不会关闭可能被其他用户服务使用的 linger。
 
 **已经安装的电脑可以重新执行原来的安装命令来升级。** 安装脚本发现配置已存在时，使用刚下载并校验的新版 CLI 更新现有安装，不调用账号绑定接口，也不再次兑换安装令牌，因此原链接的绑定令牌已使用或过期也能升级。设备仍绑定原账号，权限、项目和会话记录保留；不同服务器的安装脚本会拒绝升级。重装会启动或重启与本机安装匹配的自启动项，即使程序已经是最新版本。这个入口也支持没有 `update` 命令的旧版 CLI。成功后可继续使用 `remote-agent update`；已有配置损坏或 CLI 文件丢失时应先修复本机安装。
 
@@ -153,13 +167,13 @@ printf '%s' 'ONE_TIME_TOKEN' | remote-agent enroll \
   --roots /Users/you/projects --allow-write
 ```
 
-`--roots` 多个目录使用操作系统的路径列表分隔符（Windows `;`，macOS `:`）。默认根目录是当前用户的 home。已绑定设备可先停止 Agent，编辑本地配置的 `allowedRoots` / `allowWrite`，再启动；网页无权修改这两个字段。不要把凭证文件上传或分享。Windows 安装器为目录设置用户 / SYSTEM ACL，macOS 使用用户私有目录和 `0600` 配置文件。
+`--roots` 多个目录使用操作系统的路径列表分隔符（Windows `;`，macOS / Linux `:`）。默认根目录是当前用户的 home。已绑定设备可先停止 Agent，编辑本地配置的 `allowedRoots` / `allowWrite`，再启动；网页无权修改这两个字段。不要把凭证文件上传或分享。Windows 安装器为目录设置用户 / SYSTEM ACL，macOS / Linux 使用用户私有目录和 `0600` 配置文件。
 
 - Codex 默认 `exec --json --sandbox read-only`，写入授权后使用 `workspace-write`。非交互审批策略为 `never`，受限操作失败，不自动越权。
 - Qoder 默认 `--print --output-format stream-json --permission-mode plan`，写入授权后使用 `accept_edits`。需要交互批准的操作不在本版本提供网页审批流。
 - 各提供方 CLI 均为可选。使用某个服务时，在目标电脑安装并登录对应 CLI 即可。Agent 复用该用户本地的 CLI 登录态；不把模型 API Key / OAuth 凭证交给服务器。
 - 检测 `codex`、`qodercli` 或 `qoder` 的帮助信息。Qoder 桌面编辑器的同名启动器不会被当成 CLI。可设置本机 `RA_CODEX_PATH` / `RA_QODER_PATH` 为 CLI 路径；自启动需要能继承这些环境变量。
-- 若安装 CLI 后未检测到，重新启动 Agent。macOS LaunchAgent 保存安装时的 PATH，可重新执行 `autostart install` 更新。
+- 若安装 CLI 后未检测到，重新启动 Agent。macOS LaunchAgent / Linux systemd 用户服务保存安装时的 PATH，可重新执行 `autostart install` 更新。
 - `allowedRoots` 检查规范化的真实目录及符号链接，限制**启动工作目录**；它不是独立 OS 沙箱，不能限制 CLI/MCP/本地配置的一切文件访问。提供方各自的权限机制仍然生效。不要把不受信任项目当成隔离环境。
 
 接口依据：[Codex 非交互模式](https://learn.chatgpt.com/docs/non-interactive-mode)、[Qoder 脚本模式](https://docs.qoder.com/cli/run-in-scripts)、[Qoder Plan](https://docs.qoder.com/cli/plan-mode)。

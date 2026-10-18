@@ -146,7 +146,9 @@ func Autostart(action, configPath string) error {
 			return err
 		}
 		return runSetup("launchctl", "bootstrap", domain, path)
+	case "linux":
+		return autostartLinux(action, exe, configPath)
 	default:
-		return errors.New("autostart supports Windows and macOS; on Linux supervise remote-agent run with systemd")
+		return errors.New("autostart supports Windows, macOS, and Linux with systemd")
 	}
 }

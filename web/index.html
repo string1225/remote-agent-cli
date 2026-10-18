@@ -260,7 +260,7 @@
       <div id="install-result" hidden>
         <p class="muted">
           在目标电脑的终端中运行对应命令。它会安装
-          Agent、绑定账号，并启用登录后自启动。
+          Agent、绑定账号，并配置自启动。
         </p>
         <p class="expiry">一次性安装凭证 · 15 分钟有效 · 请勿分享</p>
         <label
@@ -280,9 +280,19 @@
         ><button class="secondary copy" data-copy="install-macos">
           复制 macOS 命令
         </button>
+        <label
+          >Linux · Bash / systemd<textarea
+            id="install-linux"
+            readonly
+            rows="3"
+          ></textarea></label
+        ><button class="secondary copy" data-copy="install-linux">
+          复制 Linux 命令
+        </button>
         <p class="small muted">
-          安装后保持设备开机并登录系统。无需安装 Codex 或 Qoder
-          即可连接设备，服务可稍后按需添加。
+          Windows / macOS 安装后保持设备开机并登录系统。Linux 使用 systemd
+          用户服务；启用 linger 后可在退出登录后继续运行并开机启动。无需安装
+          Codex 或 Qoder 即可连接设备，服务可稍后按需添加。
         </p>
       </div>
     </dialog>

@@ -328,7 +328,12 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := s.Config.PublicURL + "/install/"
-	reply(w, 201, map[string]any{"agent": a, "expiresAt": time.Now().Add(15 * time.Minute).Unix(), "windows": "& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing '" + strings.ReplaceAll(base+"windows.ps1?token="+token, "'", "''") + "').Content))", "macos": "curl -fsSL '" + strings.ReplaceAll(base+"macos.sh?token="+token, "'", "'\"'\"'") + "' | bash"})
+	reply(w, 201, map[string]any{
+		"agent": a, "expiresAt": time.Now().Add(15 * time.Minute).Unix(),
+		"windows": "& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing '" + strings.ReplaceAll(base+"windows.ps1?token="+token, "'", "''") + "').Content))",
+		"macos":   "curl -fsSL '" + strings.ReplaceAll(base+"macos.sh?token="+token, "'", "'\"'\"'") + "' | bash",
+		"linux":   "curl -fsSL '" + strings.ReplaceAll(base+"linux.sh?token="+token, "'", "'\"'\"'") + "' | bash",
+	})
 }
 func (s *Server) redeem(w http.ResponseWriter, r *http.Request) {
 	if s.limited(r) {

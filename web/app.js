@@ -1017,6 +1017,7 @@ function showEnroll() {
   $("install-result").hidden = true;
   $("install-windows").value = "";
   $("install-macos").value = "";
+  $("install-linux").value = "";
   $("enroll-dialog").showModal();
 }
 $("new-agent").onclick = showEnroll;
@@ -1033,6 +1034,7 @@ $("enroll-form").onsubmit = async (e) => {
     );
     $("install-windows").value = result.windows;
     $("install-macos").value = result.macos;
+    $("install-linux").value = result.linux;
     $("enroll-form").hidden = true;
     $("install-result").hidden = false;
     await refresh();
@@ -1047,6 +1049,7 @@ for (const button of document.querySelectorAll(".close-dialog"))
 $("enroll-dialog").addEventListener("close", () => {
   $("install-windows").value = "";
   $("install-macos").value = "";
+  $("install-linux").value = "";
 });
 for (const button of document.querySelectorAll(".copy"))
   button.onclick = async () => {

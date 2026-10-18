@@ -15,7 +15,7 @@ var artifactRE = regexp.MustCompile(`^remote-agent-(windows|darwin|linux)-(amd64
 
 func (s *Server) installer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("script")
-	if name != "windows.ps1" && name != "macos.sh" {
+	if name != "windows.ps1" && name != "macos.sh" && name != "linux.sh" {
 		http.NotFound(w, r)
 		return
 	}
