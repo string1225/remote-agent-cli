@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/gorilla/websocket"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
@@ -252,12 +253,35 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	wait("network reconnection", func() bool { return connections.Load() > before })
 	before = connections.Load()
 	oldPID := servicePID()
-	process, e := os.FindProcess(int(oldPID))
-	if e != nil {
-		t.Fatal(e)
+	// The disposable elevated test actor needs SeDebugPrivilege to open a
+	// LocalService process for termination. os.Process.Kill duplicates its
+	// limited query handle and fails across identities on current Windows.
+	// This privilege is never enabled in the product service.
+	var actorToken windows.Token
+	if err = windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_ADJUST_PRIVILEGES, &actorToken); err != nil {
+		t.Fatal(err)
 	}
-	if e = process.Kill(); e != nil {
-		t.Fatal(e)
+	defer actorToken.Close()
+	var debugLUID windows.LUID
+	debugName, _ := windows.UTF16PtrFromString("SeDebugPrivilege")
+	if err = windows.LookupPrivilegeValue(nil, debugName, &debugLUID); err != nil {
+		t.Fatal(err)
+	}
+	privileges := windows.Tokenprivileges{PrivilegeCount: 1, Privileges: [1]windows.LUIDAndAttributes{{Luid: debugLUID, Attributes: windows.SE_PRIVILEGE_ENABLED}}}
+	var previousPrivileges windows.Tokenprivileges
+	var returnedLength uint32
+	if err = windows.AdjustTokenPrivileges(actorToken, false, &privileges, uint32(unsafe.Sizeof(previousPrivileges)), &previousPrivileges, &returnedLength); err != nil {
+		t.Fatal(err)
+	}
+	defer windows.AdjustTokenPrivileges(actorToken, false, &previousPrivileges, 0, nil, nil)
+	process, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, oldPID)
+	if err != nil {
+		t.Fatal("open isolated service for crash injection", err)
+	}
+	err = windows.TerminateProcess(process, 1)
+	windows.CloseHandle(process)
+	if err != nil {
+		t.Fatal(err)
 	}
 	wait("SCM crash recovery", func() bool { return connections.Load() > before })
 	if servicePID() == oldPID {
