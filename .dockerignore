@@ -2,6 +2,8 @@
 .local
 data
 bin
-dist
+dist/*
+!dist/remote-agent-windows-*.msi
+!dist/remote-agent-windows-*.msi.sha256
 .env
 *.log

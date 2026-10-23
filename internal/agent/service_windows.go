@@ -366,7 +366,7 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) error {
 	// service activation restores its XML and prior enabled/running state.
 	legacyExe := filepath.Join(filepath.Dir(c.Path), "bin", "remote-agent.exe")
 	shell, legacyArgs := windowsTaskAction(legacyExe, c.Path)
-	legacy, err := updatePowerShell("$ErrorActionPreference='Stop'; $task=Get-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -ErrorAction SilentlyContinue; if ($task) { if (@($task.Actions).Count -ne 1 -or $task.Actions[0].Execute -ne " + quotePowerShell(shell) + " -or $task.Actions[0].Arguments -ne " + quotePowerShell(legacyArgs) + ") { throw 'Existing scheduled task belongs to another configuration.' }; [ordered]@{xml=(Export-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent');running=($task.State -eq 'Running')} | ConvertTo-Json -Compress }")
+	legacy, err := updatePowerShell("$ErrorActionPreference='Stop'; $task=Get-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -ErrorAction SilentlyContinue; if ($task) { if (@($task.Actions).Count -ne 1 -or $task.Actions[0].Execute -ne " + quotePowerShell(shell) + " -or $task.Actions[0].Arguments -ne " + quotePowerShell(legacyArgs) + ") { throw 'Existing scheduled task belongs to another configuration.' }; [ordered]@{xml=(Export-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent');running=($task.State -eq 'Running')} | ConvertTo-Json -Compress }; exit 0")
 	if err != nil {
 		return restore(err)
 	}

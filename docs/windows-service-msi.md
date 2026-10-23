@@ -75,6 +75,8 @@ MSI 管理的 EXE 拒绝原地 `update`，避免绕过 Windows Installer 文件�
 
 MSI 版本采用 Windows Installer 三段版本号，发布时递增；程序版本单独使用 Git 提交号。安装包尚未做发布者代码签名。
 
+服务端发布时，把同一提交构建的两个 MSI 及其 SHA-256 文件放到 `DOWNLOADS_DIR`（默认 `dist`），网页 Windows 安装命令才可使用。`go run ./tools/build` 仅构建 EXE/Unix Agent，不生成 MSI；可从 CI 的 `remote-agent-windows-msi` artifact 取得安装包。Docker 构建上下文允许带入这些 MSI 文件，镜像会将它们与 Go 构建的其他分发包一起复制到下载目录；Linux 镜像构建本身不生成 Windows MSI。
+
 普通 `go test ./...` 不安装 MSI、不注册机器服务或计划任务。Windows/macOS 旧更新测试只验证隔离目录中的替换和回滚，系统自启动脚本测试使用模拟接口。真实安装测试必须在一次性管理员 Windows 环境中显式执行：
 
 ```powershell

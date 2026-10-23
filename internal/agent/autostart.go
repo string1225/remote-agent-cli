@@ -73,7 +73,7 @@ func windowsTaskRemoveScript(exe, configPath string) string {
 	// alive. Capture ownership before stopping, then recheck process identity so
 	// a foreground Agent or a reused PID cannot be terminated by this command.
 	return "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; " +
-		"$task=Get-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -ErrorAction SilentlyContinue; if (!$task) { return }; " +
+		"$task=Get-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -ErrorAction SilentlyContinue; if (!$task) { $null; return }; " +
 		"if (@($task.Actions).Count -ne 1 -or $task.Actions[0].Execute -ne " + quotePowerShell(shell) + " -or $task.Actions[0].Arguments -ne " + quotePowerShell(args) + ") { throw 'Autostart belongs to another Agent configuration; it was not changed.' }; " +
 		"Disable-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' | Out-Null; " +
 		"$ownedAgents=@(); $agents=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq " + quotePowerShell(exe) + ` -and $_.CommandLine -match '\srun(\s|$)' }); ` +
