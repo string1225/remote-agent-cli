@@ -2,8 +2,10 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -48,19 +50,34 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 		}
 	}
 	dir := t.TempDir()
+	logDir := os.Getenv("REMOTE_AGENT_MSI_LOG_DIR")
+	if logDir == "" {
+		logDir = dir
+	}
+	if err := os.MkdirAll(logDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	operationCount := 0
 	msi := func(operation, path string, wantFailure bool) {
 		t.Helper()
-		args := []string{operation, path, "/qn", "/norestart", "/l*v", filepath.Join(dir, "installer.log")}
-		cmd := exec.Command("msiexec.exe", args...)
+		t.Logf("MSI %s %s starting", operation, filepath.Base(path))
+		operationCount++
+		logPath := filepath.Join(logDir, fmt.Sprintf("%02d-%s-%s.log", operationCount, strings.TrimPrefix(operation, "/"), filepath.Base(path)))
+		args := []string{operation, path, "/qn", "/norestart", "/l*v", logPath}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "msiexec.exe", args...)
 		err := cmd.Run()
 		code := cmd.ProcessState.ExitCode()
 		if wantFailure && code == 1603 {
+			t.Log("injected MSI failure returned as expected")
 			return
 		}
 		if !wantFailure && (code == 0 || code == 3010) {
+			t.Logf("MSI %s completed", operation)
 			return
 		}
-		logData, _ := os.ReadFile(filepath.Join(dir, "installer.log"))
+		logData, _ := os.ReadFile(logPath)
 		if len(logData) > 18000 {
 			logData = logData[len(logData)-18000:]
 		}
@@ -70,8 +87,11 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	installed := true
 	t.Cleanup(func() {
 		if installed {
-			_ = exec.Command("msiexec.exe", "/x", goodMSI, "/qn", "/norestart").Run()
-			_ = exec.Command("msiexec.exe", "/x", baseMSI, "/qn", "/norestart").Run()
+			for _, packagePath := range []string{goodMSI, baseMSI} {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				_ = exec.CommandContext(ctx, "msiexec.exe", "/x", packagePath, "/qn", "/norestart").Run()
+				cancel()
+			}
 		}
 		_ = os.Remove(serviceProfilePath())
 		_ = os.Remove(filepath.Dir(serviceProfilePath()))
@@ -251,6 +271,7 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	_ = servicePID()
 	offline.Store(false)
 	wait("network reconnection", func() bool { return connections.Load() > before })
+	t.Log("network reconnection passed")
 	before = connections.Load()
 	oldPID := servicePID()
 	// The disposable elevated test actor needs SeDebugPrivilege to open a
@@ -284,6 +305,7 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	wait("SCM crash recovery", func() bool { return connections.Load() > before })
+	t.Log("SCM crash restart passed")
 	if servicePID() == oldPID {
 		t.Fatal("SCM did not replace failed process")
 	}
@@ -292,6 +314,10 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	before = connections.Load()
 	msi("/i", goodMSI, false)
 	wait("heartbeat after major upgrade", func() bool { return connections.Load() > before })
+	t.Log("major upgrade restored the authenticated connection")
+	if version, e := exec.Command(exe, "version").CombinedOutput(); e != nil || !strings.Contains(string(version), "acceptance-upgrade") {
+		t.Fatalf("major upgrade did not replace the executable: %v %s", e, version)
+	}
 	goodDigest, err := fileDigest(exe)
 	if err != nil {
 		t.Fatal(err)
@@ -299,7 +325,14 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	assertRetained()
 	before = connections.Load()
 	msi("/i", badMSI, true)
+	if service, e := openWindowsService(windows.SERVICE_QUERY_CONFIG | windows.SERVICE_QUERY_STATUS); e == nil {
+		configuration, _ := service.Config()
+		state, _ := service.Query()
+		service.Close()
+		t.Logf("rollback service state=%d SID type=%d start type=%d exit=%d", state.State, configuration.SidType, configuration.StartType, state.Win32ExitCode)
+	}
 	wait("service restored after failed upgrade", func() bool { return connections.Load() > before })
+	t.Log("failed upgrade restored the authenticated connection")
 	if got, e := fileDigest(exe); e != nil || got != goodDigest {
 		t.Fatal("failed upgrade did not restore previous program", e)
 	}
@@ -307,6 +340,7 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	before = connections.Load()
 	msi("/famus", goodMSI, false)
 	wait("service after MSI repair", func() bool { return connections.Load() > before })
+	t.Log("MSI repair restored the authenticated connection")
 	assertRetained()
 	if output, e := exec.Command(exe, "update", "--config", c.Path).CombinedOutput(); e == nil || !strings.Contains(string(output), "managed by Windows Installer") {
 		t.Fatal("EXE update bypassed MSI ownership", e)

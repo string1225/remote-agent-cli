@@ -3,7 +3,9 @@
   <Product Id="*" Name="Remote Agent" Language="1033" Version="$(var.PackageVersion)"
            Manufacturer="Remote Agent" UpgradeCode="169D07FD-348F-4323-A695-0432D646790B">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="$(var.Platform)" />
-    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer Remote Agent is already installed." />
+    <!-- Stable component GUIDs/key paths let upgrades retain the service object
+         and its SID/recovery policy, including when the file transaction rolls back. -->
+    <MajorUpgrade Schedule="afterInstallExecute" DowngradeErrorMessage="A newer Remote Agent is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Condition Message="Remote Agent requires 64-bit Windows.">Installed OR VersionNT64</Condition>
@@ -11,7 +13,7 @@
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLDIR" Name="Remote Agent">
           <Component Id="AgentService" Guid="45D7DE9A-9EF3-44D1-9FA2-E73F3F551E54" Win64="yes">
-            <File Id="AgentExe" Source="$(var.AgentBinary)" Name="remote-agent.exe" KeyPath="yes" />
+            <File Id="AgentExe" Source="$(var.AgentBinary)" Name="remote-agent.exe" DefaultVersion="$(var.PackageVersion)" DefaultLanguage="1033" KeyPath="yes" />
             <ServiceInstall Id="AgentServiceInstall" Name="RemoteAgent" DisplayName="Remote Agent"
                             Description="Remote Agent device connection and local project services."
                             Type="ownProcess" Start="auto" ErrorControl="normal" Vital="yes"

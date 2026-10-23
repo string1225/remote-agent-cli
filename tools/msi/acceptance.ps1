@@ -12,11 +12,12 @@ $env:REMOTE_AGENT_MSI_ACCEPTANCE = '1'
 $env:REMOTE_AGENT_MSI_BASE = Join-Path $fixtures 'base.msi'
 $env:REMOTE_AGENT_MSI_UPGRADE = Join-Path $fixtures 'upgrade.msi'
 $env:REMOTE_AGENT_MSI_FAILURE = Join-Path $fixtures 'failure.msi'
+$env:REMOTE_AGENT_MSI_LOG_DIR = $fixtures
 Push-Location $root
 try {
     & go test ./internal/agent -run '^TestMSIWindowsServiceLifecycle$' -count=1 -v -timeout 10m
     if ($LASTEXITCODE -ne 0) { throw 'Windows MSI/Service acceptance failed.' }
 } finally {
-    Remove-Item Env:REMOTE_AGENT_MSI_ACCEPTANCE,Env:REMOTE_AGENT_MSI_BASE,Env:REMOTE_AGENT_MSI_UPGRADE,Env:REMOTE_AGENT_MSI_FAILURE -ErrorAction SilentlyContinue
+    Remove-Item Env:REMOTE_AGENT_MSI_ACCEPTANCE,Env:REMOTE_AGENT_MSI_BASE,Env:REMOTE_AGENT_MSI_UPGRADE,Env:REMOTE_AGENT_MSI_FAILURE,Env:REMOTE_AGENT_MSI_LOG_DIR -ErrorAction SilentlyContinue
     Pop-Location
 }

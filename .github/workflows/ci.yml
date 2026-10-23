@@ -62,6 +62,11 @@ jobs:
       - name: MSI and Windows Service lifecycle acceptance
         shell: pwsh
         run: ./tools/msi/acceptance.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-msi-acceptance-logs
+          path: .local/msi-acceptance/*.log
       - name: Build distributable x64 and ARM64 installers
         shell: pwsh
         run: ./tools/msi/build.ps1 -PackageVersion "1.0.${{ github.run_number }}"
