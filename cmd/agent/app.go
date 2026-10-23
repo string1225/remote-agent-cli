@@ -10,13 +10,15 @@ import (
 	"time"
 )
 
+const codexStoreURI = "ms-windows-store://pdp/?ProductId=9PLM9XGG6VKS"
+
 func appCommand(goos, action string) (string, []string, error) {
 	if action != "install" && action != "upgrade" {
 		return "", nil, errors.New("use app install or app upgrade")
 	}
 	switch goos {
 	case "windows":
-		return "winget", []string{action, "--id", "9PLM9XGG6VKS", "--source", "msstore", "--accept-source-agreements", "--accept-package-agreements"}, nil
+		return "powershell.exe", []string{"-NoProfile", "-NonInteractive", "-Command", "Start-Process -FilePath '" + codexStoreURI + "'"}, nil
 	case "darwin":
 		return "brew", []string{action, "--cask", "codex-app"}, nil
 	default:
@@ -41,5 +43,11 @@ func runApp(args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		fmt.Println("Opened the Codex App page. Complete installation or updates in the Microsoft Store.")
+	}
+	return nil
 }

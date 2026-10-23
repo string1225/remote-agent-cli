@@ -1,5 +1,7 @@
 # Unified Codex platform
 
+> 历史设计与验收记录。对应代码已于 2026-10-23 汇入 `main`；当前目标以 [project-goals.md](../../project-goals.md) 为准。Windows App 命令现已改为打开商店页面，Windows Service/MSI 仍待实现。
+
 Approved in chat on 2026-10-18, with local CLI independence clarified on 2026-10-19. The existing 139 model gateway remains a separate service. `/agents` is the account, personal token, installation and remote execution entry point; the production URL is `https://codex.sunny-string.cn/agents`. Implementation, local verification and successful live 139 acceptance are recorded in the companion plan. Core implementation commit [5b8107f](https://github.com/string1225/remote-agent-cli/commit/5b8107f) was pushed to `origin/codex/unified-codex-platform`.
 
 ## Accounts and ownership

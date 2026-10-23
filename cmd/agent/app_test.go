@@ -1,16 +1,28 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
 
-func TestAppUpgradeTargetsOnlyCodex(t *testing.T) {
-	name, args, err := appCommand("windows", "upgrade")
-	if err != nil || name != "winget" || !strings.Contains(strings.Join(args, " "), "--id 9PLM9XGG6VKS --source msstore") || strings.Contains(strings.Join(args, " "), "--all") {
-		t.Fatal("unsafe Windows app update", name, args, err)
+func TestWindowsAppActionsOpenStore(t *testing.T) {
+	for _, action := range []string{"install", "upgrade"} {
+		t.Run(action, func(t *testing.T) {
+			name, args, err := appCommand("windows", action)
+			want := []string{"-NoProfile", "-NonInteractive", "-Command", "Start-Process -FilePath 'ms-windows-store://pdp/?ProductId=9PLM9XGG6VKS'"}
+			if err != nil || name != "powershell.exe" || !slices.Equal(args, want) {
+				t.Fatal("Windows app action must open its Store page", name, args, err)
+			}
+		})
 	}
-	name, args, err = appCommand("darwin", "upgrade")
+	if _, _, err := appCommand("windows", "upgrade; whoami"); err == nil {
+		t.Fatal("unexpected app action accepted")
+	}
+}
+
+func TestAppUpgradeTargetsOnlyCodex(t *testing.T) {
+	name, args, err := appCommand("darwin", "upgrade")
 	if err != nil || name != "brew" || strings.Join(args, " ") != "upgrade --cask codex-app" {
 		t.Fatal("wrong macOS update", name, args, err)
 	}

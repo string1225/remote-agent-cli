@@ -1,5 +1,7 @@
 # 架构与协议
 
+本文记录当前已实现的协议。2026-10-23 确认的目标、现状差距和验收顺序见 [project-goals.md](project-goals.md)，其中 MSI、Windows Service、消息渠道和统一项目模型仍待实现。开发与提交统一使用 `main`。
+
 ```mermaid
 sequenceDiagram
     participant W as 用户浏览器
@@ -89,7 +91,7 @@ sequenceDiagram
 
 `remote-agent` 本地 CLI 可独立于设备绑定存在。网页侧栏「Codex 接入与帮助」提供本机安装和配置说明，「账号管理」提供管理员账号操作。`cli-windows.ps1` / `cli-macos.sh` / `cli-linux.sh` 安装该工具且不启用远程服务，已有绑定和服务启停状态保留。`codex-*` 模式隐藏读取个人模型 Token 后调用 `codex setup --server URL --token-stdin`；设备安装模式用一次性令牌 enroll，再按服务端是否启用网关决定自动配置 Codex。Windows `-NoStart/-SkipCodex`、Unix `--no-start/--skip-codex` 分别控制远程服务和自动配置。
 
-`codex install/update --server URL` 通过平台官方发布转发下载和强制 SHA-256 校验官方 CLI，托管在 `~/.remote-agent/bin`。`setup` 保留已检测到的兼容安装，缺失时补装。App 安装/升级独立调用 Windows Microsoft Store `winget` 或 macOS Homebrew cask `codex-app`；Linux 只支持此处的 CLI 流程。`start` 等同启用匹配的自启动并启动已绑定设备，`stop` 移除对应自启动并停止进程，保留工具、绑定、配置和历史。
+`codex install/update --server URL` 通过平台官方发布转发下载和强制 SHA-256 校验官方 CLI，托管在 `~/.remote-agent/bin`。`setup` 保留已检测到的兼容安装，缺失时补装。Windows 的 `app install/upgrade` 通过系统 URI 处理器请求打开对应 Microsoft Store 产品页面，由登录用户完成操作；成功启动入口不表示安装/更新已经完成。macOS 独立调用 Homebrew cask `codex-app`；Linux 只支持此处的 CLI 流程。`start` 等同启用匹配的自启动并启动已绑定设备，`stop` 移除对应自启动并停止进程，保留工具、绑定、配置和历史。
 
 Unix 选择完整 `codex-package-*` 官方包，保留 `bin/codex` 与资源目录，并用相对符号链接暴露命令入口；Windows 保留架构主程序及所有辅助文件，`codex.exe` 使用硬链接或复制别名。安装先准备并发布辅助文件，最后替换主入口，失败时恢复原安装。下载期限为 25 分钟；压缩数据限 256 MiB、单文件 512 MiB、总解压量 2 GiB、最多 10000 条，拒绝归档链接、特殊文件和路径穿越。安装生成的 Unix 命令入口符号链接与被拒绝的包内链接分别处理。
 
@@ -162,7 +164,7 @@ macOS 原生运行和 Windows/macOS Codex App 安装、升级、重启生命周�
 - `sayso-ui`：SaySo 源界面，仅开发构建时需要 Node，运行时只调用已认证的 DataChannel。
 - `tools/build`：可复现参数的交叉编译及 SHA-256 文件生成；仍需独立签名供应链才能提供发布者真实性保证。
 
-下一阶段可在保持 DataChannel 协议稳定的基础上增加细粒度审批、可恢复任务、设备密钥指纹校验和 PostgreSQL/Redis 多节点路由。
+下一阶段按 [项目目标与验收](project-goals.md#实施顺序与验收) 实施 Windows Service/MSI、本机管理能力、统一项目与消息渠道、项目 SaySo。多节点路由等扩展留作后续工作。
 
 ## SaySo 数据协议
 

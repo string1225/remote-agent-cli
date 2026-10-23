@@ -1,6 +1,6 @@
 # Unified Codex platform implementation plan
 
-> For agentic workers: use superpowers:subagent-driven-development for implementation and review in this session.
+> 历史实施与部署记录。2026-10-23 已将对应代码汇入 `main`；后续目标和验收以 [project-goals.md](../../project-goals.md) 为准，开发直接使用 `main`。文中 winget、用户登录自启动等描述反映当时实现。
 
 **Goal:** provide account-controlled Codex proxy access, a persistent local CLI independent of enrollment, optional remote service control and cross-platform Codex CLI/App setup alongside the existing remote workbench.
 

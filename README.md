@@ -6,13 +6,21 @@
 
 这是可运行的单节点 MVP：Go 服务端、Go CLI、内嵌中文网页；无需 Node.js、npm 或数据库服务。
 
+## 项目目标与开发约定
+
+目标是搭建“服务器管理设备与网页入口，客户端常驻执行任务”的平台。Windows 正式客户端使用 **MSI + Windows Service**，开机启动，退出登录后仍在线；支持命令执行、Codex/Qoder 检测、Codex 代理配置与 CLI 安装更新、Codex App 商店入口。飞书/钉钉由客户端直接长连接，AK/SK 只存客户端；每个客户端项目最多一个渠道，每个机器人最多绑定一个项目，映射到固定 session。网页从指定客户端的项目进入 SaySo。需求中的 `code` 指 **Qoder**。
+
+完整职责、数据关系、现状差距和验收顺序见 **[docs/project-goals.md](docs/project-goals.md)**。当前 Windows 仍使用安装脚本和用户登录计划任务；MSI、Windows Service、通用命令执行和消息渠道尚待实现，SaySo 的项目身份也待统一。下文描述已实现行为。
+
+所有代码直接提交并推送到 `main`，不新建分支。旧 `codex/unified-codex-platform` 分支的代码已汇入主线；协作规范见 [AGENTS.md](AGENTS.md)。
+
 ## 已实现
 
 - 仅管理员创建账号，公开注册始终关闭；bcrypt 密码哈希、30 天 HttpOnly Cookie 登录态、账号停用和最后一名有效管理员保护。
 - 用户确认当前密码后可修改用户名或密码；用户名支持 1–64 个 Unicode 字符，去首尾空白并按 Unicode 大小写折叠保持唯一。修改后退出所有浏览器登录，账号 ID、设备归属和会话数据保持不变。
 - 用户自行创建、查看和撤销个人模型 Token；管理员可管理所有账号和 Token。Token 只在创建时显示一次，服务器仅保存 SHA-256 验证值。
 - 可选的 `/agents/codex/v1` 模型入口接入现有网关，支持 Responses / Compact / 模型目录、SSE 和账号停用取消；保留既有 `/openai/` 接口、旧 Token 及 OAuth 状态。
-- 持久本地 CLI 可独立安装，无需绑定设备或启用远程服务；支持官方 Codex CLI 安装/更新、App 安装/升级、本机 TOML 配置，以及可选的 `start` / `stop`。
+- 持久本地 CLI 可独立安装，无需绑定设备或启用远程服务；支持官方 Codex CLI 安装/更新、本机 TOML 配置，以及可选的 `start` / `stop`。Windows App 命令打开商店页面，由用户完成安装/更新。
 - 创建设备并生成 Windows PowerShell / macOS Shell / Linux Bash 安装命令；一次性令牌 15 分钟过期，事务保证只能绑定一次。
 - 下载独立 CLI、SHA-256 校验、设备凭证落盘、跨平台自启动。
 - `remote-agent update` 从绑定服务器更新当前平台的 CLI，保留绑定和会话记录；支持检查更新、版本查看、程序备份及失败回滚。
@@ -67,7 +75,7 @@ remote-agent start
 remote-agent stop
 ```
 
-`codex setup --token-stdin` 从标准输入读取网页创建的个人模型 Token，先验证入口，再配置本机；无需设备绑定。已绑定设备也可运行 `remote-agent codex setup`，使用本机设备凭证为该设备新签发专属模型 Token，保留已有 Token；安装或配置失败不会使原有连接失效。`codex install/update` 从服务器转发的官方发布包安装托管 CLI，强制校验官方 SHA-256，不依赖 Node.js；`setup` 会保留已检测到的兼容 CLI，并在缺失时安装。Windows App 命令调用 Microsoft Store 的 `winget`，macOS 调用 `brew install/upgrade --cask codex-app`；本工具不支持 Linux Codex App 安装，但支持 Linux Codex CLI。缺少系统包管理器时可使用官方 App 安装器或 App 自带更新入口。
+`codex setup --token-stdin` 从标准输入读取网页创建的个人模型 Token，先验证入口，再配置本机；无需设备绑定。已绑定设备也可运行 `remote-agent codex setup`，使用本机设备凭证为该设备新签发专属模型 Token，保留已有 Token；安装或配置失败不会使原有连接失效。`codex install/update` 从服务器转发的官方发布包安装托管 CLI，强制校验官方 SHA-256，不依赖 Node.js；`setup` 会保留已检测到的兼容 CLI，并在缺失时安装。Windows 的 `app install/upgrade` 均打开对应 Microsoft Store 产品页面，由当前登录用户完成安装或更新；命令成功表示已发起打开页面，安装结果需在商店确认。macOS 调用 `brew install/upgrade --cask codex-app`；本工具不支持 Linux Codex App 安装，但支持 Linux Codex CLI。
 
 CLI 安装保留官方完整包和辅助资源：Unix 使用 `codex-package-*`，保留 `bin/codex`、资源目录及相对符号链接命令入口；Windows 保留架构主程序，另以硬链接或复制提供 `codex.exe`。更新先发布辅助文件、最后替换主入口，失败时回滚。下载超时为 25 分钟；压缩包最多 256 MiB、单文件最多 512 MiB、解压总量最多 2 GiB、条目最多 10000 个，拒绝包内链接、特殊文件和越界路径。
 
@@ -275,7 +283,7 @@ printf '%s' 'ONE_TIME_TOKEN' | remote-agent enroll \
 go test ./...
 go vet ./...
 node --check web/app.js     # 只验证工作台原生 JS 语法
-node --check web/platform.js
+node --check web/platform.js # 账号、Token 和 Codex 接入界面
 (cd sayso-ui && npm ci && npm run build) # 修改 SaySo 界面时需要（PowerShell 可进入目录后运行）
 go run ./tools/build       # 交叉编译所有支持的平台
 ```
