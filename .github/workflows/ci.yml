@@ -48,3 +48,26 @@ jobs:
           path: |
             dist/
             bin/
+  windows-msi:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/cache@v4
+        with:
+          path: .local/wix314
+          key: wix-3.14.1-6ac824e1
+      - name: MSI and Windows Service lifecycle acceptance
+        shell: pwsh
+        run: ./tools/msi/acceptance.ps1
+      - name: Build distributable x64 and ARM64 installers
+        shell: pwsh
+        run: ./tools/msi/build.ps1 -PackageVersion "1.0.${{ github.run_number }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-agent-windows-msi
+          path: |
+            dist/*.msi
+            dist/*.msi.sha256

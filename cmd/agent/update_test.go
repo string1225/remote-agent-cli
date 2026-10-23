@@ -147,47 +147,35 @@ func TestUpdateCLI(t *testing.T) {
 		t.Fatalf("installer accepted a different server: %v\n%s", err, output)
 	}
 	var installerCommand *exec.Cmd
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-		scriptName := "windows.ps1"
-		if runtime.GOOS == "darwin" {
-			scriptName = "macos.sh"
-		} else if runtime.GOOS == "linux" {
-			scriptName = "linux.sh"
-		}
+	if runtime.GOOS == "linux" {
+		scriptName := "linux.sh"
 		body, err := os.ReadFile(filepath.Join("..", "..", "internal", "server", "installers", scriptName))
 		if err != nil {
 			t.Fatal(err)
 		}
 		script := strings.ReplaceAll(strings.ReplaceAll(string(body), "__SERVER__", server.URL+"/agents"), "__TOKEN__", strings.Repeat("A", 43))
-		if runtime.GOOS == "windows" {
-			script = strings.Replace(script, "$root = Join-Path $HOME '.remote-agent'", "$root = '"+strings.ReplaceAll(dir, "'", "''")+"'", 1)
-		} else {
-			script = strings.Replace(script, `root="$HOME/.remote-agent"`, "root='"+strings.ReplaceAll(dir, "'", "'\"'\"'")+"'", 1)
-		}
+		script = strings.Replace(script, `root="$HOME/.remote-agent"`, "root='"+strings.ReplaceAll(dir, "'", "'\"'\"'")+"'", 1)
 		path := filepath.Join(dir, scriptName)
 		if err := os.WriteFile(path, []byte(script), 0700); err != nil {
 			t.Fatal(err)
 		}
-		if runtime.GOOS == "windows" {
-			installerCommand = exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path)
-		} else {
-			installerCommand = exec.Command("/bin/bash", path)
-			if runtime.GOOS == "linux" {
-				// Exercise the actual script without changing the runner's user services.
-				fakeBin := filepath.Join(dir, "fake-systemd")
-				if err := os.Mkdir(fakeBin, 0700); err != nil {
-					t.Fatal(err)
-				}
-				for name, body := range map[string]string{"systemctl": "#!/bin/sh\nexit 0\n", "loginctl": "#!/bin/sh\necho yes\n"} {
-					if err := os.WriteFile(filepath.Join(fakeBin, name), []byte(body), 0700); err != nil {
-						t.Fatal(err)
-					}
-				}
-				installerCommand.Env = append(os.Environ(), "XDG_CONFIG_HOME="+filepath.Join(dir, "xdg"), "PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		installerCommand = exec.Command("/bin/bash", path)
+		// Exercise the script only with an isolated, mocked service manager.
+		fakeBin := filepath.Join(dir, "fake-systemd")
+		if err := os.Mkdir(fakeBin, 0700); err != nil {
+			t.Fatal(err)
+		}
+		for name, body := range map[string]string{"systemctl": "#!/bin/sh\nexit 0\n", "loginctl": "#!/bin/sh\necho yes\n"} {
+			if err := os.WriteFile(filepath.Join(fakeBin, name), []byte(body), 0700); err != nil {
+				t.Fatal(err)
 			}
 		}
+		installerCommand.Env = append(os.Environ(), "XDG_CONFIG_HOME="+filepath.Join(dir, "xdg"), "PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	} else {
-		installerCommand = exec.Command(release, "update", "--installer", "--config", config, "--server", server.URL+"/agents")
+		// Real Windows/macOS installers alter the machine's Scheduled Tasks or
+		// LaunchAgents. Test their shared updater here without enabling autostart;
+		// actual MSI/SCM installation has its own opt-in disposable-runner suite.
+		installerCommand = exec.Command(release, "update", "--installer", "--preserve-start", "--config", config, "--server", server.URL+"/agents")
 	}
 	beforeInstallerDownloads := downloads.Load()
 	if output, err := installerCommand.CombinedOutput(); err != nil || !strings.Contains(string(output), "fixture-new") {
@@ -199,7 +187,7 @@ func TestUpdateCLI(t *testing.T) {
 		t.Fatal("reinstall did not preserve the previous binary or install the release")
 	}
 	wantDownloads := beforeInstallerDownloads
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" {
 		wantDownloads++
 	}
 	if enrollments.Load() != 0 || downloads.Load() != wantDownloads {

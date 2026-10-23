@@ -18,7 +18,7 @@ import (
 //go:embed installers/*
 var installers embed.FS
 var tokenRE = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
-var artifactRE = regexp.MustCompile(`^remote-agent-(windows|darwin|linux)-(amd64|arm64)(\.exe)?(\.sha256)?$`)
+var artifactRE = regexp.MustCompile(`^remote-agent-(windows-(amd64|arm64)(\.exe|\.msi)?|(darwin|linux)-(amd64|arm64))(\.sha256)?$`)
 
 func (s *Server) installer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("script")

@@ -138,3 +138,21 @@ func TestDirectorySearchBoundariesAndBudgets(t *testing.T) {
 		t.Fatal("filtered browsing did not reach later directory")
 	}
 }
+
+func TestDirectoryRootCompletionThroughParentAlias(t *testing.T) {
+	parent, aliasParent := t.TempDir(), t.TempDir()
+	root := filepath.Join(parent, "allowed-root")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(aliasParent, "alias")
+	if err := os.Symlink(parent, alias); err != nil {
+		t.Skip("symlink unavailable", err)
+	}
+	a := &Agent{Config: Config{AllowedRoots: []string{filepath.Join(alias, "allowed-root")}}}
+	page, err := a.directories(context.Background(), "", filepath.Join(alias, "allowed-roo"))
+	canonical, _ := canonicalDir(root)
+	if err != nil || len(page.Directories) != 1 || page.Directories[0].Path != canonical {
+		t.Fatalf("aliased root completion: %+v, %v", page, err)
+	}
+}

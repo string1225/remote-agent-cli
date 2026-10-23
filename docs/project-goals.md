@@ -2,6 +2,8 @@
 
 基线日期：2026-10-23。依据本次项目核对及用户补充：`code` 指 **Qoder**；Windows 客户端需要开机运行，用户退出登录后仍保持在线。本文定义目标，现有行为和接口以 [architecture.md](architecture.md) 为准。
 
+2026-10-24 更新：已加入 Windows Service、x64/ARM64 MSI、原目录数据保留、旧任务迁移及隔离的 MSI/SCM 验收套件，详见 [Windows 安装与服务](windows-service-msi.md)。真实冷启动/桌面退出和原生 ARM64 仍需目标环境验收。
+
 ## 目标
 
 搭建一个由服务器管理设备和网页入口、由客户端执行本机任务的工作平台。用户从网页选择某台客户端上的项目，执行命令、使用 Codex/Qoder 会话或进入 SaySo；也可把飞书/钉钉机器人接入该项目的固定会话。
@@ -110,8 +112,8 @@ AK/SK（如平台的 App ID/App Secret、Client ID/Client Secret）只落客户�
 | 目标 | 当前实现 | 差距 |
 | --- | --- | --- |
 | 服务端账号、设备注册、保活、网页 | 已实现；管理员创建账号，设备一次性绑定，心跳、撤销、信令与内嵌网页 | 补充统一项目及机器人绑定目录 |
-| Windows MSI | PowerShell 脚本分发 EXE | MSI 打包、签名和安装生命周期待实现 |
-| 退出登录仍在线 | Windows 用户登录计划任务 | Windows Service、服务身份、环境与数据迁移待实现 |
+| Windows MSI | WiX 构建 x64/ARM64 MSI；Windows 正式脚本校验安装包后安装；升级/修复/卸载保留业务数据 | 发布者签名及原生 ARM64 安装待验收 |
+| 退出登录仍在线 | SCM 自动 Windows Service，LocalService + 服务 SID，原工具环境与数据目录，失败恢复和旧任务迁移 | 真实整机冷启动/退出桌面人工验收 |
 | 本机命令执行 | 仅执行固定参数的 Codex/Qoder CLI | 独立命令请求、权限、任务记录与控制待实现 |
 | 工具检测 | 检测 Codex/Qoder CLI，区分 Qoder 编辑器启动器 | App/编辑器安装和版本检测、动态刷新待补齐 |
 | Codex 配置 | `codex setup` 支持平台代理与 Token、TOML 备份与合并 | 通用代理配置、网页直连操作和服务用户环境待补齐 |
@@ -130,7 +132,7 @@ AK/SK（如平台的 App ID/App Secret、Client ID/Client Secret）只落客户�
 | `internal/codexsetup` | Codex 下载、校验、安装和配置 |
 | `internal/protocol` | 服务器/客户端/网页共享的数据协议 |
 | `web`、`sayso-ui` | 内嵌工作台、SaySo 源界面与产物 |
-| `tools/build`、`deploy`、`.github/workflows` | 多平台构建、服务端部署与 CI；当前没有 MSI 工程 |
+| `tools/build`、`tools/msi`、`packaging/windows`、`deploy`、`.github/workflows` | 多平台构建、Windows MSI/服务验收、服务端部署与 CI |
 
 ## 实施顺序与验收
 

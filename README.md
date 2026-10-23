@@ -10,7 +10,7 @@
 
 目标是搭建“服务器管理设备与网页入口，客户端常驻执行任务”的平台。Windows 正式客户端使用 **MSI + Windows Service**，开机启动，退出登录后仍在线；支持命令执行、Codex/Qoder 检测、Codex 代理配置与 CLI 安装更新、Codex App 商店入口。飞书/钉钉由客户端直接长连接，AK/SK 只存客户端；每个客户端项目最多一个渠道，每个机器人最多绑定一个项目，映射到固定 session。网页从指定客户端的项目进入 SaySo。需求中的 `code` 指 **Qoder**。
 
-完整职责、数据关系、现状差距和验收顺序见 **[docs/project-goals.md](docs/project-goals.md)**。当前 Windows 仍使用安装脚本和用户登录计划任务；MSI、Windows Service、通用命令执行和消息渠道尚待实现，SaySo 的项目身份也待统一。下文描述已实现行为。
+完整职责、数据关系、现状差距和验收顺序见 **[docs/project-goals.md](docs/project-goals.md)**。Windows 正式安装入口使用 MSI + Windows Service，支持原数据目录迁移；安装、升级和服务管理见 **[docs/windows-service-msi.md](docs/windows-service-msi.md)**。通用命令执行、消息渠道和 SaySo 项目身份统一仍待实现。
 
 所有代码直接提交并推送到 `main`，不新建分支。旧 `codex/unified-codex-platform` 分支的代码已汇入主线；协作规范见 [AGENTS.md](AGENTS.md)。
 
@@ -24,7 +24,7 @@
 - 创建设备并生成 Windows PowerShell / macOS Shell / Linux Bash 安装命令；一次性令牌 15 分钟过期，事务保证只能绑定一次。
 - 下载独立 CLI、SHA-256 校验、设备凭证落盘、跨平台自启动。
 - `remote-agent update` 从绑定服务器更新当前平台的 CLI，保留绑定和会话记录；支持检查更新、版本查看、程序备份及失败回滚。
-- Windows Scheduled Task / macOS LaunchAgent / Linux systemd 用户服务；心跳、掉线重连、在线状态、撤销设备。
+- Windows MSI / Windows Service，开机自动运行、退出登录后在线、失败恢复与原目录数据保留；macOS LaunchAgent / Linux systemd 用户服务；心跳、掉线重连、在线状态、撤销设备。旧 Windows 用户安装可迁移。
 - 在网页通过直连注册 Codex / Qoder 服务及项目目录；配置保存在目标电脑。
 - 添加项目时可按目录名搜索、输入部分路径自动补全，或逐层浏览；支持键盘和手机触摸，目录候选通过 P2P 从目标电脑读取。
 - WebRTC DTLS/SCTP 加密、Trickle ICE、STUN / TURN、短期 TURN 凭证、会话归属校验。
@@ -179,21 +179,21 @@ docker compose -f deploy/compose.turn.yaml up -d
 
 安装位置：
 
-- Windows：`%USERPROFILE%\.remote-agent\bin\remote-agent.exe`
+- Windows MSI：`%ProgramFiles%\Remote Agent\remote-agent.exe`；独立 CLI/旧用户安装：`%USERPROFILE%\.remote-agent\bin\remote-agent.exe`
 - macOS / Linux：`~/.remote-agent/bin/remote-agent`
 - 配置：`~/.remote-agent/config.json`
 - 会话数据库：`~/.remote-agent/history.db`，保存网页创建的会话、请求、回复和原生 CLI 会话 ID；不会上传到控制服务器或写入浏览器持久存储。
 - 日志：`~/.remote-agent/agent.log`（仅运行状态，不记录任务正文；启动时对超过 10 MiB 的旧日志做一次轮换）
 
-Windows / macOS 自启动指 **用户登录后** 启动，使用当前用户权限。电脑睡眠 / 关机时离线。macOS 在登录图形会话后安装 LaunchAgent；Windows 组策略若禁止创建任务，需要管理员调整策略或手动运行。
+Windows MSI 使用系统服务自动启动，退出登录后继续运行；程序位于 `%ProgramFiles%\Remote Agent`，业务数据仍在原用户目录。服务配置与启停需要管理员权限，任务使用 LocalService 与独立服务 SID 的本机授权。macOS LaunchAgent 和尚未迁移的历史 Windows 用户安装仍在用户登录后启动。新版 Windows 不再提供新建计划任务的入口。电脑睡眠 / 关机时离线。
 
 Linux 安装命令适用于使用 systemd 的 amd64 / arm64 系统，网页「添加设备」会分别提供 Windows、macOS、Linux 命令。请在目标用户的正常登录会话里运行 Linux 命令，勿在整条安装命令前加 sudo。安装器预先检查 systemd 用户会话，下载并校验 Linux 程序，绑定账号，然后启用 `systemctl --user` 的 `remote-agent.service`；服务异常退出后 5 秒重启，无限重试。单元文件位于 `${XDG_CONFIG_HOME:-~/.config}/systemd/user/remote-agent.service`。
 
 Linux 安装器还会尝试 `loginctl enable-linger`，必要时使用无需密码的 `sudo -n loginctl enable-linger`，使当前用户的服务在退出 SSH 后继续运行并随系统开机启动。如果没有相应权限，会给出需管理员执行的具体命令，已启动的服务仍可在当前登录会话中使用。可通过 `loginctl show-user "$USER" -p Linger` 检查，结果为 `yes` 才具备退出登录和开机恢复能力。
 
-Windows 自启动同时包含登录触发和每分钟的补启动触发：任务仍在运行时忽略重复启动，进程被中断后会再次拉起，错过的触发在系统可用时补执行；不设置最长运行时间，电池供电也能运行。新版 CLI 启动时自动迁移与自身程序、配置匹配的旧任务，不改变被手动禁用的任务。macOS 使用 LaunchAgent `KeepAlive` 自动重启。每份配置有独立的进程锁，防止重复进程互相挤掉连接；进程退出或崩溃时锁由操作系统释放。
+Windows MSI 的常驻进程由 SCM 管理，失败 5 秒后重启；服务通过 Job Object 管理其 CLI 子进程。迁移成功后移除匹配原安装的旧计划任务，正式服务不创建或依赖计划任务。旧任务仅保留识别、停止、迁移和已安装旧程序的更新兼容。macOS 使用 LaunchAgent `KeepAlive` 自动重启。每份配置有独立的进程锁，防止重复进程互相挤掉连接；进程退出或崩溃时锁由操作系统释放。
 
-设备离线时，先在目标电脑查看 `agent.log` 和自启动状态。网络断开后 Agent 会持续重试；服务器恢复、电脑唤醒或网络恢复后会自动重连。若后台进程已经停止，重新执行原安装命令可升级并恢复自启动，也可执行 `remote-agent update` 后再执行 `remote-agent autostart install`。主动停用请移除或禁用自启动任务。睡眠、关机期间仍会离线；Windows / macOS 退出登录时也会离线，Linux 启用 linger 后可继续运行；RDP 断开但保留登录会话通常不会退出 Agent。
+设备离线时，先查看 `agent.log` 和系统服务状态。网络断开后 Agent 会持续重试，服务器恢复、电脑唤醒或网络恢复后自动重连。Windows MSI 可重新执行网页安装命令升级，或以管理员权限执行 `start` 恢复服务、`stop` 禁用服务；退出登录保持在线。其他平台可使用 `update` 和 `autostart install`。睡眠、关机期间离线；macOS 和未迁移的旧 Windows 用户安装退出登录会离线，Linux 启用 linger 后可继续运行。
 
 ```sh
 remote-agent status
@@ -206,6 +206,8 @@ remote-agent autostart remove
 ```
 
 本地 CLI / Codex 安装模式会将 `~/.remote-agent/bin` 加入用户 PATH：Windows 更新用户 PATH，macOS 更新 `.profile` / `.zshrc`，Linux 更新 `.profile` / `.bashrc`，同一行不会重复添加。启用自动 Codex 配置的设备安装也会执行此步骤；新终端才会继承持久修改。未刷新 PATH 时可使用上面的完整安装路径。
+
+Windows MSI 使用 MSI 包升级，拒绝通过 EXE `update` 原地替换；`update --check` 仍可检查。以下自更新说明适用于独立 CLI、历史 Windows 用户安装和其他平台。
 
 更新命令从配置中的服务器下载对应系统和 CPU 架构的安装包及 SHA-256 文件，通过校验和版本启动检查后替换程序。`update --check` 只比较校验值，不下载程序、不重启服务；重复更新相同安装包会直接结束。Windows / macOS / Linux 会重启正在运行且与当前程序、配置匹配的 Scheduled Task / LaunchAgent / 安装器创建的 systemd 用户服务；检测到 CLI 子任务时拒绝更新，应先结束任务。自启动未运行时保持原状态；手动启动的 Agent 或自定义服务需自行重启。替换或重启失败时尝试恢复旧程序，成功后旧版本保留为 `remote-agent.exe.previous` / `remote-agent.previous`。设备凭证、权限配置、项目服务、会话和 SaySo 数据均保留。
 
@@ -275,7 +277,7 @@ printf '%s' 'ONE_TIME_TOKEN' | remote-agent enroll \
 
 网页「撤销设备」立即禁用设备凭证、未使用的绑定令牌和设备专属模型 Token，并关闭相关会话。退出登录只关闭当前浏览器登录态所建立的会话；修改用户名/密码关闭该账号所有浏览器登录，停用账号还关闭设备连接并取消活动模型请求。控制连接断开时 Agent 取消该连接下的任务；静默网络故障最多需要约 65 秒被心跳检测。`remote-agent stop` 仅停止远程服务，不卸载持久 CLI 或取消独立个人 Token。
 
-在目标电脑运行 `remote-agent autostart remove`，再手动删除 `~/.remote-agent`。Windows 请等进程停止再删除可执行文件。CLI 不提供远程任意删除本地文件的接口。
+Windows MSI 从系统应用列表卸载，服务和程序被移除，配置、项目、会话和录音保留。其他安装可在目标电脑运行 `remote-agent autostart remove`，再按需手动删除 `~/.remote-agent`；删除业务数据需要用户明确选择。Windows 请等进程停止再删除旧的独立可执行文件。
 
 ## 开发与验证
 

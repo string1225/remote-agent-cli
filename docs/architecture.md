@@ -1,6 +1,6 @@
 # 架构与协议
 
-本文记录当前已实现的协议。2026-10-23 确认的目标、现状差距和验收顺序见 [project-goals.md](project-goals.md)，其中 MSI、Windows Service、消息渠道和统一项目模型仍待实现。开发与提交统一使用 `main`。
+本文记录当前已实现的协议。目标、现状差距和验收顺序见 [project-goals.md](project-goals.md)，Windows Service/MSI 设计与生命周期见 [windows-service-msi.md](windows-service-msi.md)。消息渠道和统一项目模型仍待实现。开发与提交统一使用 `main`。
 
 ```mermaid
 sequenceDiagram

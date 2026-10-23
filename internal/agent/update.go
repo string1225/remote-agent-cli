@@ -206,6 +206,9 @@ func Update(ctx context.Context, configPath string, options UpdateOptions, outpu
 			return fmt.Errorf("cannot find the existing installed CLI: %w", err)
 		}
 	}
+	if !options.CheckOnly && msiManagedExecutable(exe) {
+		return errors.New("this installation is managed by Windows Installer; upgrade using the Windows MSI package (configuration, projects and sessions are retained)")
+	}
 	client := &http.Client{Timeout: 3 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	base, name := strings.TrimSuffix(c.Server, "/"), updateArtifact()
 	label := "Current version"

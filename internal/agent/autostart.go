@@ -109,6 +109,9 @@ func Autostart(action, configPath string) error {
 	if action != "install" && action != "remove" {
 		return errors.New("use autostart install or autostart remove")
 	}
+	if managed, err := windowsServiceAutostart(action, configPath); managed || err != nil {
+		return err
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -134,10 +137,7 @@ func Autostart(action, configPath string) error {
 		if action == "remove" {
 			return runSetup(shell, "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShell(windowsTaskRemoveScript(exe, configPath)))
 		}
-		// Keep the action stable so existing installers/updaters still recognize it.
-		_, args := windowsTaskAction(exe, configPath)
-		script := "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; " + windowsTaskPolicy() + "$a=New-ScheduledTaskAction -Execute " + quotePowerShell(shell) + " -Argument " + quotePowerShell(args) + "; $p=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited; Register-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -Action $a -Trigger @($t,$watchdog) -Principal $p -Settings $s -Force | Out-Null; Start-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent'"
-		return runSetup(shell, "-NoProfile", "-NonInteractive", "-Command", script)
+		return errors.New("Windows background execution requires the MSI installation and Windows Service; install the MSI, then run service configure as administrator")
 	case "darwin":
 		home, err := os.UserHomeDir()
 		if err != nil {

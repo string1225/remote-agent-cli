@@ -27,7 +27,7 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
-		fmt.Println("remote-agent: enroll | run | start | stop | status | version | update [--check] | autostart install/remove | codex install/update/setup | app install/upgrade\nUse <command> --help for options.\nInstall the local CLI independently; start/stop controls the optional remote service.")
+		fmt.Println("remote-agent: enroll | run | start | stop | status | version | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup | app install/upgrade\nUse <command> --help for options.\nWindows MSI uses a machine service; service configuration and start/stop require an administrator.")
 		return nil
 	}
 	if os.Args[1] == "codex" {
@@ -35,6 +35,9 @@ func run() error {
 	}
 	if os.Args[1] == "app" {
 		return runApp(os.Args[2:])
+	}
+	if os.Args[1] == "service" {
+		return runService(os.Args[2:])
 	}
 	args := os.Args[2:]
 	action := ""
@@ -146,6 +149,6 @@ func run() error {
 	case "stop":
 		return agent.Autostart("remove", path)
 	default:
-		return errors.New("unknown command; use enroll, run, status, version, update, or autostart")
+		return errors.New("unknown command; use --help to list commands")
 	}
 }

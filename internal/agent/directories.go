@@ -137,6 +137,14 @@ func (a *Agent) directories(parent context.Context, base, query string) (directo
 			}
 			query = filepath.Join(base, query)
 		}
+		// Resolve an existing parent before comparing an incomplete path with
+		// canonical roots (for example macOS /var -> /private/var). This only
+		// resolves metadata; an unauthorized parent is never enumerated.
+		if dir, leaf := filepath.Split(query); dir != "" {
+			if resolved, err := canonicalDir(dir); err == nil {
+				query = filepath.Join(resolved, leaf)
+			}
+		}
 		// Complete partially typed authorized roots without enumerating their parents.
 		for _, path := range known {
 			if strings.HasPrefix(directoryKey(path), directoryKey(query)) {

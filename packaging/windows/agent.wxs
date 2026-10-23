@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Remote Agent" Language="1033" Version="$(var.PackageVersion)"
+           Manufacturer="Remote Agent" UpgradeCode="169D07FD-348F-4323-A695-0432D646790B">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="$(var.Platform)" />
+    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer Remote Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Condition Message="Remote Agent requires 64-bit Windows.">Installed OR VersionNT64</Condition>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Remote Agent">
+          <Component Id="AgentService" Guid="45D7DE9A-9EF3-44D1-9FA2-E73F3F551E54" Win64="yes">
+            <File Id="AgentExe" Source="$(var.AgentBinary)" Name="remote-agent.exe" KeyPath="yes" />
+            <ServiceInstall Id="AgentServiceInstall" Name="RemoteAgent" DisplayName="Remote Agent"
+                            Description="Remote Agent device connection and local project services."
+                            Type="ownProcess" Start="auto" ErrorControl="normal" Vital="yes"
+                            Account="NT AUTHORITY\LocalService" Arguments="service run" />
+            <ServiceControl Id="AgentServiceControl" Name="RemoteAgent" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+          </Component>
+          <Component Id="InstallationRegistry" Guid="C9443878-4C38-4F10-BE23-D8EBD7E5C6D3" Win64="yes">
+            <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="InstallDir" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
+            <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\RemoteAgent" Name="EventMessageFile" Type="expandable" Value="[System64Folder]EventCreate.exe" />
+            <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\RemoteAgent" Name="TypesSupported" Type="integer" Value="7" />
+          </Component>
+          <Component Id="License" Guid="8A41A940-5460-483F-A60C-072542C41330" Win64="yes">
+            <File Id="LicenseFile" Source="$(var.SourceRoot)\LICENSE" Name="LICENSE.txt" KeyPath="yes" />
+            <File Id="SetupHelp" Source="$(var.SourceRoot)\packaging\windows\SETUP.txt" Name="SETUP.txt" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Complete" Title="Remote Agent" Level="1">
+      <ComponentRef Id="AgentService" />
+      <ComponentRef Id="InstallationRegistry" />
+      <ComponentRef Id="License" />
+    </Feature>
+    <CustomAction Id="PrepareAgentService" FileKey="AgentExe" ExeCommand="service prepare" Execute="deferred" Impersonate="no" Return="check" />
+    <?ifdef var.InjectFailure?>
+    <CustomAction Id="FailAcceptanceInstall" FileKey="AgentExe" ExeCommand="service invalid-installer-action" Execute="deferred" Impersonate="no" Return="check" />
+    <?endif?>
+    <InstallExecuteSequence>
+      <Custom Action="PrepareAgentService" After="InstallServices">NOT REMOVE~="ALL"</Custom>
+      <?ifdef var.InjectFailure?>
+      <Custom Action="FailAcceptanceInstall" After="PrepareAgentService">NOT REMOVE~="ALL"</Custom>
+      <?endif?>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>

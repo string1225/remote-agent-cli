@@ -1,0 +1,32 @@
+Remote Agent for Windows
+
+The MSI installs a machine-wide, automatic Windows Service named RemoteAgent.
+It runs without an interactive login as LocalService with a dedicated service SID.
+Fresh installations wait for device enrollment and local service configuration.
+
+Recommended: run the Windows installation command from your server's web console.
+It verifies and installs this MSI, retains an existing device binding, and configures
+the service using the original user's data directory and tool environment.
+
+Manual setup (PowerShell; enrollment runs as the original project owner):
+  $exe = "$env:ProgramFiles\Remote Agent\remote-agent.exe"
+  $config = "$env:USERPROFILE\.remote-agent\config.json"
+  # For a new device only: pipe its one-time token to enroll --token-stdin.
+  # Existing devices must keep their existing config.json.
+  & $exe service profile --config $config --output "$env:TEMP\remote-agent-profile.json"
+
+Then, in an administrator PowerShell:
+  & "$env:ProgramFiles\Remote Agent\remote-agent.exe" service configure --profile "<full path to the captured profile>"
+
+The profile contains paths and tool environment only, not credentials. Configuration
+grants the service SID access to the original data and locally allowed project roots.
+Use service status to inspect the configuration. start/stop requires elevation.
+
+Upgrade using a newer MSI. Windows Installer stops the service, replaces only its
+program files, and starts it again. Device configuration, projects, history.db,
+SaySo recordings and Codex configuration stay in place. Failed major upgrades roll
+back the program installation. MSI-managed program files cannot use EXE self-update.
+
+Uninstall stops and removes the service and program files. It retains business data
+and the protected ProgramData\RemoteAgent\service.json profile for reinstallation.
+No tokens or account passwords belong in MSI properties or installer command lines.
