@@ -17,6 +17,7 @@ import (
 )
 
 type Config struct {
+	Channels     []ChannelConfig    `json:"channels,omitempty"`
 	Server       string             `json:"server"`
 	ID           string             `json:"id"`
 	Name         string             `json:"name"`

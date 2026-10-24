@@ -27,7 +27,7 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
-		fmt.Println("remote-agent: enroll | run | start | stop | status | version | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup | app install/upgrade\nUse <command> --help for options.\nWindows MSI uses a machine service; service configuration and start/stop require an administrator.")
+		fmt.Println("remote-agent: enroll | run | start | stop | status | version | mcp | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup | app install/upgrade\nUse <command> --help for options.\nWindows MSI uses a machine service; service configuration and start/stop require an administrator.")
 		return nil
 	}
 	if os.Args[1] == "codex" {
@@ -47,6 +47,9 @@ func run() error {
 		}
 		action = args[0]
 		args = args[1:]
+	}
+	if os.Args[1] == "mcp" {
+		return runMCP(context.Background(), os.Args[2:], os.Stdin, os.Stdout)
 	}
 	flags := flag.NewFlagSet(os.Args[1], flag.ContinueOnError)
 	config := flags.String("config", agent.DefaultPath(), "configuration file")

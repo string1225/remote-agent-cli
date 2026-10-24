@@ -67,7 +67,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, name := range []string{"users", "accounts", "usernames", "sessions", "agents", "enrollments", "codex_tokens", "codex_verifiers", "meta"} {
+		for _, name := range []string{"users", "accounts", "usernames", "sessions", "agents", "enrollments", "codex_tokens", "codex_verifiers", "meta", "channel_projects", "channel_bots"} {
 			if _, e := tx.CreateBucketIfNotExists([]byte(name)); e != nil {
 				return e
 			}
@@ -257,6 +257,9 @@ func (s *Store) Revoke(userID, id string) error {
 		a.Revoked = true
 		a.TokenHash = ""
 		if err := put(tx, "agents", id, a); err != nil {
+			return err
+		}
+		if err := releaseAgentChannels(tx, id); err != nil {
 			return err
 		}
 		return revokeAgentTokens(tx, id)

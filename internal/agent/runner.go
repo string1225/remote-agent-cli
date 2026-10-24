@@ -172,6 +172,11 @@ func runProcess(ctx context.Context, p Provider, s protocol.Service, prompt stri
 		}
 		args = append(args, "-")
 	}
+	args, cleanup, err := providerTools(s, args)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 	cmd := command(ctx, p.Path, args)
 	cmd.Dir = s.Workspace
 	cmd.Stdin = strings.NewReader(prompt)

@@ -11,9 +11,9 @@
     <link rel="stylesheet" href="./style.css" />
     <script src="./app.js" defer></script>
     <script src="./platform.js" defer></script>
+    <script src="./channels.js" defer></script>
   </head>
   <body>
-    <div id="sayso-root" hidden></div>
     <div id="notice" class="notice" role="alert" hidden></div>
     <section id="auth" class="auth-layout">
       <div class="auth-story">
@@ -32,7 +32,7 @@
         <div class="auth-features">
           <div><strong>Codex 代理</strong><span>个人 Token · 本机配置 · CLI 管理</span></div>
           <div><strong>远程访问</strong><span>Codex / Qoder 项目 · 会话与实时输出</span></div>
-          <div><strong>IM 渠道 <small>规划中</small></strong><span>飞书 / 钉钉机器人连接项目与固定会话</span></div>
+          <div><strong>IM 渠道</strong><span>飞书 / 钉钉长连接 · 固定会话与任务通知</span></div>
           <div><strong>个人助理</strong><span>SaySo 语音记录与行动整理 · 持续扩展</span></div>
         </div>
         <p class="auth-foot">站点中转 · 本地执行 · 实时回传</p>
@@ -70,7 +70,7 @@
     </section>
     <div id="app" class="workbench" hidden>
       <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
-      <aside id="devices-pane" class="devices-pane" aria-label="设备和项目">
+      <aside id="devices-pane" class="devices-pane" aria-label="客户端和项目">
         <div class="pane-heading brand-heading">
           <a class="wordmark" href="./">r<span>↗</span> <b>remote agent</b></a>
           <button
@@ -82,10 +82,10 @@
         </div>
         <div class="device-tools">
           <span class="eyebrow"
-            >设备与项目 <small id="device-count">0</small></span
+            >客户端与项目 <small id="device-count">0</small></span
           ><button id="refresh" class="icon-button" aria-label="刷新设备">
             ↻</button
-          ><button id="new-agent" class="icon-button" aria-label="添加设备">
+          ><button id="new-agent" class="icon-button" aria-label="添加客户端">
             ＋
           </button>
         </div>
@@ -205,10 +205,11 @@
             ☷
           </button>
         </header>
+        <section id="sayso-root" hidden></section>
         <div id="session-empty" class="chat-empty">
           <div class="orbit">↗</div>
           <h2>工作，从这里继续。</h2>
-          <p>选择设备、Agent 和项目。<br />你的请求在自己的电脑上执行。</p>
+          <p>选择客户端上的项目。<br />你的请求在自己的电脑上执行。</p>
           <span>Codex 和 Qoder 均为可选能力</span>
         </div>
         <section id="session-body" class="chat-body" hidden>
@@ -326,6 +327,7 @@
         <details><summary>配置文件、备份和恢复</summary><p>使用 CODEX_HOME 指定的目录，默认 ~/.codex/config.toml。修改前在同目录创建 config.toml.backup-*，保留模型、项目和其他 provider 设置。凭据只保存在受保护的本机配置内。恢复时先退出 Codex 和远程任务，再用对应备份替换 config.toml。</p></details>
         <details><summary>Codex App、旧会话和官方账号功能</summary><p>代理承接模型调用。桌面端的账号资料、云端任务和插件仍使用官方服务。更新配置后请完全退出并重新打开 App，先新建本地会话验证；旧会话可能保留原来的 provider。不要用旧连接助手的「更新配置」覆盖这里生成的配置。</p><p>Windows App 安装与升级会打开 Microsoft Store 产品页面，由当前登录用户完成；macOS 使用 Homebrew 的 codex-app。若 App 通过其他渠道安装，请使用其内置更新或官方安装器。</p><p><a href="https://openai.com/codex/" target="_blank" rel="noreferrer">官方 Codex 下载 ↗</a> · <a href="/openai/docs" target="_blank" rel="noreferrer">原连接助手与登录指引 ↗</a></p></details>
         <details><summary>只绑定、不启动；启动和停止远程 Agent</summary><p>本地 CLI 安装入口不创建远程连接。绑定安装器默认启用远程服务；Windows 可在安装命令末尾添加 -NoStart，macOS / Linux 将末尾的 bash 改为 bash -s -- --no-start。以后使用 remote-agent start 启用自启动并连接，remote-agent stop 停止并禁用自启动；设备绑定和历史保留。Windows MSI 的启停和服务配置需要管理员权限，由 Windows Service 维持进程。Linux 启动服务需要 systemd 用户会话。</p></details>
+        <details><summary>客户端、项目与三类会话如何协作</summary><p>客户端是一台设备；项目是工作目录与 Codex / Qoder 执行器。每个项目固定置顶一个 SaySo 入口，并可绑定一个飞书/钉钉渠道会话，其余为 Web 会话。SaySo Action 和渠道助理可以创建新的 Web 会话来执行工作；Web 会话可通过客户端工具查询同账号其他客户端/项目、发起跨设备任务，并通知项目的 IM 渠道。</p></details>
       </section>
       <section id="platform-tokens" class="platform-panel" hidden>
         <h3>我的代理 Token</h3><p class="muted">每个 Token 可用于一台或多台自己的设备。明文只在创建时显示，撤销后新的模型请求立即失效。</p>
@@ -350,16 +352,32 @@
         <h3>全部代理 Token</h3><div id="admin-token-list" class="platform-list"></div>
       </section>
     </dialog>
+    <dialog id="channel-dialog">
+      <div class="dialog-head"><div><p class="eyebrow">PROJECT / IM CHANNEL</p><h2 id="channel-title">项目渠道</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
+      <p class="muted">一个项目绑定一个机器人和一个接收目标；机器人仅能绑定一个项目。客户端直接连接飞书/钉钉的长连接服务，凭据经当前站点传送后只在客户端保存。</p>
+      <p id="channel-state" class="platform-note" role="status"></p>
+      <form id="channel-form">
+        <label>渠道<select name="provider"><option value="feishu">飞书 · 应用机器人</option><option value="dingtalk">钉钉 · Stream 机器人</option></select></label>
+        <label>应用 ID / Client ID<input name="appId" required maxlength="200" autocomplete="off"></label>
+        <label>应用 Secret<input name="appSecret" type="password" maxlength="500" autocomplete="new-password"></label>
+        <label>接收目标类型<select name="chatType"><option value="group">群聊</option><option value="user">单聊</option></select></label>
+        <label>允许的会话 / 用户 ID<input name="chatId" required maxlength="500" autocomplete="off"></label>
+        <label id="channel-robot-code">机器人 Code（钉钉，可选，默认应用 ID）<input name="robotCode" maxlength="200" autocomplete="off"></label>
+        <p class="small muted">飞书：启用长连接、消息接收事件和机器人发消息权限，填写 chat_id；群聊需要 @ 机器人。钉钉：启用 Stream，群聊填写 openConversationId，单聊填写用户的 staffId；群聊需要 @ 机器人。仅处理这里指定的接收目标。</p>
+        <button class="primary full" type="submit">保存并连接渠道</button>
+      </form>
+      <button class="secondary" id="channel-unbind" hidden>解绑渠道，保留会话历史</button>
+    </dialog>
     <dialog id="service-dialog">
       <div class="dialog-head">
         <div>
           <p class="eyebrow">LOCAL CAPABILITY</p>
-          <h2>注册本地服务</h2>
+          <h2>新增项目</h2>
         </div>
         <button class="icon-button close-dialog" aria-label="关闭">×</button>
       </div>
       <p class="muted">
-        本地服务是可选的。添加某个服务时，目标电脑需安装并登录对应的 CLI。
+        选择项目使用的 Codex 或 Qoder，并填写目标电脑上的工作目录。执行器需在目标电脑安装并登录。
       </p>
       <form id="service-form">
         <label

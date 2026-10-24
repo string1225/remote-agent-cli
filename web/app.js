@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 const basePath = new URL(".", location.href).pathname.replace(/\/$/, "");
 const state = {
   register: false,
+  mode: "web",
   agents: [],
   selected: null,
   peer: null,
@@ -22,6 +23,7 @@ const state = {
   listRevision: 0,
   readRevision: 0,
   listCursor: 0,
+  listExtended: false,
 };
 let noticeTimer, searchTimer, drawerOpener, closeSayso;
 function notice(message) {
@@ -71,12 +73,16 @@ async function signedIn() {
   $("auth").hidden = true;
   $("app").hidden = false;
   await refresh();
+  await openLinkedSession();
 }
 async function refresh() {
   if ($("app").hidden) return;
   try {
-    state.agents = await api("/api/agents");
-    renderDevices();
+    const agents = await api("/api/agents");
+    const signature = rows => JSON.stringify(rows.map(a => [a.id,a.name,a.os,a.online,a.enrolled,a.services]));
+    const changed = signature(agents) !== signature(state.agents);
+    state.agents = agents;
+    if (changed) renderDevices();
   } catch (e) {
     notice(e.message);
   }
@@ -112,120 +118,30 @@ function renderDevices() {
       else state.expanded.delete(a.id);
     };
     const row = node("summary", undefined, "device-row");
-    row.append(
-      node("span", a.os === "darwin" ? "⌘" : "▣", "device-icon"),
-      node("span", a.name, "device-name"),
-    );
-    const dot = node(
-      "span",
-      undefined,
-      "live-dot" + (a.online ? "" : " offline"),
-    );
-    dot.title = a.online ? "在线" : "离线";
-    row.append(dot);
-    card.append(row);
+    const os = ({windows:["⊞","Windows"],darwin:["⌘","macOS"],linux:["🐧","Linux"]})[a.os] || ["▣","客户端"];
+    const icon = node("span", os[0], "device-icon"); icon.title = os[1]; icon.setAttribute("aria-label", os[1]);
+    row.append(icon, node("span", a.name, "device-name"));
+    const add = node("button", "＋", "device-add");
+    add.title = "新增项目"; add.setAttribute("aria-label", `在 ${a.name} 新增项目`); add.disabled = !a.online;
+    add.onclick = async e => { e.preventDefault(); e.stopPropagation(); try { await connectDevice(a); showService(); } catch (e) { notice(e.message); } };
+    const dot = node("span", undefined, "live-dot" + (a.online ? "" : " offline"));
+    dot.title = a.online ? "在线" : "离线"; dot.setAttribute("aria-label", dot.title);
+    row.append(add, dot); card.append(row);
     const children = node("div", undefined, "device-children");
-    children.append(
-      node(
-        "p",
-        a.enrolled ? `${a.os} · ${a.online ? "在线" : "离线"}` : "等待安装绑定",
-        "device-detail",
-      ),
-    );
-    const actions = node("div", undefined, "device-actions"),
-      connect = node(
-        "button",
-        selected ? "已连接" : "连接设备 ↗",
-        "text-button",
-      );
-    connect.disabled = !a.online || selected;
-    connect.onclick = () => connectDevice(a).catch((e) => notice(e.message));
-    actions.append(connect);
-    const revoke = node("button", "撤销", "text-button");
-    revoke.onclick = async () => {
-      if (!confirm(`撤销「${a.name}」？设备凭证将失效。`)) return;
-      try {
-        await api(`/api/agents/${a.id}`, "DELETE");
-        if (selected) disconnect();
-        await refresh();
-      } catch (e) {
-        notice(e.message);
-      }
-    };
-    actions.append(revoke);
-    children.append(actions);
     const services = selected ? state.services : a.services || [];
-    for (const name of ["codex", "qoder"]) {
-      const projects = services.filter((s) => s.provider === name);
-      if (!projects.length && !selected) continue;
-      if (!projects.length && !state.providers[name]?.available) continue;
-      const group = node("div", undefined, "provider-group");
-      group.append(
-        node("p", name === "codex" ? "◈ CODEX" : "◇ QODER", "provider-label"),
-      );
-      if (!projects.length)
-        group.append(node("p", "尚未添加项目", "project-empty"));
-      for (const s of projects) {
-        const button = node(
-          "button",
-          undefined,
-          "project-button" +
-            (selected && state.serviceId === s.id ? " active" : ""),
-        );
-        button.title = s.workspace;
-        button.append(node("span", "▱"), node("span", folderName(s.workspace)));
-        button.onclick = async () => {
-          try {
-            await connectDevice(a);
-            await selectProject(s.id);
-            closeDrawers();
-          } catch (e) {
-            notice(e.message);
-          }
-        };
-        const projectRow = node("div", undefined, "project-row");
-        const remove = node("button", "×", "project-remove");
-        remove.title = "移除项目";
-        remove.setAttribute(
-          "aria-label",
-          `移除项目 ${folderName(s.workspace)}`,
-        );
-        remove.onclick = async () => {
-          if (!confirm("移除这个项目？本机文件和会话历史会保留。")) return;
-          try {
-            await connectDevice(a);
-            await rpc("services.remove", { serviceId: s.id });
-            refreshServices(await rpc("services.list"));
-            if (state.serviceId === s.id) resetWorkspace();
-            setRunning(state.running);
-          } catch (e) {
-            notice(e.message);
-          }
-        };
-        projectRow.append(button, remove);
-        group.append(projectRow);
-      }
-      children.append(group);
-    }
-    if (selected) {
-      const add = node("button", "＋ 添加项目 / 服务", "text-button");
-      add.onclick = showService;
-      children.append(add);
-      const sayso = node("button", "♫ SaySo · 讨论转 Action", "sayso-launch");
-      sayso.disabled = !state.sayso;
-      sayso.title = state.sayso
-        ? "录音、讨论、整理需求"
-        : "请更新这台电脑的 Agent 后使用 SaySo";
-      sayso.onclick = () => openSayso().catch((e) => notice(e.message));
-      children.append(sayso);
-      if (!services.length)
-        children.append(
-          node(
-            "p",
-            "Codex、Qoder 均为可选。\n设备可以独立保持在线。",
-            "project-empty",
-          ),
-        );
+    for (const project of services) {
+      const button = node("button", undefined, "project-button" + (selected && state.serviceId === project.id ? " active" : ""));
+      button.title = project.workspace;
+      const provider = node("span", project.provider === "qoder" ? "◇" : "◈", "project-provider");
+      provider.title = project.provider === "qoder" ? "Qoder" : "Codex"; provider.setAttribute("aria-label", provider.title);
+      button.append(provider, node("span", project.name || folderName(project.workspace)));
+      button.onclick = async () => { try { await connectDevice(a); await selectProject(project.id); closeDrawers(); } catch (e) { notice(e.message); } };
+      const projectRow = node("div", undefined, "project-row");
+      const settings = node("button", "⚙", "project-settings");
+      settings.title = "配置 IM 渠道"; settings.setAttribute("aria-label", `配置 ${project.name} 的 IM 渠道`); settings.disabled = !a.online;
+      settings.onclick = () => window.openChannelSetup(a, project).catch(e => notice(e.message));
+      projectRow.append(button, settings);
+      children.append(projectRow);
     }
     card.append(children);
     fragment.append(card);
@@ -238,11 +154,13 @@ function connectionStatus(text, good = false) {
 }
 function setRunning(id) {
   state.running = id;
-  $("cancel-run").hidden = !id;
-  $("send-run").disabled = !!id || !state.session || !service();
+  const background = ["queued","running"].includes(state.session?.taskStatus);
+  $("cancel-run").hidden = !id && !(background && state.session?.taskId);
+  $("send-run").disabled = !!id || background || !state.session || !service();
   $("new-session").disabled = !!id || !service();
 }
 function resetWorkspace() {
+  state.mode = "web";
   state.serviceId = null;
   state.sessions = [];
   state.session = null;
@@ -296,7 +214,7 @@ function rpc(type, fields = {}) {
     const timer = setTimeout(() => {
       state.pending.delete(id);
       reject(Error("设备响应超时"));
-    }, 20000);
+    }, type === "channels.configure" ? 60000 : 20000);
     state.pending.set(id, { resolve, reject, timer, chunks: [], chunkSize: 0 });
     try {
       sendRequest(peer, { id, type, ...fields });
@@ -394,10 +312,12 @@ function receiveEvent(msg) {
             refreshSessions().catch((e) => notice(e.message));
           }
 }
-function connectDevice(agent) {
+async function connectDevice(agent) {
   if (state.selected?.id === agent.id && state.peer) return state.peer.ready;
+  if (!agent.online) throw Error("客户端离线，请检查后台服务或等待网络恢复");
   if (state.running && !confirm("切换设备会停止当前任务，继续吗？"))
     return Promise.reject(Error("已取消切换"));
+  if (closeSayso && !(await closeSayso())) throw Error("请先保存 SaySo 录音");
   disconnect();
   state.selected = agent;
   state.expanded.add(agent.id);
@@ -445,6 +365,8 @@ async function selectProject(id) {
   if (!state.services.some((s) => s.id === id))
     throw Error("项目已被移除，请刷新设备");
   if (id === state.serviceId) return;
+  if (closeSayso && !(await closeSayso())) throw Error("请先保存 SaySo 录音");
+  state.mode = "web";
   state.serviceId = id;
   state.session = null;
   state.entries = [];
@@ -460,7 +382,7 @@ async function selectProject(id) {
   renderChat();
   await refreshSessions();
 }
-async function refreshSessions(more = false) {
+async function refreshSessions(more = false, quiet = false) {
   if (!state.serviceId) return;
   const revision = ++state.listRevision;
   const sid = state.serviceId;
@@ -470,12 +392,17 @@ async function refreshSessions(more = false) {
     cursor: more ? state.listCursor : 0,
   });
   if (revision !== state.listRevision || sid !== state.serviceId) return;
-  state.sessions = more ? [...state.sessions, ...page.sessions] : page.sessions;
-  state.listCursor = page.nextCursor || 0;
+  const oldCursor = state.listCursor;
+  const rows = more ? [...state.sessions,...page.sessions] : quiet ? [...page.sessions,...state.sessions.filter(s => !page.sessions.some(n => n.id === s.id))] : page.sessions;
+  state.sessions = [...new Map(rows.map(s => [s.id,s])).values()];
+  if (more) state.listExtended = true;
+  else if (!quiet) state.listExtended = false;
+  state.listCursor = quiet && state.listExtended ? oldCursor : page.nextCursor || 0;
   renderSessions();
 }
+let sessionSignature;
 function renderSessions() {
-  $("conversation-count").textContent = state.sessions.length;
+  $("conversation-count").textContent = state.sessions.filter(s => s.kind !== "im").length + (service() ? 1 : 0) + (service()?.channel ? 1 : 0);
   $("more-sessions").hidden = !state.listCursor;
   $("conversation-empty").hidden = state.sessions.length > 0;
   $("conversation-empty").textContent = state.serviceId
@@ -483,8 +410,23 @@ function renderSessions() {
       ? "没有找到匹配的会话。"
       : "还没有会话。\n点击右上角 ＋ 开始。"
     : "连接设备，选择项目，\n从一个新会话开始。";
+  const signature = JSON.stringify([state.serviceId,state.mode,state.session?.id,state.runSession,state.sessions,service()?.channel]);
+  if (signature === sessionSignature) return;
+  sessionSignature = signature;
   const fragment = document.createDocumentFragment();
+  if (service()) {
+    const sayso = node("button", undefined, "conversation-card pinned" + (state.mode === "sayso" ? " active" : ""));
+    sayso.append(node("strong", "♫ SaySo"), node("p", "置顶 · 讨论、录音与 Action"));
+    sayso.onclick = () => openSayso().catch(e => notice(e.message)); fragment.append(sayso);
+  }
+  const channel = service()?.channel;
+  if (channel) {
+    const im = node("button", undefined, "conversation-card pinned" + (state.session?.id === channel.sessionId && state.mode !== "sayso" ? " active" : ""));
+    im.append(node("strong", channel.provider === "feishu" ? "飞书 · 渠道会话" : "钉钉 · 渠道会话"), node("p", "置顶 · 消息与任务通知"));
+    im.onclick = () => loadSession({id:channel.sessionId,title:"渠道会话",kind:"im"}).then(closeDrawers).catch(e => notice(e.message)); fragment.append(im);
+  }
   for (const s of state.sessions) {
+    if (s.kind === "im") continue;
     const b = node(
       "button",
       undefined,
@@ -503,7 +445,7 @@ function renderSessions() {
           minute: "2-digit",
         }),
       ),
-      node("span", s.id === state.runSession ? "生成中…" : "↗"),
+      node("span", s.id === state.runSession ? "生成中…" : ({queued:"排队中",running:"执行中",failed:"执行失败",cancelled:"已取消"})[s.taskStatus] || "Web 会话"),
     );
     b.append(meta);
     b.onclick = () =>
@@ -515,6 +457,8 @@ function renderSessions() {
   $("conversation-list").replaceChildren(fragment);
 }
 async function loadSession(session) {
+  if (closeSayso && !(await closeSayso())) return;
+  state.mode = "web";
   const revision = ++state.readRevision;
   if (state.session) state.drafts.set(state.session.id, $("prompt").value);
   state.session = session;
@@ -528,6 +472,7 @@ async function loadSession(session) {
   do {
     const page = await rpc("sessions.get", { sessionId: session.id, cursor });
     if (revision !== state.readRevision) return;
+    if (page.session.serviceId !== state.serviceId) throw Error("会话不属于当前项目");
     state.session = page.session;
     entries.push(...page.entries);
     cursor = page.nextCursor || 0;
@@ -545,6 +490,12 @@ function mergeEntries(entries, live = false) {
   renderChat(live);
 }
 function renderChat(live = false) {
+  $("send-run").textContent = state.session?.kind === "im" ? "发送到渠道 ↗" : "发送 ↗";
+  $("prompt").placeholder = state.session?.kind === "im" ? "向这个项目的 IM 渠道发送消息…" : "输入你的想法，交给项目的执行器…";
+  $("sayso-root").hidden = state.mode !== "sayso";
+  if (state.mode === "sayso") {
+    $("session-empty").hidden = true; $("session-body").hidden = true; $("chat-title").textContent = "SaySo · " + (service()?.name || "讨论"); return;
+  }
   $("session-empty").hidden = !!state.session;
   $("session-body").hidden = !state.session;
   $("run-form").hidden = !state.session;
@@ -993,13 +944,19 @@ $("service-form").onsubmit = async (e) => {
     button.disabled = false;
   }
 };
-$("run-form").onsubmit = (e) => {
+$("run-form").onsubmit = async (e) => {
   e.preventDefault();
   if (state.running) return;
   const prompt = $("prompt").value.trim();
   if (!prompt || !state.session || !service()) return;
   if (!state.peer || state.peer.ws.readyState !== WebSocket.OPEN) {
     notice("请先连接设备");
+    return;
+  }
+  if (state.session.kind === "im") {
+    const button = $("send-run"); button.disabled = true;
+    try { await rpc("channels.notify", {body:{serviceId:state.serviceId,message:prompt}}); $("prompt").value = ""; await loadSession(state.session); }
+    catch (e) { notice(e.message); } finally { button.disabled = false; }
     return;
   }
   const id = crypto.randomUUID();
@@ -1042,7 +999,8 @@ $("prompt").onkeydown = (e) => {
 };
 $("cancel-run").onclick = async () => {
   try {
-    await rpc("cancel", { runId: state.running });
+    if (state.running) await rpc("cancel", {runId:state.running});
+    else if (state.session?.taskId) await rpc("tasks.cancel", {runId:state.session.taskId});
   } catch (e) {
     notice(e.message);
   }
@@ -1051,6 +1009,13 @@ window.addEventListener("beforeunload", () => {
   state.peer?.ws.close();
 });
 setInterval(refresh, 10000);
+let historyPolling = false;
+setInterval(async () => {
+  if (historyPolling || !state.peer || !service() || $("app").hidden) return;
+  historyPolling = true;
+  try { await refreshSessions(false, true); if (state.mode !== "sayso" && state.session && !state.running) await pollSession(); }
+  catch {} finally { historyPolling = false; }
+}, 4000);
 (async () => {
   try {
     await signedIn();
@@ -1069,31 +1034,30 @@ function decodeChunks(pending) {
   return JSON.parse(new TextDecoder().decode(data));
 }
 async function openSayso() {
-  if (!state.sayso || !state.peer) throw Error("请连接已更新的 Agent");
+  if (state.mode === "sayso") { closeDrawers(); return; }
+  if (!state.sayso || !state.peer || !service()) throw Error("请先选择项目并连接已更新的客户端");
   if (state.running) throw Error("请先等待当前任务结束，再打开 SaySo");
-  const peer = state.peer;
+  const peer = state.peer, project = service();
+  const binding = await rpc("sayso.open", {serviceId:project.id});
   const module = await import(`${basePath}/sayso/sayso.js`);
-  if (state.peer !== peer) throw Error("设备连接已改变，请重新打开");
-  closeDrawers();
+  if (state.peer !== peer || state.serviceId !== project.id) throw Error("项目已改变，请重新打开");
+  closeDrawers(); state.mode = "sayso";
   const host = $("sayso-root");
-  $("app").hidden = true;
-  host.hidden = false;
-  const dispose = module.mount(
-    host,
-    async (method, path, body) => {
-      if (state.peer !== peer)
-        throw Error("原设备连接已断开，请返回工作台重新连接");
-      return rpc("sayso.call", { method, path, body });
+  const dispose = module.mount(host, async (method,path,body) => {
+    if (state.peer !== peer) throw Error("客户端连接已断开，请保存录音备份后重新连接");
+    return rpc("sayso.call", {method,path,body,serviceId:project.id});
+  }, () => {
+    dispose(); if (state.peer !== peer) return; host.hidden = true; state.mode = "web"; closeSayso = null; renderSessions(); renderChat();
+  }, `${project.name} · ${state.allowWrite ? "允许工作区写入" : "只读 / 规划模式"}`, {
+    projectId:binding.id, sessionId:binding.pinnedSessionId,
+    onTaskCreated:async id => {
+      if (state.peer !== peer) return;
+      await refreshSessions();
+      notice("已创建项目下的新 Web 会话，可在会话列表查看执行进度");
     },
-    () => {
-      dispose();
-      host.hidden = true;
-      $("app").hidden = false;
-      closeSayso = null;
-    },
-    `${state.selected.name} · ${state.allowWrite ? "允许工作区写入" : "Codex 只读 / 规划模式"}`,
-  );
-  closeSayso = dispose;
+  });
+  closeSayso = () => dispose.close();
+  renderSessions(); renderChat();
 }
 
 // Directory suggestions are transient and fetched only from the connected Agent.
@@ -1272,3 +1236,25 @@ document.addEventListener("pointerdown", (event) => {
   )
     closeDirectoryPicker();
 });
+
+async function openLinkedSession() {
+  if (!location.hash.startsWith("#client=") || $("app").hidden) return;
+  const route = new URLSearchParams(location.hash.slice(1));
+  const client = state.agents.find(a => a.id === route.get("client"));
+  if (!client || !client.online) { notice("链接中的客户端不在线或不属于当前账号"); return; }
+  try { await connectDevice(client); await selectProject(route.get("project")); if (route.get("session")) await loadSession({id:route.get("session")}); }
+  catch (e) { notice(e.message); }
+}
+
+async function pollSession() {
+  const session = state.session, peer = state.peer, revision = state.readRevision;
+  let cursor = state.entries.at(-1)?.seq || 0;
+  do {
+    const page = await rpc("sessions.get", {sessionId:session.id,cursor});
+    if (state.peer !== peer || state.session?.id !== session.id || state.readRevision !== revision || state.mode === "sayso") return;
+    state.session = page.session;
+    setRunning(state.running);
+    if (page.entries.length) mergeEntries(page.entries, true);
+    cursor = page.nextCursor || 0;
+  } while (cursor);
+}

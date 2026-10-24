@@ -1152,9 +1152,7 @@ body.resizing-panes * {
   cursor: pointer;
 }
 #sayso-root {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
+  position: relative;
   background: #f7f5ef;
 }
 #sayso-root[hidden] {
@@ -1263,3 +1261,16 @@ body.resizing-panes * {
   .auth-features { gap: 16px; }
   .auth-features strong { font-size: 12px; }
 }
+
+.device-add { background: transparent; border: 0; color: #55734a; font-size: 17px; padding: 2px 6px; cursor: pointer; }
+.device-add:disabled { opacity: .35; cursor: default; }
+.device-row .device-name { flex: 1; }
+.device-row .live-dot { flex-shrink: 0; margin-left: 3px; }
+.device-children { padding-top: 3px; }
+.project-provider { color: #5d7b55; width: 16px; text-align: center; }
+.conversation-card.pinned { border-left: 2px solid #93ad78; }
+#sayso-root { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+
+.project-settings { border: 0; background: transparent; color: #7a8c6b; cursor: pointer; padding: 4px; }
+.project-settings:disabled { opacity: .35; cursor: default; }
+#sayso-root { container-type: inline-size; }

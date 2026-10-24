@@ -33,13 +33,21 @@ type hub struct {
 	mu       sync.Mutex
 	agents   map[string]*socket
 	browsers map[string]*browser
+	calls    map[string]*relayCall
 }
 
-func newHub() *hub                   { return &hub{agents: map[string]*socket{}, browsers: map[string]*browser{}} }
+func newHub() *hub {
+	return &hub{agents: map[string]*socket{}, browsers: map[string]*browser{}, calls: map[string]*relayCall{}}
+}
 func (h *hub) online(id string) bool { h.mu.Lock(); defer h.mu.Unlock(); return h.agents[id] != nil }
 func (h *hub) closeAgent(id string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	for _, c := range h.calls {
+		if c.agentID == id || c.sourceID == id {
+			c.cancel()
+		}
+	}
 	if a := h.agents[id]; a != nil {
 		a.close()
 		delete(h.agents, id)
@@ -62,6 +70,11 @@ func (h *hub) closeSession(hash string) {
 func (h *hub) closeUserBrowsers(userID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	for _, c := range h.calls {
+		if c.userID == userID {
+			c.cancel()
+		}
+	}
 	for _, b := range h.browsers {
 		if b.userID == userID {
 			b.close()
@@ -71,6 +84,9 @@ func (h *hub) closeUserBrowsers(userID string) {
 func (h *hub) closeAll() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	for _, c := range h.calls {
+		c.cancel()
+	}
 	for _, a := range h.agents {
 		a.close()
 	}
@@ -107,6 +123,11 @@ func (s *Server) agentSocket(w http.ResponseWriter, r *http.Request) {
 	// Replacement invalidates all sessions tied to the old agent transport.
 	if old != nil {
 		old.close()
+		for _, call := range s.hub.calls {
+			if call.agentID == a.ID {
+				call.cancel()
+			}
+		}
 		for _, b := range s.hub.browsers {
 			if b.agentID == a.ID {
 				b.close()
@@ -119,6 +140,11 @@ func (s *Server) agentSocket(w http.ResponseWriter, r *http.Request) {
 		s.hub.mu.Lock()
 		if s.hub.agents[a.ID] == c {
 			delete(s.hub.agents, a.ID)
+			for _, call := range s.hub.calls {
+				if call.agentID == a.ID {
+					call.cancel()
+				}
+			}
 			for _, b := range s.hub.browsers {
 				if b.agentID == a.ID {
 					b.close()
@@ -157,8 +183,17 @@ func (s *Server) agentSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		s.hub.mu.Lock()
 		b := s.hub.browsers[msg.PeerID]
+		call := s.hub.calls[msg.PeerID]
 		current := s.hub.agents[a.ID] == c
 		s.hub.mu.Unlock()
+		if current && call != nil && call.agentID == a.ID {
+			select {
+			case call.messages <- msg:
+			default:
+				call.cancel()
+			}
+			continue
+		}
 		if !current || b == nil || b.agentID != a.ID {
 			continue
 		}
@@ -221,6 +256,11 @@ func (s *Server) browserSocket(w http.ResponseWriter, r *http.Request) {
 	count = 0
 	for _, b := range s.hub.browsers {
 		if b.agentID == a.ID {
+			count++
+		}
+	}
+	for _, call := range s.hub.calls {
+		if call.agentID == a.ID {
 			count++
 		}
 	}

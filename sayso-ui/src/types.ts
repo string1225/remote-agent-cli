@@ -90,6 +90,8 @@ export interface ActionItem {
 }
 
 export interface CodexRun {
+  webSessionId?: string;
+  taskId?: string;
   id: string;
   actionId: string;
   status: "running" | "done" | "failed";

@@ -2,12 +2,14 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -19,14 +21,24 @@ import (
 
 type Runner func(context.Context, Provider, protocol.Service, string, bool, func(protocol.Event) error, string) error
 type Agent struct {
-	mu        sync.Mutex
-	Config    Config
-	Providers map[string]Provider
-	Execute   Runner
-	busy      bool
-	saysoOnce sync.Once
-	sayso     *saysoStore
-	saysoErr  error
+	notifyWake     chan struct{}
+	notifyDone     chan struct{}
+	channelMu      sync.Mutex
+	channels       map[string]*channelRuntime
+	channelFactory func(ChannelConfig) channelAdapter
+	mu             sync.Mutex
+	Config         Config
+	Providers      map[string]Provider
+	Execute        Runner
+	busy           bool
+	saysoOnce      sync.Once
+	sayso          *saysoStore
+	saysoErr       error
+	tasksOnce      sync.Once
+	taskCtx        context.Context
+	tasks          chan queuedTask
+	taskCancels    map[string]context.CancelFunc
+	taskDone       chan struct{}
 }
 
 func New(c Config) *Agent { return &Agent{Config: c, Providers: Detect(), Execute: runProcess} }
@@ -35,7 +47,29 @@ func (a *Agent) services() []protocol.Service {
 	defer a.mu.Unlock()
 	return append([]protocol.Service{}, a.Config.Services...)
 }
+func (a *Agent) catalogServices() []protocol.Service {
+	services := a.services()
+	for i := range services {
+		services[i].Workspace = ""
+	}
+	return services
+}
 func (a *Agent) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer func() {
+		cancel()
+		timer := time.NewTimer(8 * time.Second)
+		defer timer.Stop()
+		for _, done := range []chan struct{}{a.taskDone, a.notifyDone} {
+			select {
+			case <-done:
+			case <-timer.C:
+				return
+			}
+		}
+	}()
+	a.initTasks(ctx)
+	a.initChannels(ctx)
 	backoff := time.Second
 	for {
 		start := time.Now()
@@ -99,6 +133,7 @@ func (a *Agent) connect(ctx context.Context) error {
 	c := &control{conn: conn}
 	connectionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	go a.syncChannels(connectionCtx)
 	peers := map[string]*peer{}
 	defer func() {
 		for _, p := range peers {
@@ -110,7 +145,7 @@ func (a *Agent) connect(ctx context.Context) error {
 		ticker := time.NewTicker(20 * time.Second)
 		defer ticker.Stop()
 		for {
-			if c.send(protocol.Signal{Type: "heartbeat", Services: a.services()}) != nil {
+			if c.send(protocol.Signal{Type: "heartbeat", Services: a.catalogServices()}) != nil {
 				conn.Close()
 				return
 			}
@@ -201,6 +236,24 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if event.Type == "result" {
+			data, err := json.Marshal(event.Data)
+			if err != nil {
+				return err
+			}
+			if len(data) > 48000 {
+				for len(data) > 0 {
+					n := min(len(data), 16000)
+					chunk := protocol.Event{ID: event.ID, Type: "chunk", Data: base64.StdEncoding.EncodeToString(data[:n])}
+					if err := signal(protocol.Signal{Type: "event", PeerID: msg.PeerID, Event: &chunk}); err != nil {
+						p.close()
+						return err
+					}
+					data = data[n:]
+				}
+				event.Data = map[string]bool{"chunked": true}
+			}
+		}
 		err := signal(protocol.Signal{Type: "event", PeerID: msg.PeerID, Event: &event})
 		if err != nil {
 			p.close()
@@ -227,6 +280,12 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) error) {
 	fail := func(err error) { _ = send(protocol.Event{ID: req.ID, Type: "error", Error: err.Error()}) }
 	switch req.Type {
+	case "channels.get", "channels.configure", "channels.notify":
+		a.handleChannel(p, req, send)
+	case "tasks.cancel":
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: a.cancelTask(req.RunID)})
+	case "tasks.start":
+		a.handleTask(p, req, send)
 	case "directories.search":
 		page, err := a.directories(p.ctx, req.Path, req.Search)
 		if err != nil {
@@ -234,6 +293,17 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			return
 		}
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: page})
+	case "sayso.open":
+		s, err := a.saysoStore()
+		var project *soProject
+		if err == nil {
+			project, err = s.bindProject(req.ServiceID)
+		}
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: project})
 	case "sayso.call":
 		a.handleSayso(p, req, send)
 	case "sessions.list":
@@ -308,6 +378,12 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			fail(errors.New("stop the running task before removing a service"))
 			return
 		}
+		for _, s := range a.Config.Services {
+			if s.ID == req.ServiceID && s.Channel != nil {
+				fail(errors.New("请先解绑项目的 IM 渠道"))
+				return
+			}
+		}
 		old := a.Config.Services
 		list := []protocol.Service{}
 		for _, s := range old {
@@ -368,10 +444,19 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			return
 		}
 		service.ResumeID = conversation.NativeID
-		if _, err = history.append(conversation.ID, protocol.ChatEntry{TurnID: req.ID, Role: "user", Text: req.Prompt, Kind: "message"}); err != nil {
-			a.mu.Unlock()
-			fail(err)
-			return
+		service.Model = req.Service.Model
+		service.ToolBinary, _ = os.Executable()
+		service.ToolConfig = a.Config.Path
+		service.ToolSession = conversation.ID
+		service.ToolSource = conversation.Kind
+		service.ToolNotifyAgent = conversation.NotifyAgentID
+		service.ToolNotifyProject = conversation.NotifyServiceID
+		if !req.Recorded {
+			if _, err = history.append(conversation.ID, protocol.ChatEntry{TurnID: req.ID, Role: "user", Text: req.Prompt, Kind: "message"}); err != nil {
+				a.mu.Unlock()
+				fail(err)
+				return
+			}
 		}
 		provider := a.Providers[service.Provider]
 		write := a.Config.AllowWrite
@@ -409,7 +494,11 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 					return nil
 				},
 			}
-			err := a.Execute(ctx, provider, service, req.Prompt, write, func(event protocol.Event) error {
+			prompt := req.Prompt
+			if conversation.Kind == "im" {
+				prompt = "这是固定的 IM 渠道会话。需要执行具体工作时，请使用 remote_agent 的 start_web_session 工具创建项目下的新 Web 会话，及时回复创建结果，并启用完成通知；也可以通过 list_clients_projects 查看同账号其他客户端项目。不要等待新任务结束才回复用户。\n\n" + prompt
+			}
+			err := a.Execute(ctx, provider, service, prompt, write, func(event protocol.Event) error {
 				if event.Type != "output" {
 					return send(event)
 				}

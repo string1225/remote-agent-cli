@@ -80,6 +80,6 @@ export const api = {
   deleteAction: (id: string) =>
     request<void>(`/api/actions/${id}`, { method: "DELETE" }),
   dispatchAction: (id: string) =>
-    request(`/api/actions/${id}/dispatch`, { method: "POST" }),
+    request<{webSessionId?:string}>(`/api/actions/${id}/dispatch`, { method: "POST" }),
   uploadAudio: upload,
 };

@@ -3,13 +3,20 @@ package protocol
 import "encoding/json"
 
 type Service struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Provider     string `json:"provider"`
-	Workspace    string `json:"workspace"`
-	ResumeID     string `json:"-"`
-	Model        string `json:"-"`
-	OutputSchema string `json:"-"`
+	ToolNotifyAgent   string       `json:"-"`
+	ToolNotifyProject string       `json:"-"`
+	ToolSource        string       `json:"-"`
+	Channel           *ChannelInfo `json:"channel,omitempty"`
+	ToolBinary        string       `json:"-"`
+	ToolConfig        string       `json:"-"`
+	ToolSession       string       `json:"-"`
+	ID                string       `json:"id"`
+	Name              string       `json:"name"`
+	Provider          string       `json:"provider"`
+	Workspace         string       `json:"workspace"`
+	ResumeID          string       `json:"-"`
+	Model             string       `json:"-"`
+	OutputSchema      string       `json:"-"`
 }
 
 const RelayTransport = "relay-v1"
@@ -36,6 +43,7 @@ type Signal struct {
 }
 
 type Request struct {
+	Recorded  bool            `json:"-"`
 	ID        string          `json:"id"`
 	Type      string          `json:"type"`
 	Service   Service         `json:"service,omitempty"`

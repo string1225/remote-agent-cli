@@ -222,12 +222,21 @@ function useTypewriterLines(lines: string[], active: boolean) {
   return typedLines;
 }
 
+export interface WorkspaceScope {
+  projectId: string;
+  sessionId: string;
+  onTaskCreated?: (id: string) => Promise<void>;
+}
 export default function App({
   onClose,
   deviceLabel,
+  scope,
+  registerClose,
 }: {
   onClose: () => void;
   deviceLabel: string;
+  scope?: WorkspaceScope;
+  registerClose?: (close: () => Promise<boolean>) => void;
 }) {
   const [closing, setClosing] = useState(false);
   const [pendingAudio, setPendingAudio] = useState<
@@ -279,16 +288,20 @@ export default function App({
         recoveryRef.current.length &&
         !confirm("仍有未上传录音，请先下载保存。确定离开吗？")
       )
-        return;
+        return false;
       onClose();
+      return true;
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : "正在保存，请稍后再试",
       );
+      return false;
     } finally {
       setClosing(false);
     }
   }
+
+  useEffect(() => { registerClose?.(closeWorkspace); });
 
   const [state, setState] = useState<AppState>(emptyState);
   const [loading, setLoading] = useState(true);
@@ -330,7 +343,13 @@ export default function App({
 
   const refresh = async (quiet = false) => {
     try {
-      const next = await api.state();
+      const raw = await api.state();
+      const next = scope ? {...raw,
+        projects:raw.projects.filter(p => p.id === scope.projectId),
+        sessions:raw.sessions.filter(s => s.projectId === scope.projectId),
+        actions:raw.actions.filter(a => a.projectId === scope.projectId),
+        runs:raw.runs.filter(r => raw.actions.some(a => a.id === r.actionId && a.projectId === scope.projectId)),
+      } : raw;
       setState(next);
       setSelectedProjectId((current) =>
         current && next.projects.some((item) => item.id === current)
@@ -340,7 +359,7 @@ export default function App({
       setSelectedSessionId((current) =>
         current && next.sessions.some((item) => item.id === current)
           ? current
-          : next.sessions.find(
+          : scope?.sessionId || next.sessions.find(
               (item) =>
                 item.projectId === (selectedProjectId || next.projects[0]?.id),
             )?.id || "",
@@ -667,7 +686,7 @@ export default function App({
 
   return (
     <div
-      className={`sayso-layout pane-${mobilePane} ${mobileTree ? "tree-open" : ""}`}
+      className={`sayso-layout ${scope ? "embedded" : ""} pane-${mobilePane} ${mobileTree ? "tree-open" : ""}`}
     >
       <header className="remote-header">
         <button onClick={() => void closeWorkspace()} disabled={closing}>
@@ -681,6 +700,7 @@ export default function App({
         >
           项目 / 会话
         </button>
+        {scope && <select aria-label="SaySo 历史讨论" value={selectedSessionId} onChange={e => { if (!isRecording) setSelectedSessionId(e.target.value); }} disabled={isRecording}>{state.sessions.map(session => <option key={session.id} value={session.id}>{session.title}</option>)}</select>}
       </header>
       {pendingAudio.length > 0 && (
         <div className="audio-recovery">
@@ -941,8 +961,8 @@ export default function App({
                   }
                   onDispatch={(action) =>
                     mutateAction(
-                      () => api.dispatchAction(action.id),
-                      "已把 Action 交给 Codex",
+                      async () => { const run = await api.dispatchAction(action.id); if (run.webSessionId) await scope?.onTaskCreated?.(run.webSessionId); return run; },
+                      "已创建新的 Web 会话并排队执行",
                     )
                   }
                   onViewRun={(action) => setRunModal(action)}

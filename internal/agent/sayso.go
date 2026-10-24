@@ -57,7 +57,7 @@ func (s *saysoStore) load() error {
 				continue
 			}
 			seen[service.Workspace] = true
-			s.state.Projects = append(s.state.Projects, &soProject{store.Token(), service.Name, service.Workspace, "#557461", soNow()})
+			s.state.Projects = append(s.state.Projects, &soProject{ID: store.Token(), ServiceID: service.ID, Name: service.Name, RootPath: service.Workspace, Color: "#557461", CreatedAt: soNow()})
 		}
 	} else if err != nil {
 		return err
@@ -150,7 +150,7 @@ func (a *Agent) handleSayso(p *peer, req protocol.Request, send func(protocol.Ev
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: json.RawMessage(data)})
 		return
 	}
-	// Pull requests stay small; large snapshots are streamed in bounded SCTP frames.
+	// Pull requests stay small; large snapshots are streamed in bounded relay frames.
 	for len(data) > 0 {
 		n := min(16000, len(data))
 		if send(protocol.Event{ID: req.ID, Type: "chunk", Data: base64.StdEncoding.EncodeToString(data[:n])}) != nil {

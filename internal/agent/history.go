@@ -158,7 +158,11 @@ func (h historyStore) read(id string, after uint64) (page protocol.HistoryPage, 
 	return
 }
 func (h historyStore) append(id string, entry protocol.ChatEntry) (entries []protocol.ChatEntry, err error) {
-	err = h.transact(true, func(tx *bolt.Tx) error {
+	err = h.transact(true, func(tx *bolt.Tx) error { var e error; entries, e = appendHistory(tx, id, entry); return e })
+	return
+}
+func appendHistory(tx *bolt.Tx, id string, entry protocol.ChatEntry) (entries []protocol.ChatEntry, err error) {
+	err = func() error {
 		s, err := sessionFrom(tx, id)
 		if err != nil {
 			return err
@@ -204,7 +208,7 @@ func (h historyStore) append(id string, entry protocol.ChatEntry) (entries []pro
 		}
 		s.UpdatedAt = time.Now().UnixMilli()
 		return saveSession(tx, s)
-	})
+	}()
 	return
 }
 func (h historyStore) nativeID(id, nativeID string) error {

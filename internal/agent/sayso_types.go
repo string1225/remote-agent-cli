@@ -2,11 +2,13 @@ package agent
 
 // SaySo's local data model is kept compatible with its original discussion UI.
 type soProject struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	RootPath  string `json:"rootPath"`
-	Color     string `json:"color"`
-	CreatedAt string `json:"createdAt"`
+	ServiceID       string `json:"serviceId,omitempty"`
+	PinnedSessionID string `json:"pinnedSessionId,omitempty"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	RootPath        string `json:"rootPath"`
+	Color           string `json:"color"`
+	CreatedAt       string `json:"createdAt"`
 }
 type soUtterance struct {
 	ID        string `json:"id"`
@@ -74,14 +76,16 @@ type soAction struct {
 	RunID     string `json:"runId,omitempty"`
 }
 type soRun struct {
-	ID         string `json:"id"`
-	ActionID   string `json:"actionId"`
-	Status     string `json:"status"`
-	StartedAt  string `json:"startedAt"`
-	FinishedAt string `json:"finishedAt,omitempty"`
-	Output     string `json:"output"`
-	Error      string `json:"error,omitempty"`
-	cancel     func()
+	WebSessionID string `json:"webSessionId,omitempty"`
+	TaskID       string `json:"taskId,omitempty"`
+	ID           string `json:"id"`
+	ActionID     string `json:"actionId"`
+	Status       string `json:"status"`
+	StartedAt    string `json:"startedAt"`
+	FinishedAt   string `json:"finishedAt,omitempty"`
+	Output       string `json:"output"`
+	Error        string `json:"error,omitempty"`
+	cancel       func()
 }
 type soSettings struct {
 	AnalysisProvider        string `json:"analysisProvider"`

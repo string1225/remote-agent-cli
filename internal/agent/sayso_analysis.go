@@ -302,46 +302,47 @@ func (s *saysoStore) dispatch(p *peer, a *soAction) (any, error) {
 	if a.Status != "ready" && a.Status != "failed" {
 		return nil, errors.New("请先确认讨论完善，标记为 Ready")
 	}
-	if !s.a.Providers["codex"].Available {
-		return nil, errors.New("目标电脑未安装 Codex；录音和本地规则仍可使用")
-	}
-	project := s.project(a.ProjectID)
-	session := s.session(a.SessionID)
+	project, session := s.project(a.ProjectID), s.session(a.SessionID)
 	if project == nil || session == nil {
 		return nil, errors.New("项目或会话不存在")
 	}
-	workspace, err := s.a.Config.Workspace(project.RootPath)
-	if err != nil {
-		return nil, err
-	}
-	run := &soRun{ID: store.Token(), ActionID: a.ID, Status: "running", StartedAt: soNow()}
-	s.state.Runs = append([]*soRun{run}, s.state.Runs...)
-	if len(s.state.Runs) > 1000 {
-		s.state.Runs = s.state.Runs[:1000]
-	}
-	a.Status = "running"
-	a.RunID = run.ID
-	a.UpdatedAt = soNow()
-	prompt := fmt.Sprintf("你正在处理由用户确认的产品讨论 Action。请遵守项目规则和当前沙箱权限，完成工作并验证。\nAction：%s\n详细说明：%s\n来源讨论：%s\n会话：%s", a.Title, a.Detail, a.Source, session.Title)
-	model := s.state.Settings.ExecutionModel
-	ctx, cancel := context.WithTimeout(p.ctx, 20*time.Minute)
-	run.cancel = cancel
-	go func() {
-		defer cancel()
-		s.mu.Lock()
-		healthy := s.fatal == nil
-		s.mu.Unlock()
-		if !healthy {
-			return
+	serviceID := project.ServiceID
+	if serviceID == "" {
+		for _, v := range s.a.services() {
+			if v.Workspace == project.RootPath {
+				serviceID = v.ID
+				break
+			}
 		}
-		err := s.a.runSayso(ctx, p, workspace, prompt, model, "", true, func(stream, text string) error {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			run.Output = soBound(run.Output+text, 80000)
-			return s.save()
-		})
+	}
+	if serviceID == "" {
+		return nil, errors.New("请先在客户端注册这个项目")
+	}
+	prompt := fmt.Sprintf("你正在处理由用户确认的产品讨论 Action。请遵守项目规则和当前沙箱权限，完成工作并验证。\nAction：%s\n详细说明：%s\n来源讨论：%s\n会话：%s", a.Title, a.Detail, a.Source, session.Title)
+	run := &soRun{ID: store.Token(), ActionID: a.ID, Status: "running", StartedAt: soNow()}
+	task, err := s.a.startTask(p.ctx, protocol.TaskStart{ServiceID: serviceID, Title: soBound(a.Title, 80), Prompt: soBound(prompt, 32000), Source: "sayso", ParentAgentID: s.a.Config.ID, ParentSessionID: session.ID, ActionID: a.ID, Notify: true, Model: s.state.Settings.ExecutionModel}, func(err error) {
+		s.mu.Lock()
+		webSessionID := run.WebSessionID
+		s.mu.Unlock()
+		var output strings.Builder
+		for cursor := uint64(0); ; {
+			page, e := s.a.historyStore().read(webSessionID, cursor)
+			if e != nil {
+				break
+			}
+			for _, entry := range page.Entries {
+				if entry.Role != "user" && output.Len() < 80000 {
+					output.WriteString(entry.Text)
+				}
+			}
+			if page.NextCursor == 0 || output.Len() >= 80000 {
+				break
+			}
+			cursor = page.NextCursor
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		run.Output = soBound(output.String(), 80000)
 		run.Status = "done"
 		if err != nil {
 			run.Status = "failed"
@@ -352,7 +353,20 @@ func (s *saysoStore) dispatch(p *peer, a *soAction) (any, error) {
 		a.Status = run.Status
 		a.UpdatedAt = soNow()
 		_ = s.save()
-	}()
+	})
+	if err != nil {
+		return nil, err
+	}
+	run.WebSessionID = task.Session.ID
+	run.TaskID = task.TaskID
+	run.cancel = func() { s.a.cancelTask(task.TaskID) }
+	s.state.Runs = append([]*soRun{run}, s.state.Runs...)
+	if len(s.state.Runs) > 1000 {
+		s.state.Runs = s.state.Runs[:1000]
+	}
+	a.Status = "running"
+	a.RunID = run.ID
+	a.UpdatedAt = soNow()
 	return run, nil
 }
 func (a *Agent) runSayso(ctx context.Context, p *peer, workspace, prompt, model, schema string, write bool, emit func(string, string) error) error {
