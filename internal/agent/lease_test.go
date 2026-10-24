@@ -2,12 +2,9 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/pion/webrtc/v4"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 )
 
@@ -25,36 +22,12 @@ func TestPeerLeaseClockSkewAndBounds(t *testing.T) {
 			t.Fatalf("accepted invalid lifetime %d", seconds)
 		}
 	}
-	if lifetime, err := peerLifetime(protocol.Signal{ExpiresAt: serverNow.Add(10 * time.Minute).Unix()}, serverNow); err != nil || lifetime != 10*time.Minute {
-		t.Fatalf("legacy server compatibility: %v, %v", lifetime, err)
-	}
-	for _, expiry := range []int64{serverNow.Unix() - 1, serverNow.Add(32 * time.Minute).Unix()} {
-		if _, err := peerLifetime(protocol.Signal{ExpiresAt: expiry}, serverNow); err == nil {
-			t.Fatal("accepted invalid legacy expiry")
-		}
-	}
+
 }
 
 func TestPeerRelativeLeaseExpiresDespiteClockSkew(t *testing.T) {
-	remote, err := webrtc.NewPeerConnection(webrtc.Configuration{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer remote.Close()
-	if _, err := remote.CreateDataChannel("remote-agent", nil); err != nil {
-		t.Fatal(err)
-	}
-	offer, err := remote.CreateOffer(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sdp, err := json.Marshal(offer)
-	if err != nil {
-		t.Fatal(err)
-	}
 	a := &Agent{}
 	p, err := a.newPeer(context.Background(), protocol.Signal{
-		Secret: strings.Repeat("x", 32), SDP: sdp,
 		ExpiresAt: time.Now().Add(2 * time.Hour).Unix(), LeaseSeconds: 1,
 	}, func(protocol.Signal) error { return nil })
 	if err != nil {

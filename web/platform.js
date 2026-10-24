@@ -38,18 +38,28 @@
     if (token) $("token-config-command").value = platform() === "windows"
       ? `${installCommand()}; ${psQuote(token)} | & "$env:USERPROFILE\\.remote-agent\\bin\\remote-agent.exe" codex setup --server ${psQuote(server)} --token-stdin`
       : `${installCommand()} && printf '%s' ${shellQuote(token)} | "$HOME/.remote-agent/bin/remote-agent" codex setup --server ${shellQuote(server)} --token-stdin`;
+    const windows = platform() === "windows";
+    $("remote-install-help").textContent = windows
+      ? "Windows 正式客户端使用 MSI（x64 / ARM64）。请在目标用户的 PowerShell 中运行绑定命令，按提示允许管理员安装及服务配置。系统开机后自动运行，退出登录后仍在线；不创建计划任务。"
+      : platform() === "macos" ? "macOS 使用 LaunchAgent，登录后自动启动。请在目标用户的终端运行绑定命令。" : "Linux 使用 systemd 用户服务；启用 linger 后可开机启动并在退出登录后继续在线。请勿在整条安装命令前加 sudo。";
+    $("msi-downloads").replaceChildren();
+    if (windows) for (const arch of ["amd64", "arm64"]) {
+      const link = node("a", `下载 ${arch === "amd64" ? "x64" : "ARM64"} MSI`);
+      link.href = server + `/downloads/remote-agent-windows-${arch}.msi`;
+      $("msi-downloads").append(link, document.createTextNode("　"));
+    }
     const help = [
       ["remote-agent --help", "查看本地 CLI 命令"],
       [`remote-agent codex install --server ${server}`, "安装官方 Codex CLI，无需 Node.js"],
       [`remote-agent codex update --server ${server}`, "更新托管的 Codex CLI"],
       ["remote-agent codex setup", "已绑定设备：刷新本机代理 Token 并合并 TOML"],
-      ["remote-agent app install", "通过系统渠道安装 Codex App"],
+      ["remote-agent app install", windows ? "打开 Windows 商店安装 Codex App" : "通过 Homebrew 安装 Codex App"],
       ["remote-agent app upgrade", "通过 Microsoft Store / Homebrew 升级 Codex App"],
       ["remote-agent start", "启动远程 Agent 并启用自启动（需先绑定设备）"],
-      ["remote-agent stop", "停止远程 Agent 并移除自启动，保留绑定"],
+      ["remote-agent stop", "停止并禁用远程自启动，保留绑定（Windows MSI 需管理员）"],
       ["remote-agent run", "在当前终端运行远程 Agent"],
       ["remote-agent status", "查看设备绑定、权限和本机服务"],
-      [`remote-agent update --server ${server}`, "更新本地 remote-agent CLI"],
+      [windows ? "重新执行原设备安装命令" : `remote-agent update --server ${server}`, windows ? "MSI 升级保留原数据；独立 CLI 才使用 update" : "更新本地 remote-agent CLI"],
     ];
     $("cli-help").replaceChildren(...help.map(([command, description]) => {
       const row = node("div"); row.append(node("code", command), node("span", description)); return row;
@@ -61,6 +71,7 @@
   }
   for (const [button, target] of [["copy-local-cli","local-cli-command"],["copy-token-secret","token-secret"],["copy-token-command","token-config-command"]]) $(button).onclick = () => copy(target);
   $("setup-platform").onchange = updateCommands;
+  $("setup-add-device").onclick = () => { dialog.close(); showEnroll(); };
   if (/Mac/i.test(navigator.platform)) $("setup-platform").value = "macos";
   else if (/Linux/i.test(navigator.platform)) $("setup-platform").value = "linux";
   dialog.addEventListener("close", () => {

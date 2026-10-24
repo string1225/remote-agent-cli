@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"log"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/pion/webrtc/v4"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 	"github.com/string1225/remote-agent-cli/internal/store"
 )
@@ -83,6 +81,7 @@ func (a *Agent) connect(ctx context.Context) error {
 	u.Path = strings.TrimSuffix(u.Path, "/") + "/api/agent/connect"
 	q := u.Query()
 	q.Set("id", a.Config.ID)
+	q.Set("transport", protocol.RelayTransport)
 	u.RawQuery = q.Encode()
 	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second}
 	conn, res, err := dialer.DialContext(ctx, u.String(), http.Header{"Authorization": []string{"Bearer " + a.Config.Credential}})
@@ -96,7 +95,7 @@ func (a *Agent) connect(ctx context.Context) error {
 		return err
 	}
 	defer conn.Close()
-	conn.SetReadLimit(128 * 1024)
+	conn.SetReadLimit(protocol.MaxRelayBytes)
 	c := &control{conn: conn}
 	connectionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -130,28 +129,40 @@ func (a *Agent) connect(ctx context.Context) error {
 			return err
 		}
 		switch msg.Type {
-		case "offer":
+		case "open":
 			for id, p := range peers {
 				if p.ctx.Err() != nil {
 					delete(peers, id)
 				}
 			}
-			if peers[msg.PeerID] != nil || len(peers) >= 8 {
-				_ = c.send(protocol.Signal{Type: "error", PeerID: msg.PeerID, Error: "connection limit reached"})
+			if msg.PeerID == "" || peers[msg.PeerID] != nil || len(peers) >= 8 {
+				_ = c.send(protocol.Signal{Type: "close", PeerID: msg.PeerID})
 				continue
 			}
 			p, err := a.newPeer(connectionCtx, msg, c.send)
 			if err != nil {
-				_ = c.send(protocol.Signal{Type: "error", PeerID: msg.PeerID, Error: "cannot negotiate peer connection"})
+				_ = c.send(protocol.Signal{Type: "close", PeerID: msg.PeerID})
 				continue
 			}
 			peers[msg.PeerID] = p
-		case "candidate":
-			if p := peers[msg.PeerID]; p != nil {
-				var candidate webrtc.ICECandidateInit
-				if json.Unmarshal(msg.Candidate, &candidate) == nil {
-					_ = p.pc.AddICECandidate(candidate)
-				}
+			if err := c.send(protocol.Signal{Type: "ready", PeerID: msg.PeerID, Transport: protocol.RelayTransport}); err != nil {
+				return err
+			}
+		case "request":
+			p := peers[msg.PeerID]
+			if p == nil || p.ctx.Err() != nil || msg.Request == nil {
+				continue
+			}
+			data, err := json.Marshal(msg.Request)
+			if err != nil || len(data) > protocol.MaxRequestBytes || len(msg.Request.ID) == 0 || len(msg.Request.ID) > 100 {
+				p.close()
+				continue
+			}
+			// Ordered bounded workers keep disk/CLI work off the heartbeat reader.
+			select {
+			case p.requests <- *msg.Request:
+			default:
+				p.close()
 			}
 		case "close":
 			if p := peers[msg.PeerID]; p != nil {
@@ -163,157 +174,54 @@ func (a *Agent) connect(ctx context.Context) error {
 }
 
 type peer struct {
-	pc              *webrtc.PeerConnection
-	ctx             context.Context
-	cancel          context.CancelFunc
-	once            sync.Once
-	mu              sync.Mutex
-	authenticated   bool
-	channelAccepted bool
-	runID           string
-	runCancel       context.CancelFunc
+	ctx       context.Context
+	cancel    context.CancelFunc
+	once      sync.Once
+	mu        sync.Mutex
+	runID     string
+	runCancel context.CancelFunc
+	requests  chan protocol.Request
 }
 
-func (p *peer) close() { p.once.Do(func() { p.cancel(); _ = p.pc.Close() }) }
-func peerLifetime(msg protocol.Signal, now time.Time) (time.Duration, error) {
-	if msg.LeaseSeconds != 0 {
-		if msg.LeaseSeconds < 0 || msg.LeaseSeconds > 30*60 {
-			return 0, errors.New("invalid peer lease duration")
-		}
-		return time.Duration(msg.LeaseSeconds) * time.Second, nil
+func (p *peer) close() { p.once.Do(p.cancel) }
+func peerLifetime(msg protocol.Signal, _ time.Time) (time.Duration, error) {
+	if msg.LeaseSeconds <= 0 || msg.LeaseSeconds > 30*60 {
+		return 0, errors.New("invalid relay lease duration")
 	}
-	// Compatibility with older control servers that only send an absolute expiry.
-	lifetime := time.Unix(msg.ExpiresAt, 0).Sub(now)
-	if lifetime <= 0 || lifetime > 31*time.Minute {
-		return 0, errors.New("invalid peer lease expiry; check clock synchronization or update the server")
-	}
-	return lifetime, nil
+	return time.Duration(msg.LeaseSeconds) * time.Second, nil
 }
 func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func(protocol.Signal) error) (*peer, error) {
 	lifetime, err := peerLifetime(msg, time.Now())
 	if err != nil {
-		log.Printf("peer negotiation rejected: %v", err)
-		return nil, err
-	}
-	if len(msg.Secret) < 32 {
-		return nil, errors.New("invalid peer secret")
-	}
-	config := webrtc.Configuration{}
-	for _, ice := range msg.ICE {
-		config.ICEServers = append(config.ICEServers, webrtc.ICEServer{URLs: ice.URLs, Username: ice.Username, Credential: ice.Credential})
-	}
-	pc, err := webrtc.NewPeerConnection(config)
-	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(parent, lifetime)
-	p := &peer{pc: pc, ctx: ctx, cancel: cancel}
-	go func() { <-ctx.Done(); p.close() }()
-	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		if state == webrtc.PeerConnectionStateFailed {
-			go p.close()
+	p := &peer{ctx: ctx, cancel: cancel, requests: make(chan protocol.Request, 16)}
+	send := func(event protocol.Event) error {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-	})
-	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		if candidate != nil {
-			b, _ := json.Marshal(candidate.ToJSON())
-			if signal(protocol.Signal{Type: "candidate", PeerID: msg.PeerID, Candidate: b}) != nil {
-				go p.close()
-			}
+		err := signal(protocol.Signal{Type: "event", PeerID: msg.PeerID, Event: &event})
+		if err != nil {
+			p.close()
 		}
-	})
-	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		p.mu.Lock()
-		if p.channelAccepted || dc.Label() != "remote-agent" {
-			p.mu.Unlock()
-			_ = dc.Close()
-			return
-		}
-		p.channelAccepted = true
-		p.mu.Unlock()
-		var sendMu sync.Mutex
-		send := func(event protocol.Event) error {
-			sendMu.Lock()
-			defer sendMu.Unlock()
-			b, err := json.Marshal(event)
-			if err != nil {
-				return err
-			}
-			deadline := time.NewTimer(10 * time.Second)
-			defer deadline.Stop()
-			for dc.BufferedAmount() > 1024*1024 {
-				select {
-				case <-p.ctx.Done():
-					return p.ctx.Err()
-				case <-deadline.C:
-					return errors.New("client output backpressure timeout")
-				case <-time.After(20 * time.Millisecond):
-				}
-			}
-			return dc.SendText(string(b))
-		}
-		dc.OnClose(func() { go p.close() })
-		dc.OnMessage(func(message webrtc.DataChannelMessage) {
-			if !message.IsString || len(message.Data) > 64*1024 {
-				go p.close()
-				return
-			}
-			var req protocol.Request
-			if json.Unmarshal(message.Data, &req) != nil || len(req.ID) == 0 || len(req.ID) > 100 {
-				go p.close()
-				return
-			}
-			p.mu.Lock()
-			authenticated := p.authenticated
-			if !authenticated && req.Type == "authenticate" && subtle.ConstantTimeCompare([]byte(req.Secret), []byte(msg.Secret)) == 1 {
-				p.authenticated = true
-				authenticated = true
-			}
-			p.mu.Unlock()
-			if !authenticated {
-				_ = send(protocol.Event{ID: req.ID, Type: "error", Error: "peer authentication required"})
-				go p.close()
-				return
-			}
-			a.handle(p, req, send)
-		})
-	})
-	var offer webrtc.SessionDescription
-	if err = json.Unmarshal(msg.SDP, &offer); err != nil || offer.Type != webrtc.SDPTypeOffer {
-		p.close()
-		return nil, errors.New("invalid offer")
-	}
-	if err = pc.SetRemoteDescription(offer); err != nil {
-		p.close()
-		return nil, err
-	}
-	answer, err := pc.CreateAnswer(nil)
-	if err != nil {
-		p.close()
-		return nil, err
-	}
-	if err = pc.SetLocalDescription(answer); err != nil {
-		p.close()
-		return nil, err
-	}
-	sdp, _ := json.Marshal(answer)
-	if err = signal(protocol.Signal{Type: "answer", PeerID: msg.PeerID, SDP: sdp}); err != nil {
-		p.close()
-		return nil, err
+		return err
 	}
 	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(30 * time.Second):
-			p.mu.Lock()
-			authenticated := p.authenticated
-			p.mu.Unlock()
-			if !authenticated {
-				p.close()
+		defer p.close()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case req := <-p.requests:
+				if ctx.Err() != nil {
+					return
+				}
+				a.handle(p, req, send)
 			}
 		}
 	}()
+	go func() { <-ctx.Done(); _ = signal(protocol.Signal{Type: "close", PeerID: msg.PeerID}) }()
 	return p, nil
 }
 func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) error) {
@@ -484,7 +392,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 					if stream != "stdout" {
 						role = "system"
 					}
-					// Bound each SCTP message, including both display text and history data.
+					// Bound each relay event, including both display text and history data.
 					runes := []rune(text)
 					for len(runes) > 0 {
 						n := min(len(runes), 2000)

@@ -1,11 +1,7 @@
 package server
 
 import (
-	"crypto/hmac"
-	"crypto/sha1"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -24,9 +20,6 @@ import (
 type Config struct {
 	PublicURL    string
 	Downloads    string
-	STUN         []string
-	TURN         []string
-	TURNSecret   string
 	AllowSignup  bool
 	GatewayURL   string
 	GatewayToken string
@@ -52,9 +45,6 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	u, err := protocol.ParseServerURL(cfg.PublicURL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("PUBLIC_URL: %w", err)
-	}
-	if len(cfg.TURN) > 0 && cfg.TURNSecret == "" {
-		return nil, nil, errors.New("TURN_SECRET is required for TURN_URLS")
 	}
 	cfg.PublicURL = u.String()
 	if cfg.GatewayModel == "" {
@@ -90,7 +80,7 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("DELETE /api/agents/{id}", s.revoke)
 	mux.HandleFunc("POST /api/enroll", s.redeem)
 	mux.HandleFunc("GET /api/agent/connect", s.agentSocket)
-	mux.HandleFunc("GET /api/agents/{id}/signal", s.browserSocket)
+	mux.HandleFunc("GET /api/agents/{id}/connect", s.browserSocket)
 	mux.HandleFunc("GET /install/{script}", s.installer)
 	mux.HandleFunc("GET /install/codex-release", s.codexRelease)
 	mux.HandleFunc("GET /downloads/codex/{file}", s.codexDownload)
@@ -375,19 +365,6 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) authenticateAgent(r *http.Request) (store.Agent, error) {
 	return s.Store.AuthenticateAgent(r.URL.Query().Get("id"), bearer(r))
-}
-func (s *Server) ice(userID string) []protocol.ICE {
-	ice := []protocol.ICE{}
-	if len(s.Config.STUN) > 0 {
-		ice = append(ice, protocol.ICE{URLs: s.Config.STUN})
-	}
-	if len(s.Config.TURN) > 0 {
-		username := fmt.Sprintf("%d:%s", time.Now().Add(time.Hour).Unix(), userID)
-		mac := hmac.New(sha1.New, []byte(s.Config.TURNSecret))
-		mac.Write([]byte(username))
-		ice = append(ice, protocol.ICE{URLs: s.Config.TURN, Username: username, Credential: base64.StdEncoding.EncodeToString(mac.Sum(nil))})
-	}
-	return ice
 }
 func (s *Server) Close() {
 	s.cancelInference("")

@@ -11,12 +11,10 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/pion/webrtc/v4"
 	"github.com/string1225/remote-agent-cli/internal/agent"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 	"github.com/string1225/remote-agent-cli/internal/server"
@@ -117,7 +115,7 @@ func (f *fixture) socket(c *http.Client, id string) (*websocket.Conn, *http.Resp
 	for _, cookie := range c.Jar.Cookies(u) {
 		header.Add("Cookie", cookie.String())
 	}
-	return websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(f.url, "http")+"/api/agents/"+id+"/signal", header)
+	return websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(f.url, "http")+"/api/agents/"+id+"/connect", header)
 }
 
 func TestHTTPAuthenticationAndTenantIsolation(t *testing.T) {
@@ -158,11 +156,8 @@ func TestHTTPAuthenticationAndTenantIsolation(t *testing.T) {
 
 type testPeer struct {
 	conn   *websocket.Conn
-	pc     *webrtc.PeerConnection
-	dc     *webrtc.DataChannel
 	events chan protocol.Event
 	closed chan struct{}
-	secret string
 }
 
 func (f *fixture) peer(c *http.Client, id string) *testPeer {
@@ -176,88 +171,28 @@ func (f *fixture) peer(c *http.Client, id string) *testPeer {
 	if err := conn.ReadJSON(&ready); err != nil {
 		f.t.Fatal(err)
 	}
-	if ready.Type != "ready" {
+	if ready.Type != "ready" || ready.Transport != protocol.RelayTransport {
 		f.t.Fatal(ready.Type)
 	}
-	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	dc, err := pc.CreateDataChannel("remote-agent", nil)
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	p := &testPeer{conn: conn, pc: pc, dc: dc, events: make(chan protocol.Event, 100), closed: make(chan struct{}), secret: ready.Secret}
-	f.t.Cleanup(func() { conn.Close(); pc.Close() })
-	var once sync.Once
-	dc.OnClose(func() { once.Do(func() { close(p.closed) }) })
-	dc.OnMessage(func(message webrtc.DataChannelMessage) {
-		var event protocol.Event
-		if json.Unmarshal(message.Data, &event) == nil {
-			p.events <- event
-		}
-	})
-	opened := make(chan struct{})
-	dc.OnOpen(func() { close(opened) })
+	p := &testPeer{conn: conn, events: make(chan protocol.Event, 100), closed: make(chan struct{})}
+	f.t.Cleanup(func() { conn.Close() })
 	go func() {
-		pending := []webrtc.ICECandidateInit{}
+		defer close(p.closed)
 		for {
 			var msg protocol.Signal
 			if conn.ReadJSON(&msg) != nil {
 				return
 			}
-			switch msg.Type {
-			case "answer":
-				var answer webrtc.SessionDescription
-				if json.Unmarshal(msg.SDP, &answer) == nil {
-					if pc.SetRemoteDescription(answer) != nil {
-						return
-					}
-					for _, c := range pending {
-						_ = pc.AddICECandidate(c)
-					}
-					pending = nil
-				}
-			case "candidate":
-				var c webrtc.ICECandidateInit
-				if json.Unmarshal(msg.Candidate, &c) == nil {
-					if pc.RemoteDescription() == nil {
-						pending = append(pending, c)
-					} else {
-						_ = pc.AddICECandidate(c)
-					}
-				}
+			if msg.Type == "event" && msg.Event != nil {
+				p.events <- *msg.Event
 			}
 		}
 	}()
-	complete := webrtc.GatheringCompletePromise(pc)
-	offer, err := pc.CreateOffer(nil)
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	if err = pc.SetLocalDescription(offer); err != nil {
-		f.t.Fatal(err)
-	}
-	select {
-	case <-complete:
-	case <-time.After(8 * time.Second):
-		f.t.Fatal("ICE gathering timeout")
-	}
-	sdp, _ := json.Marshal(pc.LocalDescription())
-	if err := conn.WriteJSON(protocol.Signal{Type: "offer", SDP: sdp}); err != nil {
-		f.t.Fatal(err)
-	}
-	select {
-	case <-opened:
-	case <-time.After(10 * time.Second):
-		f.t.Fatal("WebRTC DataChannel did not open")
-	}
 	return p
 }
 func (p *testPeer) send(t *testing.T, r protocol.Request) {
 	t.Helper()
-	b, _ := json.Marshal(r)
-	if err := p.dc.SendText(string(b)); err != nil {
+	if err := p.conn.WriteJSON(protocol.Signal{Type: "request", Request: &r}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -280,8 +215,8 @@ func (p *testPeer) next(t *testing.T, id, kind string) protocol.Event {
 	}
 }
 
-func TestWebRTCDirectRPCAndRevocation(t *testing.T) {
-	for _, scenario := range []struct{ revocation, basePath string }{{"device", ""}, {"logout", ""}, {"device", "/agents"}, {"logout", "/agents"}} {
+func TestWebSocketRelayRPCAndRevocation(t *testing.T) {
+	for _, scenario := range []struct{ revocation, basePath string }{{"device", ""}, {"logout", ""}, {"disconnect", ""}, {"device", "/agents"}, {"logout", "/agents"}} {
 		t.Run(scenario.revocation+scenario.basePath, func(t *testing.T) {
 			revocation := scenario.revocation
 			f := setupAt(t, scenario.basePath)
@@ -299,7 +234,7 @@ func TestWebRTCDirectRPCAndRevocation(t *testing.T) {
 				if write {
 					t.Error("read-only policy lost")
 				}
-				if err := send(protocol.Event{ID: id, Type: "output", Data: map[string]string{"stream": "stdout", "text": "direct-output-中文"}}); err != nil {
+				if err := send(protocol.Event{ID: id, Type: "output", Data: map[string]string{"stream": "stdout", "text": "relay-output-中文"}}); err != nil {
 					return err
 				}
 				<-ctx.Done()
@@ -329,7 +264,7 @@ func TestWebRTCDirectRPCAndRevocation(t *testing.T) {
 				time.Sleep(20 * time.Millisecond)
 			}
 			p := f.peer(owner, row.ID)
-			p.send(t, protocol.Request{ID: "auth", Type: "authenticate", Secret: p.secret})
+			p.send(t, protocol.Request{ID: "auth", Type: "services.list"})
 			p.next(t, "auth", "result")
 			p.send(t, protocol.Request{ID: "add", Type: "services.add", Service: protocol.Service{Name: "test", Provider: "codex", Workspace: root}})
 			result := p.next(t, "add", "result")
@@ -345,8 +280,8 @@ func TestWebRTCDirectRPCAndRevocation(t *testing.T) {
 			p.next(t, "run", "started")
 			output := p.next(t, "run", "output")
 			encoded, _ := json.Marshal(output.Data)
-			if !bytes.Contains(encoded, []byte("direct-output-中文")) {
-				t.Fatal("output did not traverse datachannel")
+			if !bytes.Contains(encoded, []byte("relay-output-中文")) {
+				t.Fatal("output did not traverse server relay")
 			}
 			select {
 			case prompt := <-ran:
@@ -356,7 +291,9 @@ func TestWebRTCDirectRPCAndRevocation(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("runner not invoked")
 			}
-			if revocation == "device" {
+			if revocation == "disconnect" {
+				p.conn.Close()
+			} else if revocation == "device" {
 				f.request(owner, "DELETE", "/api/agents/"+row.ID, nil, 200)
 			} else {
 				f.request(owner, "POST", "/api/logout", map[string]any{}, 200)
@@ -369,7 +306,7 @@ func TestWebRTCDirectRPCAndRevocation(t *testing.T) {
 			select {
 			case <-p.closed:
 			case <-time.After(5 * time.Second):
-				t.Fatal("revocation did not close P2P connection")
+				t.Fatal("revocation did not close relay connection")
 			}
 		})
 	}

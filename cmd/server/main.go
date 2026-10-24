@@ -26,15 +26,7 @@ func env(name, defaultValue string) string {
 	}
 	return defaultValue
 }
-func split(v string) []string {
-	out := []string{}
-	for _, s := range strings.Split(v, ",") {
-		if s = strings.TrimSpace(s); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -91,7 +83,7 @@ func run() error {
 }
 
 func configFromEnv() (server.Config, error) {
-	cfg := server.Config{PublicURL: env("PUBLIC_URL", "http://localhost:8080"), Downloads: env("DOWNLOADS_DIR", "dist"), STUN: split(env("STUN_URLS", "stun:stun.l.google.com:19302")), TURN: split(os.Getenv("TURN_URLS")), TURNSecret: os.Getenv("TURN_SECRET"), GatewayURL: strings.TrimSpace(os.Getenv("CODEX_GATEWAY_URL")), GatewayModel: env("CODEX_MODEL", "gpt-6.1-sol")}
+	cfg := server.Config{PublicURL: env("PUBLIC_URL", "http://localhost:8080"), Downloads: env("DOWNLOADS_DIR", "dist"), GatewayURL: strings.TrimSpace(os.Getenv("CODEX_GATEWAY_URL")), GatewayModel: env("CODEX_MODEL", "gpt-6.1-sol")}
 	if cfg.GatewayURL == "" {
 		return cfg, nil
 	}

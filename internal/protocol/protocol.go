@@ -12,35 +12,32 @@ type Service struct {
 	OutputSchema string `json:"-"`
 }
 
-type ICE struct {
-	URLs       []string `json:"urls"`
-	Username   string   `json:"username,omitempty"`
-	Credential string   `json:"credential,omitempty"`
-}
+const RelayTransport = "relay-v1"
+const MaxRequestBytes = 64 * 1024
+const MaxRelayBytes = 256 * 1024
 
-// Signal contains connection metadata only. Prompts and output use DataChannel.
+// Signal is a relay envelope. The authenticated server assigns PeerID; requests
+// and streaming events travel over the same TLS WebSocket as device heartbeats.
 type Signal struct {
 	Type      string `json:"type"`
 	PeerID    string `json:"peerId,omitempty"`
-	Secret    string `json:"secret,omitempty"`
+	Transport string `json:"transport,omitempty"`
 	ExpiresAt int64  `json:"expiresAt,omitempty"`
 	// LeaseSeconds is stamped by the authenticated control server, not the browser.
 	// It avoids comparing wall clocks on different machines.
-	LeaseSeconds int64           `json:"leaseSeconds,omitempty"`
-	SDP          json.RawMessage `json:"sdp,omitempty"`
-	Candidate    json.RawMessage `json:"candidate,omitempty"`
-	ICE          []ICE           `json:"iceServers,omitempty"`
-	Name         string          `json:"name,omitempty"`
-	OS           string          `json:"os,omitempty"`
-	Arch         string          `json:"arch,omitempty"`
-	Services     []Service       `json:"services,omitempty"`
-	Error        string          `json:"error,omitempty"`
+	LeaseSeconds int64     `json:"leaseSeconds,omitempty"`
+	Request      *Request  `json:"request,omitempty"`
+	Event        *Event    `json:"event,omitempty"`
+	Name         string    `json:"name,omitempty"`
+	OS           string    `json:"os,omitempty"`
+	Arch         string    `json:"arch,omitempty"`
+	Services     []Service `json:"services,omitempty"`
+	Error        string    `json:"error,omitempty"`
 }
 
 type Request struct {
 	ID        string          `json:"id"`
 	Type      string          `json:"type"`
-	Secret    string          `json:"secret,omitempty"`
 	Service   Service         `json:"service,omitempty"`
 	ServiceID string          `json:"serviceId,omitempty"`
 	Prompt    string          `json:"prompt,omitempty"`

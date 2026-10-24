@@ -1,8 +1,12 @@
+<!-- Current transport supersedes historical deployment records below. -->
+
+> 2026-10-24：网页和客户端统一通过当前站点中转，客户端与服务器使用持久 WebSocket；不再使用 WebRTC、P2P、STUN 或 TURN。部署时同时更新服务器、客户端包和网页；旧客户端需重新执行安装命令升级，Windows 使用 MSI 并保留原数据。
+
 # Remote Agent
 
 把 Windows / macOS / Linux 电脑上的 Codex、Qoder CLI 接到一个私人网页工作台，并为 Codex App / CLI 提供账号管理、个人模型 Token 和本机配置工具。生产入口为 [codex.sunny-string.cn/agents](https://codex.sunny-string.cn/agents/)。
 
-**远程任务请求和输出通过浏览器 ↔ Agent 的加密 DataChannel 传输；配置了平台模型服务的 Codex 另外通过 HTTPS 模型入口访问服务器上的受限适配器。** 服务器负责账号、Token、设备目录、保活、信令及可选的模型转发。ICE 优先尝试直连，无法穿透时可使用自建 TURN 中继。中继仍然转发端到端加密的数据，但会占用 TURN 服务器带宽。
+**网页与客户端都通过 139 站点传输。** 客户端保持到服务器的 WebSocket 长连接；服务器转发远程任务、会话与 SaySo 数据，并保留账号授权和本机执行权限。配置了 Codex 代理的模型调用继续走 HTTPS 入口。
 
 这是可运行的单节点 MVP：Go 服务端、Go CLI、内嵌中文网页；无需 Node.js、npm 或数据库服务。
 
@@ -25,11 +29,11 @@
 - 下载独立 CLI、SHA-256 校验、设备凭证落盘、跨平台自启动。
 - `remote-agent update` 从绑定服务器更新当前平台的 CLI，保留绑定和会话记录；支持检查更新、版本查看、程序备份及失败回滚。
 - Windows MSI / Windows Service，开机自动运行、退出登录后在线、失败恢复与原目录数据保留；macOS LaunchAgent / Linux systemd 用户服务；心跳、掉线重连、在线状态、撤销设备。旧 Windows 用户安装可迁移。
-- 在网页通过直连注册 Codex / Qoder 服务及项目目录；配置保存在目标电脑。
-- 添加项目时可按目录名搜索、输入部分路径自动补全，或逐层浏览；支持键盘和手机触摸，目录候选通过 P2P 从目标电脑读取。
-- WebRTC DTLS/SCTP 加密、Trickle ICE、STUN / TURN、短期 TURN 凭证、会话归属校验。
+- 在网页通过站点中转注册 Codex / Qoder 服务及项目目录；配置保存在目标电脑。
+- 添加项目时可按目录名搜索、输入部分路径自动补全，或逐层浏览；支持键盘和手机触摸，目录候选经站点从目标电脑读取。
+- 网页与客户端统一通过 139 站点的 WebSocket 中转，客户端持续心跳与断线重连，保留账号和会话归属校验。
 - 桌面三栏工作台：设备 → Agent → 项目目录、可搜索会话列表、默认占 50% 的会话区域；两条分隔线可拖动调整列宽，在当前浏览器的 localStorage 保存并在刷新后恢复。支持方向键微调、双击恢复默认宽度；手机全屏会话与左右抽屉切换。
-- 会话历史保存在目标电脑 `~/.remote-agent/history.db`，通过加密直连分页读取；支持新建、搜索、刷新后查看，以及按 Codex / Qoder 原生会话 ID 继续对话。
+- 会话历史保存在目标电脑 `~/.remote-agent/history.db`，通过站点分页读取；支持新建、搜索、刷新后查看，以及按 Codex / Qoder 原生会话 ID 继续对话。
 - 流式输出与打字效果、停止任务、断线取消、设备级单任务互斥、20 分钟任务超时、30 分钟连接上限。
 - 工作目录白名单、默认只读策略、本机手动开启文件编辑权限。
 
@@ -133,9 +137,6 @@ Compose 默认不启用模型网关。容器内的 `127.0.0.1` 不指向宿主�
 | `CODEX_GATEWAY_URL` | 空 | 可选固定 HTTP loopback 根地址；空值禁用模型转发 |
 | `CODEX_GATEWAY_TOKEN_FILE` | 空 | 启用网关时必填，服务启动时读取的私有服务凭证文件；不要放个人 Token |
 | `CODEX_MODEL` | `gpt-6.1-sol` | 网页和已绑定设备配置返回的默认模型；保留已有本机模型选择 |
-| `STUN_URLS` | `stun:stun.l.google.com:19302` | 逗号分隔；空值禁用，可替换为自己的 STUN |
-| `TURN_URLS` | 空 | 例如 `turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp` |
-| `TURN_SECRET` | 空 | 与 coturn 相同的共享认证密钥；不要提交到 Git |
 
 服务器使用 socket 来源 IP 做认证限流，不信任任意 `X-Forwarded-For`。反向代理部署时，后端会把同一代理视作一个来源；大规模部署前需在可信代理层做更细粒度限流。bbolt 只支持一个写入进程；不要给同一数据库启动多个实例。备份时停止服务器后复制数据库文件。
 
@@ -161,19 +162,9 @@ r2 已完成 25 分钟下载超时及官方完整包布局修复。官方 Window
 
 回滚也先停服务，成套恢复旧数据库快照、二进制、环境、Nginx 和 systemd 配置并校验后启动；旧二进制不能直接使用已迁移的新账号索引。回滚到快照会丢失快照之后的账号/Token/设备变更，应在维护窗口执行。网关本身及原有 OAuth 数据不属于此次账号库迁移，不要用新平台备份覆盖它们。
 
-## NAT 穿透与 TURN
+## WebSocket 中转
 
-不是所有网络都能 P2P 直连：对称 NAT、企业防火墙或禁用 UDP 的网络通常需要中继。**未配置 TURN 时，这类网络会明确连接失败，不会自动把任务放到应用服务器转发。**
-
-Linux 上的 coturn 示例见 [deploy/compose.turn.yaml](deploy/compose.turn.yaml)：
-
-```sh
-export TURN_PUBLIC_IP=203.0.113.10  # 替换为真实公网 IP
-export TURN_SECRET=replace-with-a-long-random-secret
-docker compose -f deploy/compose.turn.yaml up -d
-```
-
-放行 TCP/UDP 3478 和 UDP 49160–49200。配置应用服务的 `TURN_URLS` / `TURN_SECRET`。服务端按用户签发 1 小时有效的 TURN REST 凭证，不向浏览器或 Agent 下发共享密钥。需要应对只允许 HTTPS 的网络时，应另行配置带有效证书的 TURN/TLS 443 或 5349，以及相应 `turns:` URL；示例未配置 TURN/TLS。
+客户端通过出站 WSS 连接 139，网页使用同一站点的 WSS 入口。只需开放站点 HTTPS 端口；反向代理须转发 Upgrade 并关闭缓冲。20 秒心跳维持连接，客户端掉线后持续重试。服务器升级时应同步发布同版本客户端包；旧客户端返回升级提示，重新执行原安装命令保留配置和历史。
 
 ## CLI 与本机权限
 
@@ -261,7 +252,7 @@ printf '%s' 'ONE_TIME_TOKEN' | remote-agent enroll \
 连接设备后，点击设备下的 **♫ SaySo · 讨论转 Action**。首次打开时会带入已经注册的项目目录，也可添加允许根目录内的其他项目。无需在目标电脑安装 Node.js 或另开 SaySo 服务，Codex/Qoder 都不是录音和本地规则功能的前提。
 
 - 项目与讨论会话管理，默认暂停；支持继续录音、暂停、每 10 分钟切段、逐段播放和文字补充。
-- 浏览器提供实时语音转写；不可用时仍保存录音。浏览器的识别服务可能联网处理音频，此行为不属于 Remote Agent 的 P2P 通道。
+- 浏览器提供实时语音转写；不可用时仍保存录音。浏览器的识别服务可能联网处理音频，此行为不属于 Remote Agent 的中转通道。
 - 录音期间每 2 分钟整理最近 5 分钟讨论，暂停时处理剩余内容；可手动完整分析。分析模型默认跟随本机 Codex，也可选其他账号支持的模型，或完全使用本地关键词规则。
 - Codex 分析会创建或补充已有 Action，保存分析输入、过程、结果及讨论原话；修改后的需求回到待完善，避免沿用旧的 Ready 状态。
 - 编辑标题、详情、优先级，确认“讨论完善”后派发给 Codex。执行结果实时回传，可查看或停止任务；始终遵守 Agent 本地 `allowWrite`，默认只读。分析始终只读。
@@ -290,7 +281,7 @@ node --check web/platform.js # 账号、Token 和 Codex 接入界面
 go run ./tools/build       # 交叉编译所有支持的平台
 ```
 
-测试覆盖账号迁移、Unicode 唯一性/搜索、管理员权限与并发保护、密码和登录态失效、Token 归属/配置失败保留/撤销、网关固定凭证替换、SSE/部分上传取消及并发限额、本机 TOML 备份/profile/权限和安装校验，还包含绑定令牌并发兑换、CSRF、工作目录边界、UTF-8/stdin 与真实 Pion ↔ Pion WebRTC 数据传输及撤销中止。集成测试使用模拟 CLI/上游，不调用付费模型或改动真实项目。GitHub Actions 在 Linux / Windows / macOS 上运行测试，另执行 Linux race detector 和交叉编译；本地 CGO 关闭且无 C 编译器时无法运行 race detector。
+测试覆盖账号迁移、Unicode 唯一性/搜索、管理员权限与并发保护、密码和登录态失效、Token 归属/配置失败保留/撤销、网关固定凭证替换、SSE/部分上传取消及并发限额、本机 TOML 备份/profile/权限和安装校验，还包含绑定令牌并发兑换、CSRF、工作目录边界、UTF-8/stdin 与真实 WebSocket 中转数据传输及撤销中止。集成测试使用模拟 CLI/上游，不调用付费模型或改动真实项目。GitHub Actions 在 Linux / Windows / macOS 上运行测试，另执行 Linux race detector 和交叉编译；本地 CGO 关闭且无 C 编译器时无法运行 race detector。
 
 `20261019-codex-platform-r2` 已通过完整 Go tests/vet、两份 JavaScript 语法检查和六平台构建；官方 Windows 0.163 本地与公网实际安装、Unix 官方完整包提取后的逐文件哈希、Linux 139 公网原生完整安装、新版原生提供方鉴权 SSE 测试上游和 Chrome 流程复验均通过。
 
@@ -301,7 +292,7 @@ go run ./tools/build       # 交叉编译所有支持的平台
 - 远程任务和会话历史保存在目标电脑，服务端没有中央任务历史；配置平台提供方时模型请求/响应会经服务器转发，但适配器不写入账号数据库或应用日志。关闭远程连接会取消其任务，已有会话输出保存在目标电脑。
 - 设备元数据、服务名称及项目路径会随心跳保存在服务器。服务端仍是登录、信令和网页代码的信任根，不宣称能抵抗已被攻陷的控制服务器。
 - 每台设备最多 8 个连接 / 1 个任务；每次任务最长 20 分钟，连接最长 30 分钟；单次提示最多 32 KiB，stdout/stderr 各最多 16 MiB，会话历史按页读取；SaySo 使用前述独立数据限额。
-- 已提供跨平台安装和构建，但真正跨公网 NAT / TURN、不同 Windows 策略以及 macOS 自启动仍需在目标部署环境验收。分发二进制尚未做代码签名 / Apple 公证。
+- 已提供跨平台安装和构建，但真正跨公网长连接、不同 Windows 策略以及 macOS 自启动仍需在目标部署环境验收。分发二进制尚未做代码签名 / Apple 公证。
 - macOS Codex CLI 原生运行，以及 Windows/macOS Codex App 安装、升级和重启生命周期尚未在真实目标硬件上验收；macOS 官方包已完成提取和逐文件哈希校验。
 
 详细协议见 [docs/architecture.md](docs/architecture.md)。
@@ -319,4 +310,4 @@ go run ./tools/build       # 交叉编译所有支持的平台
 
 配置模板：[systemd 服务](deploy/remote-agent.service)、[Nginx 站点](deploy/nginx-codex.conf)、[环境变量](deploy/server.env.example)。
 
-子路径部署时必须把完整地址（包含 `/agents`）设为 `PUBLIC_URL`，代理不要移除此前缀。CLI 安装、Cookie 路径、API 与信令会自动跟随此前缀。`/agents/healthz` 可用于健康检查。当前部署未配置 TURN，中继配置方法见前文。
+子路径部署时必须把完整地址（包含 `/agents`）设为 `PUBLIC_URL`，代理不要移除此前缀。CLI 安装、Cookie 路径、API 与 WebSocket会自动跟随此前缀。`/agents/healthz` 可用于健康检查。客户端和网页均使用当前站点，不需要 TURN。

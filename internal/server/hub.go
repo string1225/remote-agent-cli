@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ func (c *socket) close() { _ = c.conn.Close() }
 type browser struct {
 	*socket
 	agentID, sessionHash, userID string
+	expires                      int64
 }
 type hub struct {
 	mu       sync.Mutex
@@ -82,13 +84,17 @@ func upgrade(w http.ResponseWriter, r *http.Request, origin string) *socket {
 	if err != nil {
 		return nil
 	}
-	conn.SetReadLimit(128 * 1024)
+	conn.SetReadLimit(protocol.MaxRelayBytes)
 	return &socket{conn: conn}
 }
 func (s *Server) agentSocket(w http.ResponseWriter, r *http.Request) {
 	a, err := s.authenticateAgent(r)
 	if err != nil {
 		fail(w, 401, "agent credentials denied")
+		return
+	}
+	if r.URL.Query().Get("transport") != protocol.RelayTransport {
+		fail(w, http.StatusUpgradeRequired, "update the client to the WebSocket relay release")
 		return
 	}
 	c := upgrade(w, r, s.origin())
@@ -146,16 +152,35 @@ func (s *Server) agentSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		if msg.Type != "answer" && msg.Type != "candidate" && msg.Type != "error" {
+		if msg.Type != "ready" && msg.Type != "event" && msg.Type != "close" {
 			continue
 		}
 		s.hub.mu.Lock()
 		b := s.hub.browsers[msg.PeerID]
 		current := s.hub.agents[a.ID] == c
 		s.hub.mu.Unlock()
-		if current && b != nil && b.agentID == a.ID {
-			_ = b.send(protocol.Signal{Type: msg.Type, SDP: msg.SDP, Candidate: msg.Candidate, Error: msg.Error})
+		if !current || b == nil || b.agentID != a.ID {
+			continue
 		}
+		if time.Now().Unix() >= b.expires || msg.Type == "close" {
+			b.close()
+			continue
+		}
+		switch msg.Type {
+		case "ready":
+			if msg.Transport != protocol.RelayTransport {
+				b.close()
+				continue
+			}
+			if b.send(protocol.Signal{Type: "ready", ExpiresAt: b.expires, Transport: protocol.RelayTransport}) != nil {
+				b.close()
+			}
+		case "event":
+			if msg.Event != nil && b.send(protocol.Signal{Type: "event", Event: msg.Event}) != nil {
+				b.close()
+			}
+		}
+
 	}
 }
 func (s *Server) browserSocket(w http.ResponseWriter, r *http.Request) {
@@ -190,9 +215,8 @@ func (s *Server) browserSocket(w http.ResponseWriter, r *http.Request) {
 	if c == nil {
 		return
 	}
-	peerID, secret := store.Token(), store.Token()
+	peerID := store.Token()
 	expires := min(v.ExpiresAt, time.Now().Add(30*time.Minute).Unix())
-	ice := s.ice(v.UserID)
 	s.hub.mu.Lock()
 	count = 0
 	for _, b := range s.hub.browsers {
@@ -205,7 +229,7 @@ func (s *Server) browserSocket(w http.ResponseWriter, r *http.Request) {
 		c.close()
 		return
 	}
-	s.hub.browsers[peerID] = &browser{socket: c, agentID: a.ID, sessionHash: store.Hash(token), userID: v.UserID}
+	s.hub.browsers[peerID] = &browser{socket: c, agentID: a.ID, sessionHash: store.Hash(token), userID: v.UserID, expires: expires}
 	s.hub.mu.Unlock()
 	defer func() {
 		c.close()
@@ -222,11 +246,9 @@ func (s *Server) browserSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil || fresh.Revoked {
 		return
 	}
-	if c.send(protocol.Signal{Type: "ready", PeerID: peerID, Secret: secret, ExpiresAt: expires, ICE: ice}) != nil {
+	if agent.send(protocol.Signal{Type: "open", PeerID: peerID, LeaseSeconds: max(int64(1), expires-time.Now().Unix())}) != nil {
 		return
 	}
-	offered := false
-	candidateCount := 0
 	for {
 		deadline := time.Now().Add(65 * time.Second)
 		if end := time.Unix(expires, 0); end.Before(deadline) {
@@ -245,26 +267,21 @@ func (s *Server) browserSocket(w http.ResponseWriter, r *http.Request) {
 			if c.send(protocol.Signal{Type: "pong"}) != nil {
 				return
 			}
-		case "offer":
-			if offered {
+		case "request":
+			if msg.Request == nil || len(msg.Request.ID) == 0 || len(msg.Request.ID) > 100 {
 				return
 			}
-			offered = true
-			// Keep expiry enforcement on the server's clock. The Agent uses a bounded
-			// relative lifetime because its wall clock may differ from this host.
-			remaining := max(int64(1), expires-time.Now().Unix())
-			if agent.send(protocol.Signal{Type: "offer", PeerID: peerID, Secret: secret, ExpiresAt: expires, LeaseSeconds: remaining, SDP: msg.SDP, ICE: ice}) != nil {
+			data, err := json.Marshal(msg.Request)
+			if err != nil || len(data) > protocol.MaxRequestBytes {
 				return
 			}
-		case "candidate":
-			candidateCount++
-			if !offered || candidateCount > 128 {
-				return
-			}
-			if agent.send(protocol.Signal{Type: "candidate", PeerID: peerID, Candidate: msg.Candidate}) != nil {
+			// Never trust routing, identity or lease fields supplied by a browser.
+			if agent.send(protocol.Signal{Type: "request", PeerID: peerID, Request: msg.Request}) != nil {
 				return
 			}
 		case "close":
+			return
+		default:
 			return
 		}
 	}

@@ -267,8 +267,6 @@ function disconnect(reason) {
     clearInterval(peer.ping);
     clearTimeout(peer.timeout);
     peer.reject?.(Error(reason || "连接已断开"));
-    peer.dc?.close();
-    peer.pc?.close();
     peer.ws.close();
   }
   for (const entry of state.pending.values()) {
@@ -290,7 +288,7 @@ function disconnect(reason) {
 function rpc(type, fields = {}) {
   return new Promise((resolve, reject) => {
     const peer = state.peer;
-    if (!peer || peer.dc?.readyState !== "open") {
+    if (!peer || peer.ws.readyState !== WebSocket.OPEN) {
       reject(Error("设备尚未连接"));
       return;
     }
@@ -301,7 +299,7 @@ function rpc(type, fields = {}) {
     }, 20000);
     state.pending.set(id, { resolve, reject, timer, chunks: [], chunkSize: 0 });
     try {
-      peer.dc.send(JSON.stringify({ id, type, ...fields }));
+      sendRequest(peer, { id, type, ...fields });
     } catch (e) {
       clearTimeout(timer);
       state.pending.delete(id);
@@ -318,96 +316,14 @@ function refreshServices(data) {
   state.allowWrite = !!data.allowWrite;
   renderDevices();
 }
-async function updateTransport(peer) {
-  if (state.peer !== peer) return;
-  try {
-    const stats = await peer.pc.getStats();
-    for (const report of stats.values()) {
-      if (report.type === "transport" && report.selectedCandidatePairId) {
-        const pair = stats.get(report.selectedCandidatePairId);
-        const local = stats.get(pair?.localCandidateId),
-          remote = stats.get(pair?.remoteCandidateId);
-        connectionStatus(
-          local?.candidateType === "relay" || remote?.candidateType === "relay"
-            ? "TURN 加密中继"
-            : "P2P 加密直连",
-          true,
-        );
-        return;
-      }
-    }
-    connectionStatus("加密通道已连接", true);
-  } catch {
-    connectionStatus("加密通道已连接", true);
-  }
+function sendRequest(peer, request) {
+  const message = JSON.stringify({ type: "request", request });
+  if (new TextEncoder().encode(JSON.stringify(request)).length > 64 * 1024)
+    throw Error("请求超过 64 KiB 上限");
+  if (peer.ws.bufferedAmount > 1024 * 1024) throw Error("连接繁忙，请稍后重试");
+  peer.ws.send(message);
 }
-function connectDevice(agent) {
-  if (state.selected?.id === agent.id && state.peer) return state.peer.ready;
-  if (state.running && !confirm("切换设备会停止当前任务，继续吗？"))
-    return Promise.reject(Error("已取消切换"));
-  disconnect();
-  state.selected = agent;
-  state.expanded.add(agent.id);
-  renderDevices();
-  connectionStatus("正在连接…");
-  const ws = new WebSocket(
-    `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${basePath}/api/agents/${agent.id}/signal`,
-  );
-  const peer = {
-    ws,
-    remoteQueue: [],
-    localQueue: [],
-    offerSent: false,
-    pc: null,
-    dc: null,
-  };
-  peer.ready = new Promise((resolve, reject) => {
-    peer.resolve = resolve;
-    peer.reject = reject;
-  });
-  state.peer = peer;
-  const fail = (msg) => {
-    if (state.peer === peer) {
-      notice(msg);
-      disconnect(msg);
-    }
-  };
-  peer.timeout = setTimeout(
-    () => fail("连接超时，请检查网络或配置 TURN"),
-    35000,
-  );
-  ws.onclose = () => fail("设备控制连接已断开");
-  ws.onerror = () => fail("无法连接设备，请刷新设备状态");
-  ws.onmessage = async (event) => {
-    if (state.peer !== peer) return;
-    try {
-      const msg = JSON.parse(event.data);
-      if (msg.type === "ready") {
-        peer.secret = msg.secret;
-        peer.pc = new RTCPeerConnection({ iceServers: msg.iceServers });
-        peer.dc = peer.pc.createDataChannel("remote-agent", { ordered: true });
-        peer.pc.onicecandidate = (event) => {
-          if (!event.candidate) return;
-          const m = JSON.stringify({
-            type: "candidate",
-            candidate: event.candidate.toJSON(),
-          });
-          if (peer.offerSent && ws.readyState === WebSocket.OPEN) ws.send(m);
-          else peer.localQueue.push(m);
-        };
-        peer.pc.onconnectionstatechange = () => {
-          if (peer.pc.connectionState === "failed")
-            fail("直连失败，请检查 STUN / TURN 配置");
-        };
-        peer.dc.onclose = () => fail("数据通道已断开");
-        peer.dc.onmessage = (event) => {
-          let msg;
-          try {
-            msg = JSON.parse(event.data);
-          } catch {
-            fail("设备返回了无效数据");
-            return;
-          }
+function receiveEvent(msg) {
           const pending = state.pending.get(msg.id);
           if (pending && msg.type === "chunk") {
             const bytes = Uint8Array.from(atob(msg.data), (c) =>
@@ -477,47 +393,49 @@ function connectDevice(agent) {
               loadSession(state.session).catch((e) => notice(e.message));
             refreshSessions().catch((e) => notice(e.message));
           }
-        };
-        peer.dc.onopen = async () => {
-          if (state.peer !== peer) return;
-          try {
-            const data = await rpc("authenticate", { secret: peer.secret });
-            if (state.peer !== peer) return;
-            peer.secret = null;
-            clearTimeout(peer.timeout);
-            refreshServices(data);
-            $("disconnect").hidden = false;
-            $("selected-name").textContent = agent.name;
-            await updateTransport(peer);
-            peer.resolve(data);
-            peer.reject = null;
-          } catch (e) {
-            fail(e.message);
-          }
-        };
-        peer.ping = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN)
-            ws.send(JSON.stringify({ type: "ping" }));
-          updateTransport(peer);
-        }, 20000);
-        const offer = await peer.pc.createOffer();
-        await peer.pc.setLocalDescription(offer);
-        ws.send(JSON.stringify({ type: "offer", sdp: offer }));
-        peer.offerSent = true;
-        for (const c of peer.localQueue) ws.send(c);
-        peer.localQueue = [];
-      } else if (msg.type === "answer") {
-        await peer.pc.setRemoteDescription(msg.sdp);
-        for (const c of peer.remoteQueue) await peer.pc.addIceCandidate(c);
-        peer.remoteQueue = [];
-      } else if (msg.type === "candidate") {
-        if (peer.pc?.remoteDescription)
-          await peer.pc.addIceCandidate(msg.candidate);
-        else peer.remoteQueue.push(msg.candidate);
-      } else if (msg.type === "error") fail(msg.error || "连接失败");
-    } catch (e) {
-      fail(e.message);
-    }
+}
+function connectDevice(agent) {
+  if (state.selected?.id === agent.id && state.peer) return state.peer.ready;
+  if (state.running && !confirm("切换设备会停止当前任务，继续吗？"))
+    return Promise.reject(Error("已取消切换"));
+  disconnect();
+  state.selected = agent;
+  state.expanded.add(agent.id);
+  renderDevices();
+  connectionStatus("正在通过站点连接…");
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${basePath}/api/agents/${agent.id}/connect`);
+  const peer = { ws, lastPong: Date.now() };
+  peer.ready = new Promise((resolve, reject) => { peer.resolve = resolve; peer.reject = reject; });
+  state.peer = peer;
+  const fail = (msg) => { if (state.peer === peer) { notice(msg); disconnect(msg); } };
+  peer.timeout = setTimeout(() => fail("连接超时，请检查客户端是否在线并已更新"), 20000);
+  ws.onclose = () => fail("站点与设备的连接已断开，请重新连接");
+  ws.onerror = () => fail("无法连接站点，请刷新设备状态");
+  ws.onopen = () => {
+    peer.ping = setInterval(() => {
+      if (Date.now() - peer.lastPong > 65000) { fail("站点连接超时，请重新连接"); return; }
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
+    }, 20000);
+  };
+  ws.onmessage = async (event) => {
+    if (state.peer !== peer) return;
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "ready") {
+        if (msg.transport !== "relay-v1") throw Error("请更新服务器和客户端");
+        const data = await rpc("services.list");
+        if (state.peer !== peer) return;
+        clearTimeout(peer.timeout);
+        refreshServices(data);
+        $("disconnect").hidden = false;
+        $("selected-name").textContent = agent.name;
+        connectionStatus("站点中转 · WebSocket", true);
+        peer.resolve(data);
+        peer.reject = null;
+      } else if (msg.type === "event" && msg.event) receiveEvent(msg.event);
+      else if (msg.type === "pong") peer.lastPong = Date.now();
+      else if (msg.type === "error") fail(msg.error || "连接失败");
+    } catch (e) { fail(e.message); }
   };
   return peer.ready;
 }
@@ -1080,7 +998,7 @@ $("run-form").onsubmit = (e) => {
   if (state.running) return;
   const prompt = $("prompt").value.trim();
   if (!prompt || !state.session || !service()) return;
-  if (!state.peer || state.peer.dc.readyState !== "open") {
+  if (!state.peer || state.peer.ws.readyState !== WebSocket.OPEN) {
     notice("请先连接设备");
     return;
   }
@@ -1100,15 +1018,13 @@ $("run-form").onsubmit = (e) => {
     false,
   );
   try {
-    state.peer.dc.send(
-      JSON.stringify({
+    sendRequest(state.peer, {
         id,
         type: "run",
         serviceId: state.serviceId,
         sessionId: state.session.id,
         prompt,
-      }),
-    );
+    });
     $("prompt").value = "";
     state.drafts.delete(state.session.id);
     renderSessions();
@@ -1132,7 +1048,6 @@ $("cancel-run").onclick = async () => {
   }
 };
 window.addEventListener("beforeunload", () => {
-  state.peer?.dc?.close();
   state.peer?.ws.close();
 });
 setInterval(refresh, 10000);

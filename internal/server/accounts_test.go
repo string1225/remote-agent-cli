@@ -129,11 +129,23 @@ func (f *fixture) connectedDevice(c *http.Client) (store.Agent, string, *websock
 	if err := json.Unmarshal(body, &enrollment); err != nil {
 		f.t.Fatal(err)
 	}
-	device, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(f.url, "http")+"/api/agent/connect?id="+a.ID, http.Header{"Authorization": []string{"Bearer " + enrollment.Credential}})
+	device, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(f.url, "http")+"/api/agent/connect?transport=relay-v1&id="+a.ID, http.Header{"Authorization": []string{"Bearer " + enrollment.Credential}})
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	f.t.Cleanup(func() { device.Close() })
+	go func() {
+		for {
+			var msg protocol.Signal
+			if device.ReadJSON(&msg) != nil {
+				return
+			}
+			if msg.Type == "open" {
+				_ = device.WriteJSON(protocol.Signal{Type: "ready", PeerID: msg.PeerID, Transport: protocol.RelayTransport})
+				return
+			}
+		}
+	}()
 	browser, _, err := f.socket(c, a.ID)
 	if err != nil {
 		f.t.Fatal(err)

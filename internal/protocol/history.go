@@ -1,6 +1,6 @@
 package protocol
 
-// Sessions and their entries travel only over the authenticated DataChannel.
+// Sessions and their entries travel over the authenticated server relay.
 type Conversation struct {
 	ID        string `json:"id"`
 	ServiceID string `json:"serviceId"`

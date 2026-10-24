@@ -1,3 +1,4 @@
+# Historical deployment example; current clients do not use TURN.
 services:
   turn:
     image: coturn/coturn:4.6.3
