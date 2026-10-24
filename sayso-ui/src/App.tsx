@@ -152,7 +152,7 @@ function StatusPill({ status }: { status: ActionItem["status"] }) {
   const copy = {
     draft: "待完善",
     ready: "Ready",
-    running: "Codex 工作中",
+    running: "Web 会话工作中",
     done: "已完成",
     failed: "执行失败",
   }[status];
@@ -1568,7 +1568,7 @@ function ActionPanel({
                     onClick={() => onViewRun(action)}
                   >
                     <span>
-                      <LoaderCircle size={15} /> Codex 正在项目中工作
+                      <LoaderCircle size={15} /> Web 会话正在项目中工作
                     </span>
                     <small>查看输出</small>
                   </button>
@@ -1579,7 +1579,7 @@ function ActionPanel({
                     onClick={() => onViewRun(action)}
                   >
                     <span>
-                      <CheckCircle2 size={15} /> 已由 Codex 完成
+                      <CheckCircle2 size={15} /> Web 会话已完成
                     </span>
                     <small>查看结果</small>
                   </button>
@@ -2143,7 +2143,7 @@ function ActionModal({
   return (
     <Modal
       title={action ? "完善 Action" : "添加 Action"}
-      description="把目标和验收结果说清楚，Codex 会做得更稳。"
+      description="说明目标和验收结果，新 Web 会话将据此执行。"
       onClose={onClose}
     >
       <form
@@ -2215,10 +2215,10 @@ function RunModal({
       wide
       title={
         action.status === "running"
-          ? "Codex 正在工作"
+          ? "Web 会话正在工作"
           : action.status === "done"
-            ? "Codex 已完成"
-            : "Codex 执行结果"
+            ? "Web 会话已完成"
+            : "Web 会话执行结果"
       }
       description={action.title}
       onClose={onClose}
@@ -2235,7 +2235,7 @@ function RunModal({
       <pre className="run-output">
         {run?.output ||
           (run?.status === "running"
-            ? "正在启动 Codex…"
+            ? "正在创建 Web 会话…"
             : run?.error || "暂无输出")}
       </pre>
       {run?.error && <p role="alert">{run.error}</p>}
