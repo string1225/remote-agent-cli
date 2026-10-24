@@ -46,6 +46,11 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'WiX compilation failed.' }
         & (Join-Path $wix 'light.exe') -nologo -ext (Join-Path $wix 'WixUIExtension.dll') -cultures:zh-CN -out $package $object
         if ($LASTEXITCODE -ne 0) { throw 'WiX linking/validation failed.' }
+        # These checks open a read-only MSI session and only run costing/property
+        # actions. They never install files or touch the machine service.
+        if ($arch -eq 'amd64' -and [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'X64') {
+            & (Join-Path $PSScriptRoot 'verify-ui.ps1') -PackagePath $package
+        }
         foreach ($artifact in @($binary,$package)) {
             $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
             [IO.File]::WriteAllText("$artifact.sha256", "$hash  $([IO.Path]::GetFileName($artifact))`n", [Text.UTF8Encoding]::new($false))

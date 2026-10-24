@@ -12,6 +12,18 @@
     <SetProperty Id="CLI_LANGUAGE" Value="zh" Before="CostFinalize" Sequence="both">SystemLanguageID = 4 OR SystemLanguageID = 1028 OR SystemLanguageID = 2052 OR SystemLanguageID = 3076 OR SystemLanguageID = 4100 OR SystemLanguageID = 5124 OR SystemLanguageID = 30724 OR SystemLanguageID = 31748</SetProperty>
     <Property Id="TOKEN_SETUP_COMMAND" Value="remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt" />
     <Property Id="DEVICE_SETUP_COMMAND" Value="remote-agent connect --server https://codex.sunny-string.cn/agents --token-prompt" />
+    <Property Id="AGENT_SETUP_ACTION" Value="安装" />
+    <Property Id="AGENT_SETUP_TITLE" Value="安装 Remote Agent" />
+    <Property Id="AGENT_SETUP_DESCRIPTION" Value="安装命令行工具与自动启动的 Windows Service，并将程序加入系统 PATH。&#13;&#10;&#13;&#10;安装后打开新的 PowerShell，运行完成页上的命令设置 Token 或绑定设备。退出登录后，已绑定的服务仍保持运行。" />
+    <Property Id="AGENT_COMPLETE_TITLE" Value="安装完成 · 下一步配置 Token" />
+    <SetProperty Id="AGENT_SETUP_ACTION" Action="SetAgentUpgradeAction" Value="升级" After="FindRelatedProducts" Sequence="ui">WIX_UPGRADE_DETECTED AND NOT Installed</SetProperty>
+    <SetProperty Id="AGENT_SETUP_TITLE" Action="SetAgentUpgradeTitle" Value="升级 Remote Agent 至 [ProductVersion]" After="SetAgentUpgradeAction" Sequence="ui">WIX_UPGRADE_DETECTED AND NOT Installed</SetProperty>
+    <SetProperty Id="AGENT_SETUP_DESCRIPTION" Action="SetAgentUpgradeDescription" Value="检测到本机已安装 Remote Agent。点击升级，将更新程序并保留现有设备绑定、配置、项目、会话和录音。&#13;&#10;&#13;&#10;升级期间后台服务会短暂重启；完成后无需重新绑定或重新设置 Token。" After="SetAgentUpgradeTitle" Sequence="ui">WIX_UPGRADE_DETECTED AND NOT Installed</SetProperty>
+    <SetProperty Id="AGENT_COMPLETE_TITLE" Action="SetAgentUpgradeCompleteTitle" Value="升级完成 · 原绑定与数据已保留" After="SetAgentUpgradeDescription" Sequence="ui">WIX_UPGRADE_DETECTED AND NOT Installed</SetProperty>
+    <SetProperty Id="AGENT_SETUP_ACTION" Action="SetAgentRepairAction" Value="修复" After="SetAgentUpgradeCompleteTitle" Sequence="ui">Installed</SetProperty>
+    <SetProperty Id="AGENT_SETUP_TITLE" Action="SetAgentRepairTitle" Value="修复 Remote Agent [ProductVersion]" After="SetAgentRepairAction" Sequence="ui">Installed</SetProperty>
+    <SetProperty Id="AGENT_SETUP_DESCRIPTION" Action="SetAgentRepairDescription" Value="本机已安装此版本 Remote Agent。点击修复，将恢复安装文件和服务注册，保留设备绑定、配置、项目、会话和录音。&#13;&#10;&#13;&#10;后台服务会短暂重启；修复完成后无需重新绑定。" After="SetAgentRepairTitle" Sequence="ui">Installed</SetProperty>
+    <SetProperty Id="AGENT_COMPLETE_TITLE" Action="SetAgentRepairCompleteTitle" Value="修复完成 · 原绑定与数据已保留" After="SetAgentRepairDescription" Sequence="ui">Installed</SetProperty>
     <Condition Message="Remote Agent requires 64-bit Windows.">Installed OR VersionNT64</Condition>
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
@@ -71,24 +83,31 @@
       <TextStyle Id="Normal" FaceName="Microsoft YaHei UI" Size="9" />
       <TextStyle Id="Title" FaceName="Microsoft YaHei UI" Size="13" Bold="yes" />
       <Property Id="DefaultUIFont" Value="Normal" />
-      <Dialog Id="AgentWelcome" Width="450" Height="270" Title="Remote Agent 安装">
-        <Control Id="Title" Type="Text" X="20" Y="18" Width="410" Height="28" Text="{\Title}安装 Remote Agent" />
-        <Control Id="Description" Type="Text" X="20" Y="60" Width="410" Height="95" Text="安装命令行工具与自动启动的 Windows Service，并将程序加入系统 PATH。&#13;&#10;&#13;&#10;安装后打开新的 PowerShell，运行完成页上的命令设置 Token 或绑定设备。退出登录后，已绑定的服务仍保持运行。" />
-        <Control Id="Install" Type="PushButton" X="290" Y="235" Width="65" Height="22" Default="yes" Text="安装">
-          <Condition Action="disable">OutOfDiskSpace</Condition>
-          <Publish Event="EndDialog" Value="Return">1</Publish>
+      <Dialog Id="AgentWelcome" Width="450" Height="270" Title="Remote Agent [AGENT_SETUP_ACTION]">
+        <Control Id="Title" Type="Text" X="20" Y="18" Width="410" Height="28" Text="{\Title}[AGENT_SETUP_TITLE]" />
+        <Control Id="Description" Type="Text" X="20" Y="60" Width="410" Height="95" Text="[AGENT_SETUP_DESCRIPTION]" />
+        <Control Id="DiskSpace" Type="Text" X="20" Y="175" Width="410" Height="35" Text="磁盘空间不足，请释放目标磁盘空间后重新运行安装器。">
+          <Condition Action="show">OutOfDiskSpace = 1</Condition>
+          <Condition Action="hide">NOT (OutOfDiskSpace = 1)</Condition>
+        </Control>
+        <Control Id="Install" Type="PushButton" X="290" Y="235" Width="65" Height="22" Default="yes" Text="[AGENT_SETUP_ACTION]">
+          <Condition Action="disable">OutOfDiskSpace = 1</Condition>
+          <Condition Action="enable">NOT (OutOfDiskSpace = 1)</Condition>
+          <Publish Property="REINSTALL" Value="ALL" Order="1">Installed</Publish>
+          <Publish Property="REINSTALLMODE" Value="amus" Order="2">Installed</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="3">1</Publish>
         </Control>
         <Control Id="Cancel" Type="PushButton" X="365" Y="235" Width="65" Height="22" Cancel="yes" Text="取消">
           <Publish Event="EndDialog" Value="Exit">1</Publish>
         </Control>
       </Dialog>
-      <Dialog Id="AgentProgress" Width="450" Height="270" Title="Remote Agent 安装" Modeless="yes">
-        <Control Id="Title" Type="Text" X="20" Y="25" Width="410" Height="28" TabSkip="no" Text="{\Title}正在安装 Remote Agent" />
+      <Dialog Id="AgentProgress" Width="450" Height="270" Title="Remote Agent [AGENT_SETUP_ACTION]" Modeless="yes">
+        <Control Id="Title" Type="Text" X="20" Y="25" Width="410" Height="28" TabSkip="no" Text="{\Title}正在[AGENT_SETUP_ACTION] Remote Agent" />
         <Control Id="Status" Type="Text" X="20" Y="90" Width="410" Height="45"><Subscribe Event="ActionText" Attribute="Text" /></Control>
         <Control Id="Progress" Type="ProgressBar" X="20" Y="145" Width="410" Height="18" ProgressBlocks="yes"><Subscribe Event="SetProgress" Attribute="Progress" /></Control>
       </Dialog>
-      <Dialog Id="AgentComplete" Width="500" Height="330" Title="Remote Agent 安装完成">
-        <Control Id="Title" Type="Text" X="20" Y="15" Width="460" Height="28" Text="{\Title}安装完成 · 下一步配置 Token" />
+      <Dialog Id="AgentComplete" Width="500" Height="330" Title="Remote Agent [AGENT_SETUP_ACTION]完成">
+        <Control Id="Title" Type="Text" X="20" Y="15" Width="460" Height="28" Text="{\Title}[AGENT_COMPLETE_TITLE]" />
         <Control Id="Description" Type="Text" X="20" Y="52" Width="460" Height="45" Text="程序已加入系统 PATH。请打开新的 PowerShell；若使用 Windows Terminal，请完全退出后重新打开。选中下方命令按 Ctrl+C 复制。" />
         <Control Id="TokenLabel" Type="Text" X="20" Y="103" Width="460" Height="20" Text="设置或刷新本机 Codex 代理 Token（运行后粘贴 Token，不会回显）：" />
         <Control Id="TokenCommand" Type="Edit" X="20" Y="128" Width="460" Height="40" Property="TOKEN_SETUP_COMMAND" Multiline="yes" Sunken="yes" />
@@ -100,7 +119,7 @@
         </Control>
       </Dialog>
       <InstallUISequence>
-        <Show Dialog="AgentWelcome" Before="AgentProgress">NOT Installed AND NOT RASKIPWELCOME</Show>
+        <Show Dialog="AgentWelcome" Before="AgentProgress">NOT RASKIPWELCOME AND NOT REMOVE~="ALL"</Show>
         <Show Dialog="AgentProgress" Before="ExecuteAction" />
         <Show Dialog="AgentComplete" OnExit="success">NOT REMOVE~="ALL"</Show>
       </InstallUISequence>

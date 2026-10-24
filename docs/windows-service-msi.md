@@ -6,6 +6,8 @@ Windows 正式客户端由 MSI 安装到 `%ProgramFiles%\Remote Agent`，注册�
 
 先从网页“Codex 接入与帮助”下载 x64 或 ARM64 MSI，双击安装。MSI 安装自动 Windows Service，并将 `%ProgramFiles%\Remote Agent` 加到系统 PATH 首位，保留其他 PATH 项。完成页保持打开，显示可复制的 Token 配置与设备绑定命令，点击“完成”才关闭。无需 Windows 安装脚本；原 `windows.ps1`、`cli-windows.ps1`、`codex-windows.ps1` 返回 410 和迁移说明。
 
+安装器通过 Windows Installer 的相关产品检测选择页面：首次显示“安装”，找到旧版显示“升级”，当前产品已安装时显示“修复”。升级/修复说明明确保留原绑定和业务数据；修复设置 `REINSTALL=ALL`。磁盘判断必须比较 `OutOfDiskSpace = 1`；属性值为字符串 `0` 时表示空间充足，不能仅检查属性是否存在。
+
 新开 PowerShell（Windows Terminal 请完全退出后重新打开），运行：
 
 ```powershell
@@ -81,6 +83,8 @@ sc.exe qfailure RemoteAgent
 
 MSI 管理的 EXE 拒绝原地 `update`，升级应下载安装新版 MSI。`update --check` 可以继续检查发布版本。Windows 不再分发独立脚本安装器。
 
+后续“MSI 固定宿主 + 独立业务版本”的更新框架见 [客户端更新框架方案](superpowers/specs/2026-10-25-client-update-framework.md)。该方案尚未实现，本次安装器热修复不代表已支持独立运行时更新。
+
 卸载从 Windows 设置中的应用列表或 `msiexec /x` 进行，停止并删除服务、程序及 MSI 自己添加的 PATH 项，保留业务数据与机器服务路径配置。停止/卸载会中断正在执行的任务，应先结束任务再维护。
 
 ## 构建与验证
@@ -90,6 +94,8 @@ MSI 管理的 EXE 拒绝原地 `update`，升级应下载安装新版 MSI。`upd
 ```
 
 脚本下载固定版本 WiX 3.14.1 并校验固定 SHA-256，也支持 `-WixDirectory` 指定预先准备的工具。输出：
+
+在原生 x64 Windows 上，构建会自动运行 `tools/msi/verify-ui.ps1`：通过只读 MSI 数据库/会话验证磁盘 0/1 条件，以及安装、升级、修复模式的实际格式化文本。只运行产品检测、磁盘估算和属性设置动作，不执行安装、服务控制或自定义 EXE。也可单独传入 `-PackagePath` 检查已构建包。
 
 - `dist/remote-agent-windows-amd64.msi` 与 `.sha256`。
 - `dist/remote-agent-windows-arm64.msi` 与 `.sha256`。
