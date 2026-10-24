@@ -12,6 +12,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/string1225/remote-agent-cli/internal/i18n"
+
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
@@ -185,12 +187,21 @@ func windowsServiceAutostart(action, config string) (bool, error) {
 }
 
 func serviceACL(path, sid, permissions string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// An inherited grant on a large workspace can visit hundreds of thousands
+	// of children even without icacls /T. Killing it after one minute leaves a
+	// partially propagated ACL and previously produced an empty exit-status 1.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	started := time.Now()
+	log.Printf(i18n.Text("granting Windows Service directory access: %s"), path)
 	out, err := command(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "icacls.exe"), []string{path, "/grant:r", "*" + sid + ":" + permissions}).CombinedOutput()
 	if err != nil {
+		if ctx.Err() != nil {
+			err = fmt.Errorf("directory permission propagation timed out after %s: %w", time.Since(started).Round(time.Second), ctx.Err())
+		}
 		return fmt.Errorf("grant service access to %s: %w: %s", path, err, out)
 	}
+	log.Printf(i18n.Text("Windows Service directory access granted in %s: %s"), time.Since(started).Round(time.Millisecond), path)
 	return nil
 }
 
@@ -218,7 +229,13 @@ func PrepareWindowsService() error {
 
 // ConfigureWindowsService keeps the user's files in place. The new service
 // gets explicit access as LocalService + its service SID, never LocalSystem.
-func ConfigureWindowsService(p ServiceProfile, noStart bool) error {
+func ConfigureWindowsService(p ServiceProfile, noStart bool) (resultErr error) {
+	stage := "validate original configuration"
+	defer func() {
+		if resultErr != nil {
+			resultErr = fmt.Errorf("service setup step %s: %w", stage, resultErr)
+		}
+	}()
 	if err := p.Validate(); err != nil {
 		return err
 	}
@@ -226,6 +243,7 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) error {
 	if err != nil {
 		return err
 	}
+	stage = "open installed service"
 	s, err := openWindowsService(windows.SERVICE_ALL_ACCESS)
 	if err != nil {
 		return err
@@ -239,6 +257,7 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) error {
 	if err != nil {
 		return err
 	}
+	stage = "stop service before configuration"
 	if err = stopWindowsService(s); err != nil {
 		return err
 	}
@@ -252,6 +271,7 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) error {
 			}
 		}
 	}()
+	stage = "configure service identity and recovery"
 	sc.SidType = windows.SERVICE_SID_TYPE_UNRESTRICTED
 	sc.StartType = mgr.StartAutomatic
 	if noStart {
@@ -285,6 +305,7 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) error {
 		}
 		return nil
 	}
+	stage = "resolve original data and tool directories"
 	if err = grantDirectory(filepath.Dir(c.Path), "M"); err != nil {
 		return err
 	}
@@ -304,6 +325,7 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) error {
 			}
 		}
 	}
+	stage = "grant service access to Codex credentials"
 	for _, file := range []string{"config.toml", "auth.json"} {
 		path := filepath.Join(p.Environment["CODEX_HOME"], file)
 		if info, e := os.Stat(path); e == nil && !info.IsDir() {
@@ -322,13 +344,16 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) error {
 		}
 	}
 	for _, grant := range grants {
+		stage = "grant service access to " + grant.path
 		if err = serviceACL(grant.path, sid.String(), "(OI)(CI)"+grant.permission); err != nil {
 			return err
 		}
 	}
+	stage = "grant service access to device configuration"
 	if err = serviceACL(c.Path, sid.String(), "M"); err != nil {
 		return err
 	}
+	stage = "save protected machine service profile"
 	dir := filepath.Dir(serviceProfilePath())
 	if err = os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -364,6 +389,7 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) error {
 	}
 	// Remove only the task whose action matches this configuration. A failed
 	// service activation restores its XML and prior enabled/running state.
+	stage = "migrate matching legacy startup task"
 	legacyExe := filepath.Join(filepath.Dir(c.Path), "bin", "remote-agent.exe")
 	shell, legacyArgs := windowsTaskAction(legacyExe, c.Path)
 	legacy, err := updatePowerShell("$ErrorActionPreference='Stop'; $task=Get-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent' -ErrorAction SilentlyContinue; if ($task) { if (@($task.Actions).Count -ne 1 -or $task.Actions[0].Execute -ne " + quotePowerShell(shell) + " -or $task.Actions[0].Arguments -ne " + quotePowerShell(legacyArgs) + ") { throw 'Existing scheduled task belongs to another configuration.' }; [ordered]@{xml=(Export-ScheduledTask -TaskPath '\\' -TaskName 'RemoteAgent');running=($task.State -eq 'Running')} | ConvertTo-Json -Compress }; exit 0")
@@ -397,6 +423,7 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) error {
 		}
 	}
 	if !noStart {
+		stage = "start configured service"
 		err = startWindowsService(s)
 	}
 	if err != nil {

@@ -27,6 +27,13 @@ func TestTokenAPIEnforcesOwnershipAndNeverListsSecrets(t *testing.T) {
 	if bytes.Contains(listed, []byte(token.Token)) {
 		t.Fatal("list exposed secret")
 	}
+	revealed := f.request(alice, "POST", "/api/tokens/"+token.ID+"/reveal", map[string]string{}, 200)
+	if !bytes.Contains(revealed, []byte(token.Token)) {
+		t.Fatal("owner cannot recover token")
+	}
+	f.request(bob, "POST", "/api/tokens/"+token.ID+"/reveal", map[string]string{}, 404)
+	f.request(admin, "POST", "/api/tokens/"+token.ID+"/reveal", map[string]string{}, 404)
+	f.request(alice, "POST", "/api/tokens/"+token.ID+"/save", map[string]string{"token": "wrong"}, 404)
 	if data := f.request(bob, "GET", "/api/tokens", nil, 200); string(bytes.TrimSpace(data)) != "[]" {
 		t.Fatal("cross-user token exposed", string(data))
 	}
@@ -37,6 +44,7 @@ func TestTokenAPIEnforcesOwnershipAndNeverListsSecrets(t *testing.T) {
 		t.Fatal("admin token metadata incorrect", string(listed))
 	}
 	f.request(admin, "DELETE", "/api/admin/tokens/"+token.ID, nil, 200)
+	f.request(alice, "POST", "/api/tokens/"+token.ID+"/reveal", map[string]string{}, 404)
 	if _, err := f.db.AuthenticateCodexToken(token.Token); err == nil {
 		t.Fatal("admin revoke ineffective")
 	}

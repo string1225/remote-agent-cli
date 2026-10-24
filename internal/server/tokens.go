@@ -71,6 +71,41 @@ func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request) {
 	reply(w, 200, map[string]bool{"ok": true})
 }
 
+func (s *Server) revealToken(w http.ResponseWriter, r *http.Request) {
+	v, ok := s.require(w, r)
+	if !ok {
+		return
+	}
+	token, err := s.Store.RevealCodexToken(v.UserID, r.PathValue("id"))
+	if errors.Is(err, store.ErrTokenNotSaved) {
+		fail(w, 409, "旧 Token 未保存原文，请补存你已保存的原 Token 后再复制；原 Token 继续有效。")
+		return
+	}
+	if err != nil {
+		fail(w, 404, "token unavailable")
+		return
+	}
+	reply(w, 200, map[string]string{"token": token})
+}
+
+func (s *Server) saveToken(w http.ResponseWriter, r *http.Request) {
+	v, ok := s.require(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Token string `json:"token"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := s.Store.SaveCodexToken(v.UserID, r.PathValue("id"), strings.TrimSpace(in.Token)); err != nil {
+		fail(w, 404, "Token 不匹配或已失效，未修改原记录。")
+		return
+	}
+	reply(w, 200, map[string]bool{"ok": true})
+}
+
 func (s *Server) adminTokens(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireAdmin(w, r); !ok {
 		return

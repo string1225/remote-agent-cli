@@ -19,13 +19,13 @@ import (
 
 func runCodex(args []string) error {
 	if len(args) == 0 || (args[0] != "setup" && args[0] != "install" && args[0] != "update") {
-		return errors.New("use codex install/update [--server URL] or codex setup [--config PATH] [--server URL --token-stdin]")
+		return errors.New(tr("use codex install/update [--server URL] or codex setup [--config PATH] [--server URL --token-stdin]"))
 	}
-	flags := flag.NewFlagSet("codex setup", flag.ContinueOnError)
-	configPath := flags.String("config", agent.DefaultPath(), "enrolled device configuration")
-	serverURL := flags.String("server", "", "platform URL for personal-token setup")
-	tokenStdin := flags.Bool("token-stdin", false, "read a personal model token from stdin, without device enrollment")
-	tokenPrompt := flags.Bool("token-prompt", false, "prompt for a personal model token without echo or shell history")
+	flags := newCLIFlagSet("codex " + args[0])
+	configPath := flags.String("config", agent.DefaultPath(), tr("enrolled device configuration"))
+	serverURL := flags.String("server", "", tr("platform URL for personal-token setup"))
+	tokenStdin := flags.Bool("token-stdin", false, tr("read a personal model token from stdin, without device enrollment"))
+	tokenPrompt := flags.Bool("token-prompt", false, tr("prompt for a personal model token without echo or shell history"))
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -33,7 +33,7 @@ func runCodex(args []string) error {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return errors.New("unexpected setup arguments")
+		return errors.New(tr("unexpected setup arguments"))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
@@ -59,7 +59,7 @@ func runCodex(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Official Codex CLI installed at %s\n", path)
+		fmt.Printf(tr("Official Codex CLI installed at %s\n"), path)
 		return nil
 	}
 	if *tokenStdin || *tokenPrompt {
@@ -71,19 +71,19 @@ func runCodex(args []string) error {
 			return err
 		}
 		if !strings.HasPrefix(token, "ra_codex_") || len(token) < 40 || strings.ContainsAny(token, "\r\n") {
-			return errors.New("supply a personal token created in /agents")
+			return errors.New(tr("supply a personal token created in /agents"))
 		}
 		connection = codexsetup.Connection{BaseURL: server + "/codex/v1", Token: token, Model: "gpt-6.1-sol"}
 		req, _ := http.NewRequestWithContext(ctx, "GET", connection.BaseURL+"/models", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		res, err := client.Do(req)
 		if err != nil {
-			return errors.New("could not verify personal token with gateway")
+			return errors.New(tr("could not verify personal token with gateway"))
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
 		res.Body.Close()
 		if res.StatusCode != 200 {
-			return fmt.Errorf("gateway verification returned HTTP %d; check token and server login", res.StatusCode)
+			return fmt.Errorf(tr("gateway verification returned HTTP %d; check token and server login"), res.StatusCode)
 		}
 	} else {
 		config, err := agent.Load(*configPath)
@@ -91,7 +91,7 @@ func runCodex(args []string) error {
 			return err
 		}
 		if server != "" && server != config.Server {
-			return errors.New("setup server differs from enrolled server")
+			return errors.New(tr("setup server differs from enrolled server"))
 		}
 		server = config.Server
 		connection, err = codexsetup.DeviceConnection(client, server, config.ID, config.Credential)
@@ -105,7 +105,7 @@ func runCodex(args []string) error {
 	}
 	bin := filepath.Join(home, ".remote-agent", "bin")
 	if !agent.Detect()["codex"].Available {
-		fmt.Println("Installing official Codex CLI (SHA-256 verified)...")
+		fmt.Println(tr("Installing official Codex CLI (SHA-256 verified)..."))
 		if _, err := codexsetup.Install(ctx, server+"/install/codex-release", bin, runtime.GOOS, runtime.GOARCH, client); err != nil {
 			return err
 		}
@@ -119,8 +119,8 @@ func runCodex(args []string) error {
 		return err
 	}
 	if backup != "" {
-		fmt.Printf("Previous configuration backed up to %s\n", backup)
+		fmt.Printf(tr("Previous configuration backed up to %s\n"), backup)
 	}
-	fmt.Printf("Codex configured for %s. Restart Codex App and create a new local chat.\n", connection.BaseURL)
+	fmt.Printf(tr("Codex configured for %s. Restart Codex App and create a new local chat.\n"), connection.BaseURL)
 	return nil
 }

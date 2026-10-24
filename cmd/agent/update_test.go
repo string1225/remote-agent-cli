@@ -16,6 +16,7 @@ import (
 )
 
 func TestUpdateCLI(t *testing.T) {
+	t.Setenv("REMOTE_AGENT_LANGUAGE", "en")
 	dir := t.TempDir()
 	exe, release := filepath.Join(dir, "agent.exe"), filepath.Join(dir, "release.exe")
 	for path, version := range map[string]string{exe: "fixture-old", release: "fixture-new"} {

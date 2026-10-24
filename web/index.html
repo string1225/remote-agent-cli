@@ -256,7 +256,7 @@
       <div class="dialog-head">
         <div>
           <p class="eyebrow">BRING A DEVICE ONLINE</p>
-          <h2>添加一台设备</h2>
+          <h2 id="enroll-title">添加一台设备</h2>
         </div>
         <button class="icon-button close-dialog" aria-label="关闭">×</button>
       </div>
@@ -273,7 +273,7 @@
         <p class="muted">
           Windows：先下载安装 MSI，再在新的 PowerShell 中运行绑定命令。macOS / Linux：使用下方命令安装并绑定。
         </p>
-        <p class="expiry">一次性设备绑定凭证 · 15 分钟有效 · 请勿分享</p>
+        <p class="expiry" id="enroll-command-note">一次性设备绑定凭证 · 15 分钟有效 · 请勿分享</p>
         <p><a id="enroll-msi-x64">下载 Windows x64 MSI</a> · <a id="enroll-msi-arm64">下载 Windows ARM64 MSI</a></p>
         <label
           >Windows · 安装 MSI 后运行（PowerShell）<textarea
@@ -330,9 +330,9 @@
         <details><summary>客户端、项目与三类会话如何协作</summary><p>客户端是一台设备；项目是工作目录与 Codex / Qoder 执行器。每个项目固定置顶一个 SaySo 入口，并可绑定一个飞书/钉钉渠道会话，其余为 Web 会话。SaySo Action 和渠道助理可以创建新的 Web 会话来执行工作；Web 会话可通过客户端工具查询同账号其他客户端/项目、发起跨设备任务，并通知项目的 IM 渠道。</p></details>
       </section>
       <section id="platform-tokens" class="platform-panel" hidden>
-        <h3>我的代理 Token</h3><p class="muted">每个 Token 可用于一台或多台自己的设备。明文只在创建时显示，撤销后新的模型请求立即失效。</p>
+        <h3>我的代理 Token</h3><p class="muted">每个 Token 可用于一台或多台自己的设备。可随时复制自己的有效 Token，撤销后新的模型请求立即失效。</p>
         <form id="token-form" class="inline-form"><label>名称<input name="name" required maxlength="80" placeholder="例如：我的笔记本"></label><button class="primary" type="submit">创建 Token</button></form>
-        <div id="token-secret-box" class="token-secret" hidden><strong>请保存；关闭窗口后不再显示</strong><label>Token<input id="token-secret" readonly autocomplete="off"></label><button id="copy-token-secret" class="secondary">复制 Token</button><label>安装客户端后，更新本机 Codex 配置<textarea id="token-config-command" readonly rows="4"></textarea></label><button id="copy-token-command" class="primary">复制一键配置命令</button><p class="small muted">命令包含你的 Token，请只在自己的电脑执行，不要转发。操作系统在「接入与帮助」中选择。</p></div>
+        <div id="token-secret-box" class="token-secret" hidden><strong>请勿分享；关闭后可从列表再次复制</strong><label>Token<input id="token-secret" readonly autocomplete="off"></label><button id="copy-token-secret" class="secondary">复制 Token</button><label>安装客户端后，更新本机 Codex 配置<textarea id="token-config-command" readonly rows="4"></textarea></label><button id="copy-token-command" class="primary">复制一键配置命令</button><p class="small muted">命令包含你的 Token，请只在自己的电脑执行，不要转发。操作系统在「接入与帮助」中选择。</p></div>
         <div id="token-list" class="platform-list"></div>
       </section>
       <section id="platform-account" class="platform-panel" hidden>

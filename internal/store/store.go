@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -48,7 +49,10 @@ type enrollment struct {
 	AgentID   string `json:"agentId"`
 	ExpiresAt int64  `json:"expiresAt"`
 }
-type Store struct{ db *bolt.DB }
+type Store struct {
+	db          *bolt.DB
+	tokenCipher cipher.AEAD
+}
 
 func Token() string {
 	b := make([]byte, 32)
@@ -67,7 +71,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, name := range []string{"users", "accounts", "usernames", "sessions", "agents", "enrollments", "codex_tokens", "codex_verifiers", "meta", "channel_projects", "channel_bots"} {
+		for _, name := range []string{"users", "accounts", "usernames", "sessions", "agents", "enrollments", "codex_tokens", "codex_verifiers", "codex_secrets", "meta", "channel_projects", "channel_bots"} {
 			if _, e := tx.CreateBucketIfNotExists([]byte(name)); e != nil {
 				return e
 			}
@@ -78,7 +82,12 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db}, nil
+	aead, err := tokenCipher(db, path+".token-key")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &Store{db: db, tokenCipher: aead}, nil
 }
 func (s *Store) Close() error { return s.db.Close() }
 func put(tx *bolt.Tx, bucket, key string, v any) error {

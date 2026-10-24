@@ -18,6 +18,7 @@ type CodexToken struct {
 	LastUsedAt int64  `json:"lastUsedAt"`
 	Revoked    bool   `json:"revoked"`
 	AgentID    string `json:"agentId,omitempty"`
+	Copyable   bool   `json:"copyable"`
 }
 
 func revokeAgentTokens(tx *bolt.Tx, agentID string) error {
@@ -50,7 +51,7 @@ func (s *Store) NewCodexToken(userID, name, agentID string) (info CodexToken, se
 		return info, "", ErrInvalid
 	}
 	secret = "ra_codex_" + Token()
-	info = CodexToken{ID: Token(), UserID: userID, Name: name, Prefix: secret[:17], CreatedAt: time.Now().Unix(), AgentID: agentID}
+	info = CodexToken{ID: Token(), UserID: userID, Name: name, Prefix: secret[:17], CreatedAt: time.Now().Unix(), AgentID: agentID, Copyable: true}
 	err = s.db.Update(func(tx *bolt.Tx) error {
 		if !activeUser(tx, userID) {
 			return ErrDenied
@@ -64,6 +65,9 @@ func (s *Store) NewCodexToken(userID, name, agentID string) (info CodexToken, se
 			// previous tokens usable until explicit token or device revocation.
 		}
 		if err := put(tx, "codex_tokens", info.ID, info); err != nil {
+			return err
+		}
+		if err := s.sealToken(tx, info.ID, secret); err != nil {
 			return err
 		}
 		return tx.Bucket([]byte("codex_verifiers")).Put([]byte(Hash(secret)), []byte(info.ID))
@@ -83,6 +87,7 @@ func (s *Store) CodexTokens(userID string) (list []CodexToken, err error) {
 				return err
 			}
 			if userID == "" || info.UserID == userID {
+				info.Copyable = !info.Revoked && tx.Bucket([]byte("codex_secrets")).Get([]byte(info.ID)) != nil
 				list = append(list, info)
 			}
 			return nil

@@ -8,6 +8,8 @@
     <MajorUpgrade Schedule="afterInstallExecute" DowngradeErrorMessage="A newer Remote Agent is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="CLI_LANGUAGE" Value="en" Secure="yes" />
+    <SetProperty Id="CLI_LANGUAGE" Value="zh" Before="CostFinalize" Sequence="both">SystemLanguageID = 4 OR SystemLanguageID = 1028 OR SystemLanguageID = 2052 OR SystemLanguageID = 3076 OR SystemLanguageID = 4100 OR SystemLanguageID = 5124 OR SystemLanguageID = 30724 OR SystemLanguageID = 31748</SetProperty>
     <Property Id="TOKEN_SETUP_COMMAND" Value="remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt" />
     <Property Id="DEVICE_SETUP_COMMAND" Value="remote-agent connect --server https://codex.sunny-string.cn/agents --token-prompt" />
     <Condition Message="Remote Agent requires 64-bit Windows.">Installed OR VersionNT64</Condition>
@@ -24,6 +26,7 @@
           </Component>
           <Component Id="InstallationRegistry" Guid="C9443878-4C38-4F10-BE23-D8EBD7E5C6D3" Win64="yes">
             <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="InstallDir" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="Language" Type="string" Value="[CLI_LANGUAGE]" />
             <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\RemoteAgent" Name="EventMessageFile" Type="expandable" Value="[System64Folder]EventCreate.exe" />
             <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\RemoteAgent" Name="TypesSupported" Type="integer" Value="7" />
           </Component>

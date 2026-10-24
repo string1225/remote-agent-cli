@@ -126,7 +126,19 @@ function renderDevices() {
     add.onclick = async e => { e.preventDefault(); e.stopPropagation(); try { await connectDevice(a); showService(); } catch (e) { notice(e.message); } };
     const dot = node("span", undefined, "live-dot" + (a.online ? "" : " offline"));
     dot.title = a.online ? "在线" : "离线"; dot.setAttribute("aria-label", dot.title);
-    row.append(add, dot); card.append(row);
+    const repair = node("button", "修复", "device-add device-repair");
+    repair.title = "重新显示安装与绑定命令，保留现有数据";
+    repair.setAttribute("aria-label", `修复 ${a.name} 的绑定`);
+    repair.onclick = async e => {
+      e.preventDefault(); e.stopPropagation(); repair.disabled = true;
+      const account = state.user?.id;
+      try {
+        const result = await api(`/api/agents/${a.id}/repair`, "POST", {});
+        if (!state.user || state.user.id !== account) return;
+        showEnroll(); showInstallCommands(result);
+      } catch (error) { notice(error.message); } finally { repair.disabled = false; }
+    };
+    row.append(repair, add, dot); card.append(row);
     const children = node("div", undefined, "device-children");
     const services = selected ? state.services : a.services || [];
     for (const project of services) {
@@ -871,6 +883,7 @@ $("logout").onclick = async () => {
 };
 $("refresh").onclick = refresh;
 function showEnroll() {
+  $("enroll-title").textContent = "添加一台设备";
   $("enroll-form").reset();
   $("enroll-form").hidden = false;
   $("install-result").hidden = true;
@@ -881,6 +894,19 @@ function showEnroll() {
 }
 $("new-agent").onclick = showEnroll;
 $("empty-add").onclick = showEnroll;
+function showInstallCommands(result) {
+  if (result.repair) $("enroll-title").textContent = "修复设备绑定";
+  $("install-windows").value = result.windows;
+  $("enroll-msi-x64").href = result.windowsMsi;
+  $("enroll-msi-arm64").href = result.windowsArm64Msi;
+  $("install-macos").value = result.macos;
+  $("install-linux").value = result.linux;
+  $("enroll-command-note").textContent = result.existingBinding
+    ? "在原设备执行，复用本地绑定并修复后台服务；保留项目、会话和录音。若本地配置丢失，请先恢复备份，勿创建重复设备。"
+    : "一次性设备绑定凭证 · 15 分钟有效 · 请勿分享";
+  $("enroll-form").hidden = true;
+  $("install-result").hidden = false;
+}
 $("enroll-form").onsubmit = async (e) => {
   e.preventDefault();
   const button = e.target.querySelector("button");
@@ -891,13 +917,7 @@ $("enroll-form").onsubmit = async (e) => {
       "POST",
       Object.fromEntries(new FormData(e.target)),
     );
-    $("install-windows").value = result.windows;
-    $("enroll-msi-x64").href = result.windowsMsi;
-    $("enroll-msi-arm64").href = result.windowsArm64Msi;
-    $("install-macos").value = result.macos;
-    $("install-linux").value = result.linux;
-    $("enroll-form").hidden = true;
-    $("install-result").hidden = false;
+    showInstallCommands(result);
     await refresh();
   } catch (err) {
     notice(err.message);

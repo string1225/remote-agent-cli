@@ -15,6 +15,10 @@ remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-p
 
 Token 在终端隐藏输入，不出现在命令历史或 MSI 属性中。网页创建 Token 后也可复制 `'<Token>' | remote-agent codex setup --server '<站点>' --token-stdin`；这条含秘密的命令不要分享。设备绑定独立进行：网页添加客户端后运行生成的 `remote-agent connect --server ... --token-stdin`，或用 `--token-prompt` 隐藏输入设备凭证。`connect` 捕获原用户环境后请求管理员授权配置服务，只有路径信息进入 UAC 参数。
 
+MSI 按 Windows 系统语言设置 `HKLM\SOFTWARE\RemoteAgent\Language`：中文（含繁体）为 `zh`，其他语言为 `en`。CLI 的帮助、输入提示、配置结果和已知操作错误统一读取该设置，JSON/MCP 协议不翻译。`REMOTE_AGENT_LANGUAGE=zh/en` 可临时覆盖用于诊断；尚未安装语言设置时使用系统语言。MSI 界面的语言与 CLI 设置相互独立。
+
+已有设备旁的“修复”重新显示安装和绑定指引。待绑定设备可生成属于同一设备 ID 的新一次性凭证；已绑定设备在原电脑运行 `remote-agent connect --server ...`，复用原本地配置并重新配置后台服务，不更换凭证、不创建设备。配置文件丢失时先恢复备份，修复入口不承诺恢复丢失的本地凭证或业务数据。
+
 已有 `~/.remote-agent/config.json` 时，检查原服务器并复用设备绑定，既不重新兑换安装令牌，也不转移账号。服务继续使用原数据目录：
 
 - `config.json`：原设备凭证、工作目录白名单、写入授权、项目服务。
@@ -62,6 +66,12 @@ sc.exe qfailure RemoteAgent
 ```
 
 首次安装但尚未配置的服务保持运行并等待配置，不会默认绑定或访问某个用户目录。`service status` 的 `configured` 表示是否存在有效服务路径配置。运行状态日志仍位于原数据目录 `agent.log`，配置加载等启动错误也写入 Windows 应用程序事件日志的 `RemoteAgent` 来源。
+
+通过 `connect` 请求管理员授权时，子进程的配置输出和具体错误保存到原配置目录 `service-setup.log`，失败提示包含路径和退出状态；取消 UAC 与服务配置失败分别报告。授权目录继承可能需要数分钟，单目录超时为 10 分钟，授权启动器总超时为 20 分钟，超时会明确报告；不能因为等待时没有新输出就把它判为取消授权。诊断日志只包含阶段、路径、耗时及操作系统错误，不包含设备或模型 Token。
+
+2026-10-25 实机排查：旧版本对整个用户主目录的 `icacls` 权限继承限定 60 秒，处理被中断后只返回无详情的退出码 1。相同目录实际耗时 3 分 31 秒；延长时限后原设备配置成功，`configured=true` 且 `agent.log` 出现 `agent connected`。这次是现有服务的用户故障修复，不属于普通测试的 MSI/SCM 安装验收。
+
+139 服务端可用 `journalctl -u remote-agent` 查看服务日志，Nginx 访问日志为 `/var/log/nginx/remote-agent.access.log*`。本地服务配置发生在连接前，服务器无法记录其 UAC 或目录授权错误；应先查本地配置日志。旧客户端连接返回 HTTP 426 时应升级对应平台客户端。
 
 `start` / `stop` 在 MSI 安装中控制 SCM 服务并启用/禁用开机启动，需要管理员权限；不会退回到创建计划任务。传入其他用户配置时拒绝控制现有服务。
 

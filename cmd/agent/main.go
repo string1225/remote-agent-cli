@@ -17,17 +17,18 @@ import (
 
 	"github.com/string1225/remote-agent-cli/internal/agent"
 	"github.com/string1225/remote-agent-cli/internal/buildinfo"
+	"github.com/string1225/remote-agent-cli/internal/i18n"
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Print(err)
+		log.Print(i18n.Error(err))
 		os.Exit(1)
 	}
 }
 func run() error {
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
-		fmt.Println("remote-agent: connect --server URL --token-prompt | enroll | run | start | stop | status | version | mcp | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup [--server URL --token-prompt] | app install/upgrade\nUse <command> --help for options.\nWindows: install the MSI first, then run a token/setup command in a new PowerShell. The MSI installs PATH and an automatic Windows Service.")
+		fmt.Println(tr("remote-agent: connect --server URL --token-prompt | enroll | run | start | stop | status | version | mcp | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup [--server URL --token-prompt] | app install/upgrade\nUse <command> --help for options.\nWindows: install the MSI first, then run a token/setup command in a new PowerShell. The MSI installs PATH and an automatic Windows Service."))
 		return nil
 	}
 	if os.Args[1] == "codex" {
@@ -46,7 +47,7 @@ func run() error {
 	action := ""
 	if os.Args[1] == "autostart" {
 		if len(args) == 0 {
-			return errors.New("use autostart install/remove")
+			return errors.New(tr("use autostart install/remove"))
 		}
 		action = args[0]
 		args = args[1:]
@@ -54,16 +55,16 @@ func run() error {
 	if os.Args[1] == "mcp" {
 		return runMCP(context.Background(), os.Args[2:], os.Stdin, os.Stdout)
 	}
-	flags := flag.NewFlagSet(os.Args[1], flag.ContinueOnError)
-	config := flags.String("config", agent.DefaultPath(), "configuration file")
-	server := flags.String("server", "", "HTTPS control server URL, optionally including a base path")
-	stdin := flags.Bool("token-stdin", false, "read one-time enrollment token from stdin")
-	roots := flags.String("roots", "", "allowed workspace roots separated by the OS path-list separator (default: home)")
-	write := flags.Bool("allow-write", false, "allow Codex workspace writes / Qoder file edits (enroll only)")
-	logPath := flags.String("log", "", "write operational logs to this file")
-	check := flags.Bool("check", false, "check the published build without downloading or restarting (update only)")
-	installer := flags.Bool("installer", false, "upgrade the standard installation using this downloaded installer binary (update only)")
-	preserveStart := flags.Bool("preserve-start", false, "do not enable a stopped service during installer updates")
+	flags := newCLIFlagSet(os.Args[1])
+	config := flags.String("config", agent.DefaultPath(), tr("configuration file"))
+	server := flags.String("server", "", tr("HTTPS control server URL, optionally including a base path"))
+	stdin := flags.Bool("token-stdin", false, tr("read one-time enrollment token from stdin"))
+	roots := flags.String("roots", "", tr("allowed workspace roots separated by the OS path-list separator (default: home)"))
+	write := flags.Bool("allow-write", false, tr("allow Codex workspace writes / Qoder file edits (enroll only)"))
+	logPath := flags.String("log", "", tr("write operational logs to this file"))
+	check := flags.Bool("check", false, tr("check the published build without downloading or restarting (update only)"))
+	installer := flags.Bool("installer", false, tr("upgrade the standard installation using this downloaded installer binary (update only)"))
+	preserveStart := flags.Bool("preserve-start", false, tr("do not enable a stopped service during installer updates"))
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -71,7 +72,7 @@ func run() error {
 		return err
 	}
 	if flags.NArg() > 0 {
-		return errors.New("unexpected positional arguments")
+		return errors.New(tr("unexpected positional arguments"))
 	}
 	path, err := filepath.Abs(*config)
 	if err != nil {
@@ -79,15 +80,15 @@ func run() error {
 	}
 	switch os.Args[1] {
 	case "version":
-		fmt.Printf("remote-agent %s (%s/%s)\n", buildinfo.Current(), runtime.GOOS, runtime.GOARCH)
+		fmt.Printf(tr("remote-agent %s (%s/%s)\n"), buildinfo.Current(), runtime.GOOS, runtime.GOARCH)
 		return nil
 	case "update":
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
-		return agent.Update(ctx, path, agent.UpdateOptions{CheckOnly: *check, Installer: *installer, PreserveStart: *preserveStart, Server: *server}, os.Stdout)
+		return agent.Update(ctx, path, agent.UpdateOptions{CheckOnly: *check, Installer: *installer, PreserveStart: *preserveStart, Server: *server}, i18n.Writer(os.Stdout))
 	case "enroll":
 		if !*stdin {
-			return errors.New("supply --token-stdin to read the one-time token from stdin")
+			return errors.New(tr("supply --token-stdin to read the one-time token from stdin"))
 		}
 		token, err := io.ReadAll(io.LimitReader(os.Stdin, 4096))
 		if err != nil {
@@ -101,7 +102,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Bound device %s (%s)\n", c.Name, c.ID)
+		fmt.Printf(tr("Bound device %s (%s)\n"), c.Name, c.ID)
 		return nil
 	case "run":
 		c, err := agent.Load(path)
@@ -110,7 +111,7 @@ func run() error {
 		}
 		unlock, err := agent.LockRun(path)
 		if errors.Is(err, agent.ErrAgentRunning) {
-			fmt.Fprintln(os.Stdout, "Agent already running; keeping the existing process.")
+			fmt.Fprintln(os.Stdout, tr("Agent already running; keeping the existing process."))
 			return nil
 		}
 		if err != nil {
@@ -155,6 +156,6 @@ func run() error {
 	case "stop":
 		return agent.Autostart("remove", path)
 	default:
-		return errors.New("unknown command; use --help to list commands")
+		return errors.New(tr("unknown command; use --help to list commands"))
 	}
 }

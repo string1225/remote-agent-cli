@@ -86,6 +86,7 @@
     $("codex-login").hidden = true;
     $("codex-login-code").value = "";
     clearSecret();
+    $("token-list").replaceChildren();
     $("account-form").elements.currentPassword.value = "";
     $("account-form").elements.password.value = "";
     $("admin-create-form").elements.password.value = "";
@@ -95,6 +96,8 @@
     if (!user) user = state.user;
     if (!user || (next === "admin" && !user.admin)) return;
     tab = next;
+    clearSecret();
+    for (const input of $("token-list").querySelectorAll('input[type="password"]')) input.value = "";
     for (const name of ["setup","tokens","account","admin"]) $("platform-" + name).hidden = name !== tab;
     for (const button of dialog.querySelectorAll("[data-platform]")) button.setAttribute("aria-current", String(button.dataset.platform === tab));
     closeDrawers();
@@ -122,11 +125,40 @@
       info.append(node("strong", token.name), node("p", `${token.prefix}… · ${token.revoked ? "已撤销" : "可用"}`, "small"), node("p", `创建 ${date(token.createdAt)} · 最近使用 ${date(token.lastUsedAt)}`, "small muted"));
       if (admin) info.append(node("p", "账号 ID：" + token.userId, "small muted"));
       card.append(info);
+      if (!admin && !token.revoked) {
+        const reveal = node("button", "复制 Token", "secondary");
+        reveal.disabled = !token.copyable;
+        reveal.onclick = async () => {
+          const stamp = revision, account = user.id;
+          reveal.disabled = true;
+          try {
+            const result = await api(`/api/tokens/${token.id}/reveal`, "POST", {});
+            if (!dialog.open || !user || user.id !== account || revision !== stamp || tab !== "tokens") return;
+            clearSecret(); $("token-secret").value = result.token; $("token-secret-box").hidden = false;
+            updateCommands(); await copy("token-secret");
+          } catch (e) { notice(e.message); } finally { reveal.disabled = false; }
+        };
+        info.append(reveal);
+        if (!token.copyable) {
+          const details = node("details"), form = node("form"), input = node("input"), label = node("label", "原 Token"), save = node("button", "校验并保存", "secondary");
+          details.append(node("summary", "补存已有 Token"), node("p", "旧版本只保存验证值。补存你已保存的原 Token 后即可复制；原 Token 继续有效。", "small muted"));
+          input.type = "password"; input.required = true; input.autocomplete = "off"; input.maxLength = 100;
+          label.append(input); form.append(label, save); details.append(form); info.append(details);
+          form.onsubmit = async e => {
+            e.preventDefault(); const stamp = revision, account = user.id; save.disabled = true;
+            try {
+              await api(`/api/tokens/${token.id}/save`, "POST", {token:input.value});
+              input.value = "";
+              if (dialog.open && user?.id === account && revision === stamp && tab === "tokens") { await loadTokens(); notice("已保存，可复制原 Token"); }
+            } catch (error) { input.value = ""; notice(error.message); } finally { save.disabled = false; }
+          };
+        }
+      }
       const revoke = node("button", token.revoked ? "已撤销" : "撤销", "secondary"); revoke.disabled = token.revoked;
       revoke.onclick = async () => {
         if (!confirm(`撤销「${token.name}」？使用它的设备将无法发起新的模型请求。`)) return;
         revoke.disabled = true;
-        try { await api((admin ? "/api/admin/tokens/" : "/api/tokens/") + token.id, "DELETE"); if (admin) await loadAdmin(); else await loadTokens(); }
+        try { await api((admin ? "/api/admin/tokens/" : "/api/tokens/") + token.id, "DELETE"); clearSecret(); if (admin) await loadAdmin(); else await loadTokens(); }
         catch (e) { revoke.disabled = false; notice(e.message); }
       };
       card.append(revoke); return card;

@@ -11,6 +11,8 @@ Remote Agent for Windows
 
    Paste a personal model Token when prompted. Input is hidden; no secret is
    passed to MSI, UAC arguments or command history.
+   CLI messages use Chinese on Chinese Windows and English on other systems;
+   this choice is saved by MSI. REMOTE_AGENT_LANGUAGE=zh/en overrides it.
 3. Remote access is optional. Add a client on the website, then use its generated
    device binding command, or prompt for the one-time device token:
 
@@ -18,6 +20,9 @@ Remote Agent for Windows
 
    connect captures the original user's tool environment, then requests admin
    approval to configure the existing service. Existing bindings are preserved.
+   Large directory permission changes may take several minutes. If setup fails,
+   inspect .remote-agent\service-setup.log beside the device configuration.
+   Runtime connection messages are in .remote-agent\agent.log.
 
 Upgrades: download and install a newer MSI. The installer removes obsolete
 Remote Agent program copies and exactly matching legacy startup tasks only

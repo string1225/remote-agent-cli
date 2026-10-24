@@ -13,14 +13,14 @@ import (
 )
 
 func runConnect(args []string) error {
-	flags := flag.NewFlagSet("connect", flag.ContinueOnError)
-	server := flags.String("server", "https://codex.sunny-string.cn/agents", "platform URL")
-	config := flags.String("config", agent.DefaultPath(), "device configuration")
-	stdin := flags.Bool("token-stdin", false, "read the one-time device token from stdin")
-	prompt := flags.Bool("token-prompt", false, "prompt for a one-time device token without echo")
-	roots := flags.String("roots", "", "allowed project roots separated by the OS path separator")
-	write := flags.Bool("allow-write", false, "allow project edits (default: read-only)")
-	noStart := flags.Bool("no-start", false, "bind the device without starting remote access")
+	flags := newCLIFlagSet("connect")
+	server := flags.String("server", "https://codex.sunny-string.cn/agents", tr("platform URL"))
+	config := flags.String("config", agent.DefaultPath(), tr("device configuration"))
+	stdin := flags.Bool("token-stdin", false, tr("read the one-time device token from stdin"))
+	prompt := flags.Bool("token-prompt", false, tr("prompt for a one-time device token without echo"))
+	roots := flags.String("roots", "", tr("allowed project roots separated by the OS path separator"))
+	write := flags.Bool("allow-write", false, tr("allow project edits (default: read-only)"))
+	noStart := flags.Bool("no-start", false, tr("bind the device without starting remote access"))
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -28,7 +28,7 @@ func runConnect(args []string) error {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return errors.New("unexpected connection arguments")
+		return errors.New(tr("unexpected connection arguments"))
 	}
 	if err := agent.ValidateServer(*server); err != nil {
 		return err
@@ -39,7 +39,7 @@ func runConnect(args []string) error {
 	}
 	if runtime.GOOS == "windows" {
 		if _, err = agent.WindowsServiceStatus(); err != nil {
-			return fmt.Errorf("请先下载安装 Remote Agent MSI：%w", err)
+			return fmt.Errorf(tr("Install Remote Agent MSI first: %w"), err)
 		}
 	}
 	if _, err = os.Stat(path); err == nil {
@@ -48,9 +48,12 @@ func runConnect(args []string) error {
 			return loadErr
 		}
 		if strings.TrimSuffix(*server, "/") != existing.Server {
-			return errors.New("已有设备绑定属于其他服务器，未改动")
+			return errors.New(tr("Existing device binding belongs to another server; nothing was changed"))
 		}
-		fmt.Println("保留现有设备绑定、项目和会话；正在配置后台服务。")
+		fmt.Println(tr("Keeping existing device binding, projects and sessions; configuring the background service."))
+		if runtime.GOOS == "windows" {
+			fmt.Println(tr("Granting directory access may take several minutes. Keep this window open until setup finishes."))
+		}
 		if runtime.GOOS == "windows" {
 			return agent.SetupWindowsService(path, *noStart)
 		}
@@ -73,10 +76,11 @@ func runConnect(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("已绑定客户端 %s。\n", c.Name)
+	fmt.Printf(tr("Bound client %s.\n"), c.Name)
 	if runtime.GOOS == "windows" {
+		fmt.Println(tr("Granting directory access may take several minutes. Keep this window open until setup finishes."))
 		if err = agent.SetupWindowsService(path, *noStart); err != nil {
-			return fmt.Errorf("设备凭证已保存，服务尚未完成配置：%w。可运行 remote-agent service configure --config <配置路径> 重试", err)
+			return fmt.Errorf(tr("Device credentials saved, but service configuration failed: %w. Retry with remote-agent service configure --config <config-path>"), err)
 		}
 	} else if !*noStart {
 		err = agent.Autostart("install", path)
@@ -84,6 +88,6 @@ func runConnect(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("客户端配置完成；可使用 remote-agent status 检查。Codex 代理 Token 使用 remote-agent codex setup 单独配置。")
+	fmt.Println(tr("Client configured; use remote-agent status to check. Configure the Codex proxy token separately with remote-agent codex setup."))
 	return nil
 }

@@ -11,14 +11,14 @@ import (
 
 func runService(args []string) error {
 	if len(args) == 0 {
-		return errors.New("use service run/profile/configure/status")
+		return errors.New(tr("use service run/profile/configure/status"))
 	}
-	flags := flag.NewFlagSet("service "+args[0], flag.ContinueOnError)
-	config := flags.String("config", agent.DefaultPath(), "existing device configuration (data is kept in place)")
-	profile := flags.String("profile", "", "profile captured in the original user's environment")
-	output := flags.String("output", "", "output file for service profile")
-	noStart := flags.Bool("no-start", false, "configure but disable and stop the service")
-	userSID := flags.String("user-sid", "", "original MSI user SID (legacy program cleanup only)")
+	flags := newCLIFlagSet("service " + args[0])
+	config := flags.String("config", agent.DefaultPath(), tr("existing device configuration (data is kept in place)"))
+	profile := flags.String("profile", "", tr("profile captured in the original user's environment"))
+	output := flags.String("output", "", tr("output file for service profile"))
+	noStart := flags.Bool("no-start", false, tr("configure but disable and stop the service"))
+	userSID := flags.String("user-sid", "", tr("original MSI user SID (legacy program cleanup only)"))
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -26,7 +26,7 @@ func runService(args []string) error {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return errors.New("unexpected service arguments")
+		return errors.New(tr("unexpected service arguments"))
 	}
 	switch args[0] {
 	case "run":
@@ -54,12 +54,12 @@ func runService(args []string) error {
 		}
 		if args[0] == "profile" {
 			if *output == "" {
-				return errors.New("service profile requires --output")
+				return errors.New(tr("service profile requires --output"))
 			}
 			return p.Save(*output)
 		}
 		return agent.ConfigureWindowsService(p, *noStart)
 	default:
-		return errors.New("use service run/profile/configure/status")
+		return errors.New(tr("use service run/profile/configure/status"))
 	}
 }

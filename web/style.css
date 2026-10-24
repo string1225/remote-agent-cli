@@ -1264,6 +1264,7 @@ body.resizing-panes * {
 
 .device-add { background: transparent; border: 0; color: #55734a; font-size: 17px; padding: 2px 6px; cursor: pointer; }
 .device-add:disabled { opacity: .35; cursor: default; }
+.device-repair { font-size: 12px; white-space: nowrap; }
 .device-row .device-name { flex: 1; }
 .device-row .live-dot { flex-shrink: 0; margin-left: 3px; }
 .device-children { padding-top: 3px; }
