@@ -19,7 +19,12 @@ func (a *Agent) initNotifications(ctx context.Context) {
 	go func() {
 		defer close(a.notifyDone)
 		if _, err := os.Stat(filepath.Join(filepath.Dir(a.Config.Path), "notifications.enabled")); err == nil {
-			a.notifyWake <- struct{}{}
+			// A task may already have published a wake while this worker was
+			// starting. Never block startup (and cancellation) on a full signal.
+			select {
+			case a.notifyWake <- struct{}{}:
+			default:
+			}
 		}
 		for {
 			select {
