@@ -67,9 +67,11 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 	if service.ID == "" || !provider.Available {
 		return result, errors.New("项目不存在或执行器不可用")
 	}
-	if _, err := a.Config.Workspace(service.Workspace); err != nil {
+	root, err := a.Config.Workspace(service.Workspace)
+	if err != nil {
 		return result, err
 	}
+	service.Workspace = root
 	if a.taskCtx.Err() != nil {
 		return result, errors.New("客户端正在停止")
 	}

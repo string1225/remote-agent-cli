@@ -432,8 +432,13 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		var conversation protocol.Conversation
 		if req.SessionID != "" {
 			conversation, err = history.get(req.SessionID)
-			if err == nil && (conversation.ServiceID != service.ID || conversation.Provider != service.Provider || conversation.Workspace != service.Workspace) {
-				err = errors.New("session does not belong to this project")
+			if err == nil {
+				// Existing histories may retain a symlink spelling (notably
+				// macOS /var -> /private/var). Authorize and compare real roots.
+				root, rootErr := a.Config.Workspace(conversation.Workspace)
+				if rootErr != nil || conversation.ServiceID != service.ID || conversation.Provider != service.Provider || root != service.Workspace {
+					err = errors.New("session does not belong to this project")
+				}
 			}
 		} else {
 			conversation, err = history.create(service, req.Prompt)
