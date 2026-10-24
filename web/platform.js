@@ -31,20 +31,22 @@
     dialog.close();
   };
   function installCommand(mode = "cli") {
-    const url = server + "/install/" + mode + "-" + ({windows:"windows.ps1",macos:"macos.sh",linux:"linux.sh"})[platform()];
-    return platform() === "windows"
-      ? `& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing ${psQuote(url)}).Content))`
-      : `curl -fsSL ${shellQuote(url)} | bash`;
+    if (platform() === "windows") return `remote-agent codex setup --server ${psQuote(server)} --token-prompt`;
+    const url = server + "/install/" + mode + "-" + ({macos:"macos.sh",linux:"linux.sh"})[platform()];
+    return `curl -fsSL ${shellQuote(url)} | bash`;
   }
   function updateCommands() {
     $("local-cli-command").value = installCommand();
     const token = $("token-secret").value;
     if (token) $("token-config-command").value = platform() === "windows"
-      ? `${installCommand()}; ${psQuote(token)} | & "$env:USERPROFILE\\.remote-agent\\bin\\remote-agent.exe" codex setup --server ${psQuote(server)} --token-stdin`
+      ? `${psQuote(token)} | remote-agent codex setup --server ${psQuote(server)} --token-stdin`
       : `${installCommand()} && printf '%s' ${shellQuote(token)} | "$HOME/.remote-agent/bin/remote-agent" codex setup --server ${shellQuote(server)} --token-stdin`;
     const windows = platform() === "windows";
+    $("local-command-label").firstChild.textContent = windows ? "安装 MSI 后，设置或刷新本机 Token" : "安装本地 CLI（不启用远程服务）";
+    $("copy-local-cli").textContent = windows ? "复制 Token 配置命令" : "复制安装命令";
+    $("setup-install-description").textContent = windows ? "先下载下方 MSI 并安装，再在新 PowerShell 中运行配置命令。只使用代理时无需绑定设备。" : "以下命令安装独立的本地 CLI；无需绑定设备，也不会启动远程服务。";
     $("remote-install-help").textContent = windows
-      ? "Windows 正式客户端使用 MSI（x64 / ARM64）。请在目标用户的 PowerShell 中运行绑定命令，按提示允许管理员安装及服务配置。系统开机后自动运行，退出登录后仍在线；不创建计划任务。"
+      ? "先下载并双击 MSI（x64 / ARM64）。安装器会更新系统 PATH，安装自动启动的 Windows Service，完成页会保留 Token 配置命令。再打开新 PowerShell 执行配置或设备绑定命令，无需安装脚本。"
       : platform() === "macos" ? "macOS 使用 LaunchAgent，登录后自动启动。请在目标用户的终端运行绑定命令。" : "Linux 使用 systemd 用户服务；启用 linger 后可开机启动并在退出登录后继续在线。请勿在整条安装命令前加 sudo。";
     $("msi-downloads").replaceChildren();
     if (windows) for (const arch of ["amd64", "arm64"]) {
@@ -63,7 +65,7 @@
       ["remote-agent stop", "停止并禁用远程自启动，保留绑定（Windows MSI 需管理员）"],
       ["remote-agent run", "在当前终端运行远程 Agent"],
       ["remote-agent status", "查看设备绑定、权限和本机服务"],
-      [windows ? "重新执行原设备安装命令" : `remote-agent update --server ${server}`, windows ? "MSI 升级保留原数据；独立 CLI 才使用 update" : "更新本地 remote-agent CLI"],
+      [windows ? "下载并安装新版 MSI" : `remote-agent update --server ${server}`, windows ? "清理旧版程序和启动项，保留绑定、配置、会话和录音" : "更新本地 remote-agent CLI"],
     ];
     $("cli-help").replaceChildren(...help.map(([command, description]) => {
       const row = node("div"); row.append(node("code", command), node("span", description)); return row;

@@ -31,6 +31,10 @@ func (s *Server) installer(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if platform == "windows.ps1" {
+		fail(w, http.StatusGone, "Windows 安装请下载安装 MSI，然后在新 PowerShell 中运行 remote-agent connect 或 remote-agent codex setup --token-prompt；不再提供 Windows 安装脚本。")
+		return
+	}
 	token := r.URL.Query().Get("token")
 	if name == platform && !tokenRE.MatchString(token) {
 		fail(w, 400, "invalid enrollment token")

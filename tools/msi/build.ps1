@@ -44,7 +44,7 @@ try {
         if ($InjectFailure) { $testDefine = @('-dInjectFailure=1') }
         & (Join-Path $wix 'candle.exe') -nologo -arch $platform "-dPlatform=$platform" "-dPackageVersion=$PackageVersion" "-dAgentBinary=$binary" "-dSourceRoot=$root" @testDefine -out $object packaging/windows/agent.wxs
         if ($LASTEXITCODE -ne 0) { throw 'WiX compilation failed.' }
-        & (Join-Path $wix 'light.exe') -nologo -out $package $object
+        & (Join-Path $wix 'light.exe') -nologo -ext (Join-Path $wix 'WixUIExtension.dll') -cultures:zh-CN -out $package $object
         if ($LASTEXITCODE -ne 0) { throw 'WiX linking/validation failed.' }
         foreach ($artifact in @($binary,$package)) {
             $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()

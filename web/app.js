@@ -892,6 +892,8 @@ $("enroll-form").onsubmit = async (e) => {
       Object.fromEntries(new FormData(e.target)),
     );
     $("install-windows").value = result.windows;
+    $("enroll-msi-x64").href = result.windowsMsi;
+    $("enroll-msi-arm64").href = result.windowsArm64Msi;
     $("install-macos").value = result.macos;
     $("install-linux").value = result.linux;
     $("enroll-form").hidden = true;
@@ -914,7 +916,7 @@ for (const button of document.querySelectorAll(".copy"))
   button.onclick = async () => {
     try {
       await navigator.clipboard.writeText($(button.dataset.copy).value);
-      notice("已复制安装命令");
+      notice("已复制命令");
     } catch {
       $(button.dataset.copy).select();
       notice("请按 Ctrl / ⌘ + C 复制");

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="Remote Agent" Language="1033" Version="$(var.PackageVersion)"
+  <Product Id="*" Name="Remote Agent" Language="2052" Codepage="936" Version="$(var.PackageVersion)"
            Manufacturer="Remote Agent" UpgradeCode="169D07FD-348F-4323-A695-0432D646790B">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="$(var.Platform)" />
     <!-- Stable component GUIDs/key paths let upgrades retain the service object
@@ -8,6 +8,8 @@
     <MajorUpgrade Schedule="afterInstallExecute" DowngradeErrorMessage="A newer Remote Agent is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="TOKEN_SETUP_COMMAND" Value="remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt" />
+    <Property Id="DEVICE_SETUP_COMMAND" Value="remote-agent connect --server https://codex.sunny-string.cn/agents --token-prompt" />
     <Condition Message="Remote Agent requires 64-bit Windows.">Installed OR VersionNT64</Condition>
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
@@ -25,6 +27,10 @@
             <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\RemoteAgent" Name="EventMessageFile" Type="expandable" Value="[System64Folder]EventCreate.exe" />
             <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\RemoteAgent" Name="TypesSupported" Type="integer" Value="7" />
           </Component>
+          <Component Id="CommandLinePath" Guid="CFC83CF3-177D-4C06-B56D-596EC77EA9DD" Win64="yes">
+            <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="CommandLinePath" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
+            <Environment Id="AgentMachinePath" Name="PATH" Value="[INSTALLDIR]" Action="set" Part="first" System="yes" />
+          </Component>
           <Component Id="License" Guid="8A41A940-5460-483F-A60C-072542C41330" Win64="yes">
             <File Id="LicenseFile" Source="$(var.SourceRoot)\LICENSE" Name="LICENSE.txt" KeyPath="yes" />
             <File Id="SetupHelp" Source="$(var.SourceRoot)\packaging\windows\SETUP.txt" Name="SETUP.txt" />
@@ -35,17 +41,70 @@
     <Feature Id="Complete" Title="Remote Agent" Level="1">
       <ComponentRef Id="AgentService" />
       <ComponentRef Id="InstallationRegistry" />
+      <ComponentRef Id="CommandLinePath" />
       <ComponentRef Id="License" />
     </Feature>
     <CustomAction Id="PrepareAgentService" FileKey="AgentExe" ExeCommand="service prepare" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="CleanupLegacyAgent" FileKey="AgentExe" ExeCommand="service cleanup-legacy --user-sid &quot;[UserSID]&quot;" Execute="commit" Impersonate="no" Return="ignore" />
     <?ifdef var.InjectFailure?>
     <CustomAction Id="FailAcceptanceInstall" FileKey="AgentExe" ExeCommand="service invalid-installer-action" Execute="deferred" Impersonate="no" Return="check" />
     <?endif?>
     <InstallExecuteSequence>
       <Custom Action="PrepareAgentService" After="InstallServices">NOT REMOVE~="ALL"</Custom>
+      <Custom Action="CleanupLegacyAgent" After="PrepareAgentService">NOT REMOVE~="ALL"</Custom>
       <?ifdef var.InjectFailure?>
       <Custom Action="FailAcceptanceInstall" After="PrepareAgentService">NOT REMOVE~="ALL"</Custom>
       <?endif?>
     </InstallExecuteSequence>
+    <UI Id="RemoteAgentUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Microsoft YaHei UI" Size="9" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Microsoft YaHei UI" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Microsoft YaHei UI" Size="10" Bold="yes" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="UserExit" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <TextStyle Id="Normal" FaceName="Microsoft YaHei UI" Size="9" />
+      <TextStyle Id="Title" FaceName="Microsoft YaHei UI" Size="13" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="Normal" />
+      <Dialog Id="AgentWelcome" Width="450" Height="270" Title="Remote Agent 安装">
+        <Control Id="Title" Type="Text" X="20" Y="18" Width="410" Height="28" Text="{\Title}安装 Remote Agent" />
+        <Control Id="Description" Type="Text" X="20" Y="60" Width="410" Height="95" Text="安装命令行工具与自动启动的 Windows Service，并将程序加入系统 PATH。&#13;&#10;&#13;&#10;安装后打开新的 PowerShell，运行完成页上的命令设置 Token 或绑定设备。退出登录后，已绑定的服务仍保持运行。" />
+        <Control Id="Install" Type="PushButton" X="290" Y="235" Width="65" Height="22" Default="yes" Text="安装">
+          <Condition Action="disable">OutOfDiskSpace</Condition>
+          <Publish Event="EndDialog" Value="Return">1</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="365" Y="235" Width="65" Height="22" Cancel="yes" Text="取消">
+          <Publish Event="EndDialog" Value="Exit">1</Publish>
+        </Control>
+      </Dialog>
+      <Dialog Id="AgentProgress" Width="450" Height="270" Title="Remote Agent 安装" Modeless="yes">
+        <Control Id="Title" Type="Text" X="20" Y="25" Width="410" Height="28" TabSkip="no" Text="{\Title}正在安装 Remote Agent" />
+        <Control Id="Status" Type="Text" X="20" Y="90" Width="410" Height="45"><Subscribe Event="ActionText" Attribute="Text" /></Control>
+        <Control Id="Progress" Type="ProgressBar" X="20" Y="145" Width="410" Height="18" ProgressBlocks="yes"><Subscribe Event="SetProgress" Attribute="Progress" /></Control>
+      </Dialog>
+      <Dialog Id="AgentComplete" Width="500" Height="330" Title="Remote Agent 安装完成">
+        <Control Id="Title" Type="Text" X="20" Y="15" Width="460" Height="28" Text="{\Title}安装完成 · 下一步配置 Token" />
+        <Control Id="Description" Type="Text" X="20" Y="52" Width="460" Height="45" Text="程序已加入系统 PATH。请打开新的 PowerShell；若使用 Windows Terminal，请完全退出后重新打开。选中下方命令按 Ctrl+C 复制。" />
+        <Control Id="TokenLabel" Type="Text" X="20" Y="103" Width="460" Height="20" Text="设置或刷新本机 Codex 代理 Token（运行后粘贴 Token，不会回显）：" />
+        <Control Id="TokenCommand" Type="Edit" X="20" Y="128" Width="460" Height="40" Property="TOKEN_SETUP_COMMAND" Multiline="yes" Sunken="yes" />
+        <Control Id="DeviceLabel" Type="Text" X="20" Y="182" Width="460" Height="20" Text="需要远程访问时，先在网页添加客户端，再运行绑定命令：" />
+        <Control Id="DeviceCommand" Type="Edit" X="20" Y="207" Width="460" Height="40" Property="DEVICE_SETUP_COMMAND" Multiline="yes" Sunken="yes" />
+        <Control Id="Note" Type="Text" X="20" Y="259" Width="460" Height="22" Text="无需再运行安装脚本。此窗口会保持打开，直到你点击完成。" />
+        <Control Id="Finish" Type="PushButton" X="410" Y="294" Width="70" Height="23" Default="yes" Cancel="yes" Text="完成">
+          <Publish Event="EndDialog" Value="Return">1</Publish>
+        </Control>
+      </Dialog>
+      <InstallUISequence>
+        <Show Dialog="AgentWelcome" Before="AgentProgress">NOT Installed AND NOT RASKIPWELCOME</Show>
+        <Show Dialog="AgentProgress" Before="ExecuteAction" />
+        <Show Dialog="AgentComplete" OnExit="success">NOT REMOVE~="ALL"</Show>
+      </InstallUISequence>
+      <AdminUISequence>
+        <Show Dialog="AgentComplete" OnExit="success">NOT REMOVE~="ALL"</Show>
+      </AdminUISequence>
+    </UI>
+    <UIRef Id="WixUI_Common" />
   </Product>
 </Wix>

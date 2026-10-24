@@ -1,6 +1,6 @@
 <!-- Current transport supersedes historical deployment records below. -->
 
-> 2026-10-24：网页和客户端统一通过当前站点中转，客户端与服务器使用持久 WebSocket；不再使用 WebRTC、P2P、STUN 或 TURN。部署时同时更新服务器、客户端包和网页；旧客户端需重新执行安装命令升级，Windows 使用 MSI 并保留原数据。
+> 2026-10-24：网页和客户端统一通过当前站点中转，客户端与服务器使用持久 WebSocket；不再使用 WebRTC、P2P、STUN 或 TURN。部署时同时更新服务器、客户端包和网页；旧客户端需要升级：Windows 下载并安装新版 MSI，其他系统使用安装命令；原数据保留。
 
 # Remote Agent
 
@@ -39,6 +39,19 @@
 - 流式输出与打字效果、停止任务、断线取消、设备级单任务互斥、20 分钟任务超时、30 分钟连接上限。
 - 工作目录白名单、默认只读策略、本机手动开启文件编辑权限。
 
+## Windows 安装与 Token 配置
+
+1. 在网页下载 x64/ARM64 MSI，双击安装；无需安装脚本。
+2. MSI 写入系统 PATH，安装自动 Windows Service，清理旧程序和匹配启动项，保留原设备绑定、配置、项目、会话、录音及 Codex/Qoder 工具。
+3. 安装完成窗口会保持打开并显示可复制的命令。打开新的 PowerShell（Windows Terminal 需完全退出重开）：
+
+```powershell
+remote-agent version
+remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt
+```
+
+需要远程访问时，在网页添加客户端后运行生成的 `remote-agent connect` 绑定命令。代理 Token 与设备绑定分开设置，秘密不进入 MSI 属性。
+
 ## 本地启动
 
 需要 **Go 1.26.0 或更高版本**。从仓库根目录运行：
@@ -57,7 +70,7 @@ go run ./cmd/server
 
 1. 使用刚创建的管理员账号登录；其他账号由管理员在网页的「账号管理」中创建。
 2. 点击「添加设备」，输入名称。
-3. 在目标电脑执行生成的安装命令。
+3. Windows 先下载并安装 MSI，再执行生成的设备绑定命令；其他系统执行安装命令。
 4. 等待客户端右侧状态点变绿，点击行上的 + 添加项目。
 5. 选择已安装的 Codex / Qoder CLI，填写本机允许目录内的项目绝对路径。
 6. 左侧选择项目自动连接，中间选择 Web、SaySo 或已绑定的 IM 会话，右侧工作；项目齿轮配置渠道。实时数据均经站点 WebSocket。手机左上角切换客户端 / 项目，右上角切换会话。
@@ -68,7 +81,7 @@ go run ./cmd/server
 
 ## 本机 Codex 与持久 CLI
 
-网页「Codex 接入与帮助」提供 Windows、macOS、Linux 的本地 CLI 安装命令，入口为 `/install/cli-windows.ps1`、`cli-macos.sh`、`cli-linux.sh`。这些命令不兑换设备绑定令牌，也不启用远程服务；重复执行会保留已有绑定、项目、权限、历史和服务启停状态。`codex-*` 安装入口会交互读取个人 Token 并完成 Codex 配置。
+Windows 从「Codex 接入与帮助」下载 MSI，安装后在新的 PowerShell 执行 `remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt`，隐藏输入个人 Token。原 Windows 安装脚本已移除，旧 URL 返回 410。macOS/Linux 继续提供 `cli-macos.sh`、`cli-linux.sh`；这些命令不绑定设备或启用远程服务。
 
 ```sh
 remote-agent --help
@@ -186,7 +199,7 @@ Linux 安装器还会尝试 `loginctl enable-linger`，必要时使用无需密�
 
 Windows MSI 的常驻进程由 SCM 管理，失败 5 秒后重启；服务通过 Job Object 管理其 CLI 子进程。迁移成功后移除匹配原安装的旧计划任务，正式服务不创建或依赖计划任务。旧任务仅保留识别、停止、迁移和已安装旧程序的更新兼容。macOS 使用 LaunchAgent `KeepAlive` 自动重启。每份配置有独立的进程锁，防止重复进程互相挤掉连接；进程退出或崩溃时锁由操作系统释放。
 
-设备离线时，先查看 `agent.log` 和系统服务状态。网络断开后 Agent 会持续重试，服务器恢复、电脑唤醒或网络恢复后自动重连。Windows MSI 可重新执行网页安装命令升级，或以管理员权限执行 `start` 恢复服务、`stop` 禁用服务；退出登录保持在线。其他平台可使用 `update` 和 `autostart install`。睡眠、关机期间离线；macOS 和未迁移的旧 Windows 用户安装退出登录会离线，Linux 启用 linger 后可继续运行。
+设备离线时，先查看 `agent.log` 和系统服务状态。网络断开后 Agent 会持续重试，服务器恢复、电脑唤醒或网络恢复后自动重连。Windows MSI 下载新版安装包升级，或以管理员权限执行 `start` 恢复服务、`stop` 禁用服务；退出登录保持在线。其他平台可使用 `update` 和 `autostart install`。睡眠、关机期间离线；macOS 和未迁移的旧 Windows 用户安装退出登录会离线，Linux 启用 linger 后可继续运行。
 
 ```sh
 remote-agent status
@@ -198,7 +211,7 @@ remote-agent autostart install
 remote-agent autostart remove
 ```
 
-本地 CLI / Codex 安装模式会将 `~/.remote-agent/bin` 加入用户 PATH：Windows 更新用户 PATH，macOS 更新 `.profile` / `.zshrc`，Linux 更新 `.profile` / `.bashrc`，同一行不会重复添加。启用自动 Codex 配置的设备安装也会执行此步骤；新终端才会继承持久修改。未刷新 PATH 时可使用上面的完整安装路径。
+本地 CLI / Codex 安装模式会将 `~/.remote-agent/bin` 加入用户 PATH：Windows MSI 将 `%ProgramFiles%\Remote Agent` 加入系统 PATH；macOS 更新 `.profile` / `.zshrc`，Linux 更新 `.profile` / `.bashrc`，同一行不会重复添加。启用自动 Codex 配置的设备安装也会执行此步骤；新终端才会继承持久修改。未刷新 PATH 时可使用上面的完整安装路径。
 
 Windows MSI 使用 MSI 包升级，拒绝通过 EXE `update` 原地替换；`update --check` 仍可检查。以下自更新说明适用于独立 CLI、历史 Windows 用户安装和其他平台。
 
@@ -226,7 +239,7 @@ journalctl --user -u remote-agent.service -n 50 --no-pager
 
 Linux 的 `autostart remove` 只停止并移除该安装对应的用户单元，保留绑定和会话，也不会关闭可能被其他用户服务使用的 linger。
 
-**已经安装的电脑可以重新执行原来的安装命令来升级。** 安装脚本发现配置已存在时，使用刚下载并校验的新版 CLI 更新现有安装，不调用账号绑定接口，也不再次兑换安装令牌，因此原链接的绑定令牌已使用或过期也能升级。设备仍绑定原账号，权限、项目和会话记录保留；不同服务器的安装脚本会拒绝升级。普通设备重装会启动或重启匹配的自启动项，即使程序已经是最新版本；指定 `--no-start` / `-NoStart` 会保持服务停止，仅本地 CLI/Codex 模式重装则保留原启停状态。这个入口也支持没有 `update` 命令的旧版 CLI。成功后可继续使用 `remote-agent update`；已有配置损坏或 CLI 文件丢失时应先修复本机安装。
+**Windows 下载安装新版 MSI 升级；其他系统可以重新执行原安装命令升级。** 以下脚本重装说明仅适用于 macOS/Linux 及历史安装器。 安装脚本发现配置已存在时，使用刚下载并校验的新版 CLI 更新现有安装，不调用账号绑定接口，也不再次兑换安装令牌，因此原链接的绑定令牌已使用或过期也能升级。设备仍绑定原账号，权限、项目和会话记录保留；不同服务器的安装脚本会拒绝升级。普通设备重装会启动或重启匹配的自启动项，即使程序已经是最新版本；指定 `--no-start` / `-NoStart` 会保持服务停止，仅本地 CLI/Codex 模式重装则保留原启停状态。这个入口也支持没有 `update` 命令的旧版 CLI。成功后可继续使用 `remote-agent update`；已有配置损坏或 CLI 文件丢失时应先修复本机安装。
 
 构建发布安装包时可运行 `go run ./tools/build -version <Git提交号>`，尤其是从源码归档构建时，确保 `version` 命令显示发布版本。
 
@@ -238,7 +251,7 @@ printf '%s' 'ONE_TIME_TOKEN' | remote-agent enroll \
   --roots /Users/you/projects --allow-write
 ```
 
-`--roots` 多个目录使用操作系统的路径列表分隔符（Windows `;`，macOS / Linux `:`）。默认根目录是当前用户的 home。已绑定设备可先停止 Agent，编辑本地配置的 `allowedRoots` / `allowWrite`，再启动；网页无权修改这两个字段。不要把凭证文件上传或分享。Windows 安装器为目录设置用户 / SYSTEM ACL，macOS / Linux 使用用户私有目录和 `0600` 配置文件。
+`--roots` 多个目录使用操作系统的路径列表分隔符（Windows `;`，macOS / Linux `:`）。默认根目录是当前用户的 home。已绑定设备可先停止 Agent，编辑本地配置的 `allowedRoots` / `allowWrite`，再启动；网页无权修改这两个字段。不要把凭证文件上传或分享。Windows 服务配置为原用户目录添加服务 SID ACL，macOS / Linux 使用用户私有目录和 `0600` 配置文件。
 
 - Codex 默认 `exec --json --sandbox read-only`，写入授权后使用 `workspace-write`。非交互审批策略为 `never`，受限操作失败，不自动越权。
 - Qoder 默认 `--print --output-format stream-json --permission-mode plan`，写入授权后使用 `accept_edits`。需要交互批准的操作不在本版本提供网页审批流。

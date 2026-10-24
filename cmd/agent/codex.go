@@ -25,6 +25,7 @@ func runCodex(args []string) error {
 	configPath := flags.String("config", agent.DefaultPath(), "enrolled device configuration")
 	serverURL := flags.String("server", "", "platform URL for personal-token setup")
 	tokenStdin := flags.Bool("token-stdin", false, "read a personal model token from stdin, without device enrollment")
+	tokenPrompt := flags.Bool("token-prompt", false, "prompt for a personal model token without echo or shell history")
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -61,15 +62,14 @@ func runCodex(args []string) error {
 		fmt.Printf("Official Codex CLI installed at %s\n", path)
 		return nil
 	}
-	if *tokenStdin {
+	if *tokenStdin || *tokenPrompt {
 		if err := agent.ValidateServer(server); err != nil {
 			return err
 		}
-		secret, err := io.ReadAll(io.LimitReader(os.Stdin, 4096))
+		token, err := readSetupToken(*tokenPrompt, *tokenStdin)
 		if err != nil {
 			return err
 		}
-		token := strings.TrimSpace(string(secret))
 		if !strings.HasPrefix(token, "ra_codex_") || len(token) < 40 || strings.ContainsAny(token, "\r\n") {
 			return errors.New("supply a personal token created in /agents")
 		}

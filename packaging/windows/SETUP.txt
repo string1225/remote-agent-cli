@@ -1,32 +1,34 @@
 Remote Agent for Windows
 
-The MSI installs a machine-wide, automatic Windows Service named RemoteAgent.
-It runs without an interactive login as LocalService with a dedicated service SID.
-Fresh installations wait for device enrollment and local service configuration.
+1. Download and install the x64 or ARM64 MSI. No installation script is needed.
+   The installer adds Program Files\Remote Agent to the machine PATH and installs
+   the automatic RemoteAgent Windows Service. It runs after logout.
+2. The completion window stays open and displays the following commands.
+   Open a new PowerShell (restart Windows Terminal completely if it was open):
 
-Recommended: run the Windows installation command from your server's web console.
-It verifies and installs this MSI, retains an existing device binding, and configures
-the service using the original user's data directory and tool environment.
+   remote-agent version
+   remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt
 
-Manual setup (PowerShell; enrollment runs as the original project owner):
-  $exe = "$env:ProgramFiles\Remote Agent\remote-agent.exe"
-  $config = "$env:USERPROFILE\.remote-agent\config.json"
-  # For a new device only: pipe its one-time token to enroll --token-stdin.
-  # Existing devices must keep their existing config.json.
-  & $exe service profile --config $config --output "$env:TEMP\remote-agent-profile.json"
+   Paste a personal model Token when prompted. Input is hidden; no secret is
+   passed to MSI, UAC arguments or command history.
+3. Remote access is optional. Add a client on the website, then use its generated
+   device binding command, or prompt for the one-time device token:
 
-Then, in an administrator PowerShell:
-  & "$env:ProgramFiles\Remote Agent\remote-agent.exe" service configure --profile "<full path to the captured profile>"
+   remote-agent connect --server https://codex.sunny-string.cn/agents --token-prompt
 
-The profile contains paths and tool environment only, not credentials. Configuration
-grants the service SID access to the original data and locally allowed project roots.
-Use service status to inspect the configuration. start/stop requires elevation.
+   connect captures the original user's tool environment, then requests admin
+   approval to configure the existing service. Existing bindings are preserved.
 
-Upgrade using a newer MSI. Windows Installer stops the service, replaces only its
-program files, and starts it again. Device configuration, projects, history.db,
-SaySo recordings and Codex configuration stay in place. Failed major upgrades roll
-back the program installation. MSI-managed program files cannot use EXE self-update.
+Upgrades: download and install a newer MSI. The installer removes obsolete
+Remote Agent program copies and exactly matching legacy startup tasks only
+after successful commit. Device identity, config, projects, history.db, SaySo
+recordings, Codex/Qoder programs and their own settings remain in place.
 
-Uninstall stops and removes the service and program files. It retains business data
-and the protected ProgramData\RemoteAgent\service.json profile for reinstallation.
-No tokens or account passwords belong in MSI properties or installer command lines.
+The service runs as LocalService with its own SID. Credentials remain in the
+original private user directory. The ProgramData service profile contains paths
+and tool environment only. service status shows service configuration;
+start/stop and configuration require an administrator.
+
+Uninstall removes service/programs and this installer's PATH entry. It retains
+business data and the protected service profile. Failed upgrades roll back the
+program installation and do not run legacy program cleanup.

@@ -50,7 +50,7 @@ func TestSubpathMountAndInstallers(t *testing.T) {
 	if err := json.Unmarshal(commands, &linuxCommand); err != nil || !strings.HasPrefix(linuxCommand.Linux, "curl -fsSL '"+f.url+"/install/linux.sh?token=") || !strings.HasSuffix(linuxCommand.Linux, "' | bash") {
 		t.Fatalf("missing mounted Linux installation command: %s / %v", commands, err)
 	}
-	for _, script := range []string{"windows.ps1", "macos.sh", "linux.sh"} {
+	for _, script := range []string{"macos.sh", "linux.sh"} {
 		res, err := client.Get(f.url + "/install/" + script + "?token=" + token)
 		if err != nil {
 			t.Fatal(err)

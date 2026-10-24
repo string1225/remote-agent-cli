@@ -267,16 +267,16 @@
             required
             maxlength="80"
             placeholder="例如：我的 MacBook Pro" /></label
-        ><button class="primary full" type="submit">生成安装命令 ↗</button>
+        ><button class="primary full" type="submit">生成设备绑定命令 ↗</button>
       </form>
       <div id="install-result" hidden>
         <p class="muted">
-          在目标电脑的终端中运行对应命令。它会安装
-          本地 CLI、绑定设备，并按服务器设置安装和配置 Codex。
+          Windows：先下载安装 MSI，再在新的 PowerShell 中运行绑定命令。macOS / Linux：使用下方命令安装并绑定。
         </p>
-        <p class="expiry">一次性安装凭证 · 15 分钟有效 · 请勿分享</p>
+        <p class="expiry">一次性设备绑定凭证 · 15 分钟有效 · 请勿分享</p>
+        <p><a id="enroll-msi-x64">下载 Windows x64 MSI</a> · <a id="enroll-msi-arm64">下载 Windows ARM64 MSI</a></p>
         <label
-          >Windows · PowerShell<textarea
+          >Windows · 安装 MSI 后运行（PowerShell）<textarea
             id="install-windows"
             readonly
             rows="3"
@@ -304,8 +304,8 @@
         <p class="small muted">
           Windows 使用 MSI + Windows Service，开机自动启动，退出登录后保持在线，不依赖计划任务。macOS 需要保持登录。Linux 使用 systemd
           用户服务；启用 linger 后可在退出登录后继续运行并开机启动。
-          如只需要本地配置，请使用「Codex 接入与帮助」里的本地 CLI 安装命令。
-          Windows 安装命令末尾加 -NoStart，macOS / Linux 改用 bash -s -- --no-start，可只绑定而不启动远程服务。
+          如只需要 Codex 代理，请安装 MSI 后使用「Codex 接入与帮助」里的 Token 配置命令。
+          Windows 绑定命令末尾加 --no-start，macOS / Linux 改用 bash -s -- --no-start，可只绑定而不启动远程服务。
         </p>
       </div>
     </dialog>
@@ -317,22 +317,22 @@
         <p class="muted">远程客户端通过长连接 WebSocket 接入当前站点。网页任务、会话和 SaySo 数据均由站点中转，任务在你的电脑执行。</p>
         <p id="gateway-state" class="platform-note" role="status"></p>
         <label>操作系统<select id="setup-platform"><option value="windows">Windows · PowerShell</option><option value="macos">macOS · Terminal</option><option value="linux">Linux · Bash</option></select></label>
-        <div class="platform-note"><strong>远程客户端安装与升级</strong><p id="remote-install-help"></p><button class="primary" id="setup-add-device">添加设备并生成安装命令 ↗</button><p class="small muted">已有设备：重新执行原绑定安装命令即可升级，保留设备配置、项目、会话和 SaySo 录音。Windows 的 EXE update 不适用于 MSI 安装。</p><div id="msi-downloads"></div></div>
-        <h3>仅使用 Codex 代理</h3><p class="small muted">以下命令安装独立的本地 CLI；无需绑定设备，也不会启动远程服务。</p>
-        <label>安装本地 CLI（不启用远程服务）<textarea id="local-cli-command" rows="3" readonly></textarea></label><button class="secondary" id="copy-local-cli">复制安装命令</button>
-        <ol class="setup-steps"><li>运行安装命令，然后打开新终端。</li><li>在「我的 Token」创建代理 Token，复制生成的一键配置命令。</li><li>命令会补装缺少的 Codex CLI，备份并更新 TOML。重启 Codex App，新建本地会话即可使用。</li><li>需要远程任务时，在工作台添加设备、运行绑定命令，再连接设备并添加项目。</li></ol>
+        <div class="platform-note"><strong>远程客户端安装与升级</strong><p id="remote-install-help"></p><div id="msi-downloads"></div><button class="primary" id="setup-add-device">添加设备并生成绑定命令 ↗</button><p class="small muted">Windows 升级直接安装新版 MSI。安装器清理旧程序及匹配的启动项，保留设备绑定、配置、项目、会话和 SaySo 录音。</p></div>
+        <h3>仅使用 Codex 代理</h3><p class="small muted" id="setup-install-description">Windows 先安装 MSI，再运行 Token 配置命令；无需绑定设备。</p>
+        <label id="local-command-label">安装 MSI 后，设置或刷新本机 Token<textarea id="local-cli-command" rows="3" readonly></textarea></label><button class="secondary" id="copy-local-cli">复制 Token 配置命令</button>
+        <ol class="setup-steps"><li>Windows 下载并安装 MSI，然后打开新的 PowerShell。macOS / Linux 运行安装命令后打开新终端。</li><li>在「我的 Token」创建代理 Token，运行配置命令后粘贴 Token，或复制页面生成的一键配置命令。</li><li>配置命令会补装缺少的 Codex CLI，备份并更新 TOML。重启 Codex App，新建本地会话即可使用。</li><li>需要远程任务时，在工作台添加设备、运行绑定命令，再选择客户端项目。</li></ol>
         <h3>本地 CLI 命令</h3>
-        <p class="small muted">安装目录：Windows %USERPROFILE%\.remote-agent\bin；macOS / Linux ~/.remote-agent/bin。脚本将它加入用户 PATH。</p>
+        <p class="small muted">Windows 程序安装到 %ProgramFiles%\Remote Agent，由 MSI 加入系统 PATH；用户数据继续保存在原目录。macOS / Linux 程序位于 ~/.remote-agent/bin。</p>
         <div id="cli-help" class="cli-help"></div>
         <details><summary>配置文件、备份和恢复</summary><p>使用 CODEX_HOME 指定的目录，默认 ~/.codex/config.toml。修改前在同目录创建 config.toml.backup-*，保留模型、项目和其他 provider 设置。凭据只保存在受保护的本机配置内。恢复时先退出 Codex 和远程任务，再用对应备份替换 config.toml。</p></details>
         <details><summary>Codex App、旧会话和官方账号功能</summary><p>代理承接模型调用。桌面端的账号资料、云端任务和插件仍使用官方服务。更新配置后请完全退出并重新打开 App，先新建本地会话验证；旧会话可能保留原来的 provider。不要用旧连接助手的「更新配置」覆盖这里生成的配置。</p><p>Windows App 安装与升级会打开 Microsoft Store 产品页面，由当前登录用户完成；macOS 使用 Homebrew 的 codex-app。若 App 通过其他渠道安装，请使用其内置更新或官方安装器。</p><p><a href="https://openai.com/codex/" target="_blank" rel="noreferrer">官方 Codex 下载 ↗</a> · <a href="/openai/docs" target="_blank" rel="noreferrer">原连接助手与登录指引 ↗</a></p></details>
-        <details><summary>只绑定、不启动；启动和停止远程 Agent</summary><p>本地 CLI 安装入口不创建远程连接。绑定安装器默认启用远程服务；Windows 可在安装命令末尾添加 -NoStart，macOS / Linux 将末尾的 bash 改为 bash -s -- --no-start。以后使用 remote-agent start 启用自启动并连接，remote-agent stop 停止并禁用自启动；设备绑定和历史保留。Windows MSI 的启停和服务配置需要管理员权限，由 Windows Service 维持进程。Linux 启动服务需要 systemd 用户会话。</p></details>
+        <details><summary>只绑定、不启动；启动和停止远程 Agent</summary><p>Windows MSI 安装自动服务；未绑定时服务等待本机配置。remote-agent connect 绑定并配置服务，可加 --no-start 暂不连接。Codex Token 配置不会创建远程绑定。以后使用 remote-agent start / stop 控制服务；绑定和历史保留。Windows 服务配置需要管理员授权，由 Windows Service 维持进程。Linux 启动服务需要 systemd 用户会话。</p></details>
         <details><summary>客户端、项目与三类会话如何协作</summary><p>客户端是一台设备；项目是工作目录与 Codex / Qoder 执行器。每个项目固定置顶一个 SaySo 入口，并可绑定一个飞书/钉钉渠道会话，其余为 Web 会话。SaySo Action 和渠道助理可以创建新的 Web 会话来执行工作；Web 会话可通过客户端工具查询同账号其他客户端/项目、发起跨设备任务，并通知项目的 IM 渠道。</p></details>
       </section>
       <section id="platform-tokens" class="platform-panel" hidden>
         <h3>我的代理 Token</h3><p class="muted">每个 Token 可用于一台或多台自己的设备。明文只在创建时显示，撤销后新的模型请求立即失效。</p>
         <form id="token-form" class="inline-form"><label>名称<input name="name" required maxlength="80" placeholder="例如：我的笔记本"></label><button class="primary" type="submit">创建 Token</button></form>
-        <div id="token-secret-box" class="token-secret" hidden><strong>请保存；关闭窗口后不再显示</strong><label>Token<input id="token-secret" readonly autocomplete="off"></label><button id="copy-token-secret" class="secondary">复制 Token</button><label>一键安装本地 CLI 并更新 Codex 配置<textarea id="token-config-command" readonly rows="4"></textarea></label><button id="copy-token-command" class="primary">复制一键配置命令</button><p class="small muted">命令包含你的 Token，请只在自己的电脑执行，不要转发。操作系统在「接入与帮助」中选择。</p></div>
+        <div id="token-secret-box" class="token-secret" hidden><strong>请保存；关闭窗口后不再显示</strong><label>Token<input id="token-secret" readonly autocomplete="off"></label><button id="copy-token-secret" class="secondary">复制 Token</button><label>安装客户端后，更新本机 Codex 配置<textarea id="token-config-command" readonly rows="4"></textarea></label><button id="copy-token-command" class="primary">复制一键配置命令</button><p class="small muted">命令包含你的 Token，请只在自己的电脑执行，不要转发。操作系统在「接入与帮助」中选择。</p></div>
         <div id="token-list" class="platform-list"></div>
       </section>
       <section id="platform-account" class="platform-panel" hidden>

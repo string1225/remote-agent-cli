@@ -21,6 +21,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -100,6 +101,51 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertCommandPath := func(wantInstalled bool) {
+		t.Helper()
+		key, e := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`, registry.QUERY_VALUE)
+		if e != nil {
+			t.Fatal(e)
+		}
+		machine, _, e := key.GetStringValue("Path")
+		key.Close()
+		if e != nil {
+			t.Fatal(e)
+		}
+		count := 0
+		for _, entry := range filepath.SplitList(machine) {
+			if strings.EqualFold(filepath.Clean(entry), filepath.Dir(exe)) {
+				count++
+			}
+		}
+		if wantInstalled && count != 1 || !wantInstalled && count != 0 {
+			t.Fatal("MSI PATH entry missing, duplicated or retained after uninstall", count)
+		}
+		if !wantInstalled {
+			return
+		}
+		user := ""
+		if key, e := registry.OpenKey(registry.CURRENT_USER, `Environment`, registry.QUERY_VALUE); e == nil {
+			user, _, _ = key.GetStringValue("Path")
+			key.Close()
+		}
+		freshPath, e := registry.ExpandString(machine + ";" + user)
+		if e != nil {
+			t.Fatal(e)
+		}
+		probe := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-Command", "(Get-Command remote-agent -CommandType Application).Source; remote-agent version")
+		probe.Env = os.Environ()
+		for i, v := range probe.Env {
+			if strings.HasPrefix(strings.ToUpper(v), "PATH=") {
+				probe.Env[i] = "PATH=" + freshPath
+			}
+		}
+		out, e := probe.CombinedOutput()
+		if e != nil || !strings.Contains(strings.ToLower(string(out)), strings.ToLower(exe)) {
+			t.Fatal("new PowerShell cannot resolve MSI command", e, string(out))
+		}
+	}
+	assertCommandPath(true)
 	s, err := openWindowsService(windows.SERVICE_ALL_ACCESS)
 	if err != nil {
 		t.Fatal(err)
@@ -312,7 +358,26 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	assertRetained()
 
 	before = connections.Load()
+	legacyBin := filepath.Join(home, ".remote-agent", "bin")
+	if err = os.MkdirAll(legacyBin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacyProgram := filepath.Join(legacyBin, "remote-agent.exe")
+	if err = os.WriteFile(legacyProgram, []byte("obsolete agent fixture; must not execute"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	retainedTool := filepath.Join(legacyBin, "codex.exe")
+	if err = os.WriteFile(retainedTool, []byte("retained Codex fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	msi("/i", goodMSI, false)
+	assertCommandPath(true)
+	if _, err = os.Stat(legacyProgram); !os.IsNotExist(err) {
+		t.Fatal("MSI commit did not clean legacy Agent program", err)
+	}
+	if b, e := os.ReadFile(retainedTool); e != nil || string(b) != "retained Codex fixture" {
+		t.Fatal("MSI cleanup removed another tool")
+	}
 	wait("heartbeat after major upgrade", func() bool { return connections.Load() > before })
 	t.Log("major upgrade restored the authenticated connection")
 	if version, e := exec.Command(exe, "version").CombinedOutput(); e != nil || !strings.Contains(string(version), "acceptance-upgrade") {
@@ -339,6 +404,7 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	assertRetained()
 	before = connections.Load()
 	msi("/famus", goodMSI, false)
+	assertCommandPath(true)
 	wait("service after MSI repair", func() bool { return connections.Load() > before })
 	t.Log("MSI repair restored the authenticated connection")
 	assertRetained()
@@ -346,6 +412,7 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 		t.Fatal("EXE update bypassed MSI ownership", e)
 	}
 	msi("/x", goodMSI, false)
+	assertCommandPath(false)
 	installed = false
 	if service, e := openWindowsService(windows.SERVICE_QUERY_STATUS); e == nil {
 		service.Close()

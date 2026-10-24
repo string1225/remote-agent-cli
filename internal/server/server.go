@@ -329,9 +329,11 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 	base := s.Config.PublicURL + "/install/"
 	reply(w, 201, map[string]any{
 		"agent": a, "expiresAt": time.Now().Add(15 * time.Minute).Unix(),
-		"windows": "& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing '" + strings.ReplaceAll(base+"windows.ps1?token="+token, "'", "''") + "').Content))",
-		"macos":   "curl -fsSL '" + strings.ReplaceAll(base+"macos.sh?token="+token, "'", "'\"'\"'") + "' | bash",
-		"linux":   "curl -fsSL '" + strings.ReplaceAll(base+"linux.sh?token="+token, "'", "'\"'\"'") + "' | bash",
+		"windows":         "'" + token + "' | remote-agent connect --server '" + strings.ReplaceAll(s.Config.PublicURL, "'", "''") + "' --token-stdin",
+		"windowsMsi":      s.Config.PublicURL + "/downloads/remote-agent-windows-amd64.msi",
+		"windowsArm64Msi": s.Config.PublicURL + "/downloads/remote-agent-windows-arm64.msi",
+		"macos":           "curl -fsSL '" + strings.ReplaceAll(base+"macos.sh?token="+token, "'", "'\"'\"'") + "' | bash",
+		"linux":           "curl -fsSL '" + strings.ReplaceAll(base+"linux.sh?token="+token, "'", "'\"'\"'") + "' | bash",
 	})
 }
 func (s *Server) redeem(w http.ResponseWriter, r *http.Request) {

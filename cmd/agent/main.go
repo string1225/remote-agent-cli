@@ -27,11 +27,14 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
-		fmt.Println("remote-agent: enroll | run | start | stop | status | version | mcp | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup | app install/upgrade\nUse <command> --help for options.\nWindows MSI uses a machine service; service configuration and start/stop require an administrator.")
+		fmt.Println("remote-agent: connect --server URL --token-prompt | enroll | run | start | stop | status | version | mcp | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup [--server URL --token-prompt] | app install/upgrade\nUse <command> --help for options.\nWindows: install the MSI first, then run a token/setup command in a new PowerShell. The MSI installs PATH and an automatic Windows Service.")
 		return nil
 	}
 	if os.Args[1] == "codex" {
 		return runCodex(os.Args[2:])
+	}
+	if os.Args[1] == "connect" {
+		return runConnect(os.Args[2:])
 	}
 	if os.Args[1] == "app" {
 		return runApp(os.Args[2:])

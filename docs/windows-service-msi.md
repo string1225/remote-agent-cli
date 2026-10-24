@@ -4,7 +4,16 @@ Windows 正式客户端由 MSI 安装到 `%ProgramFiles%\Remote Agent`，注册�
 
 ## 安装与原安装迁移
 
-推荐在网页“添加设备”中复制 Windows 安装命令，以原项目用户运行。安装命令下载并校验 MSI，再请求管理员权限安装；原用户完成设备绑定、可选的 Codex 配置和工具环境捕获，管理员步骤配置服务。账号/模型 Token 不传给 MSI，不进入 MSI 属性或 UAC 命令行。
+先从网页“Codex 接入与帮助”下载 x64 或 ARM64 MSI，双击安装。MSI 安装自动 Windows Service，并将 `%ProgramFiles%\Remote Agent` 加到系统 PATH 首位，保留其他 PATH 项。完成页保持打开，显示可复制的 Token 配置与设备绑定命令，点击“完成”才关闭。无需 Windows 安装脚本；原 `windows.ps1`、`cli-windows.ps1`、`codex-windows.ps1` 返回 410 和迁移说明。
+
+新开 PowerShell（Windows Terminal 请完全退出后重新打开），运行：
+
+```powershell
+remote-agent version
+remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt
+```
+
+Token 在终端隐藏输入，不出现在命令历史或 MSI 属性中。网页创建 Token 后也可复制 `'<Token>' | remote-agent codex setup --server '<站点>' --token-stdin`；这条含秘密的命令不要分享。设备绑定独立进行：网页添加客户端后运行生成的 `remote-agent connect --server ... --token-stdin`，或用 `--token-prompt` 隐藏输入设备凭证。`connect` 捕获原用户环境后请求管理员授权配置服务，只有路径信息进入 UAC 参数。
 
 已有 `~/.remote-agent/config.json` 时，检查原服务器并复用设备绑定，既不重新兑换安装令牌，也不转移账号。服务继续使用原数据目录：
 
@@ -17,7 +26,9 @@ Windows 正式客户端由 MSI 安装到 `%ProgramFiles%\Remote Agent`，注册�
 
 迁移检查旧 `RemoteAgent` 计划任务的完整启动动作，仅移除指向这份配置和原安装程序的任务。发现其他配置的同名任务则拒绝迁移。新服务激活失败时恢复原服务配置及旧任务 XML/运行状态，原业务文件保留。
 
-`-NoStart` 会完成安装与配置，并明确禁用服务；后续以管理员权限运行 `start` 启用。Windows 已移除新建计划任务的安装入口；旧任务仅保留识别、停止、迁移和旧程序更新兼容。独立 CLI/Codex 安装入口继续保留，但不会创建后台计划任务。
+`connect --no-start` 完成绑定与配置，并禁用服务；后续以管理员权限运行 `start` 启用。Windows 不提供新建计划任务或独立脚本安装入口。已有绑定执行 `connect` 会检查原服务器并保留配置，不兑换新凭证。
+
+用户确认的清理范围是旧版程序与启动项，**保留绑定、配置、项目、历史和录音**。MSI 成功提交后，才移除原用户 `.remote-agent/bin/remote-agent.exe` 及旧副本，并检查、停止和删除动作完全匹配原配置的旧计划任务。外来同名任务、重定向目录或正在使用的文件不会被强删；错误记入安装日志。保留同目录中的 Codex/Qoder 等其他工具，不递归删除业务数据。
 
 ## 服务身份与访问权限
 
@@ -58,9 +69,9 @@ sc.exe qfailure RemoteAgent
 
 使用更高三段版本号的 MSI 升级。组件 GUID 和关键路径保持稳定，Windows Installer 在事务内停止服务、替换程序并重启，成功执行新安装后才移除旧产品登记。升级复用现有服务对象，保留服务 SID 和恢复策略；失败时回滚程序文件并恢复服务。MSI 只拥有程序、许可证、安装说明及安装目录登记，不拥有业务数据；修复、升级和卸载都不删除上述配置、项目、历史或录音。
 
-MSI 管理的 EXE 拒绝原地 `update`，避免绕过 Windows Installer 文件和版本管理；`update --check` 可以继续检查服务器发布的二进制。旧用户目录内保留的独立 CLI 仍遵循其原有更新方式。
+MSI 管理的 EXE 拒绝原地 `update`，升级应下载安装新版 MSI。`update --check` 可以继续检查发布版本。Windows 不再分发独立脚本安装器。
 
-卸载从 Windows 设置中的应用列表或 `msiexec /x` 进行，停止并删除服务和程序文件，保留本机业务数据与机器服务路径配置以便重装。停止/卸载会中断正在执行的任务，应先结束任务再进行维护。
+卸载从 Windows 设置中的应用列表或 `msiexec /x` 进行，停止并删除服务、程序及 MSI 自己添加的 PATH 项，保留业务数据与机器服务路径配置。停止/卸载会中断正在执行的任务，应先结束任务再维护。
 
 ## 构建与验证
 
@@ -75,7 +86,7 @@ MSI 管理的 EXE 拒绝原地 `update`，避免绕过 Windows Installer 文件�
 
 MSI 版本采用 Windows Installer 三段版本号，发布时递增；程序版本单独使用 Git 提交号。安装包尚未做发布者代码签名。
 
-服务端发布时，把同一提交构建的两个 MSI 及其 SHA-256 文件放到 `DOWNLOADS_DIR`（默认 `dist`），网页 Windows 安装命令才可使用。`go run ./tools/build` 仅构建 EXE/Unix Agent，不生成 MSI；可从 CI 的 `remote-agent-windows-msi` artifact 取得安装包。Docker 构建上下文允许带入这些 MSI 文件，镜像会将它们与 Go 构建的其他分发包一起复制到下载目录；Linux 镜像构建本身不生成 Windows MSI。
+服务端发布时，把同一提交构建的两个 MSI 及其 SHA-256 文件放到 `DOWNLOADS_DIR`（默认 `dist`），网页 MSI 下载链接才可使用。`go run ./tools/build` 仅构建 EXE/Unix Agent，不生成 MSI；可从 CI 的 `remote-agent-windows-msi` artifact 取得安装包。Docker 构建上下文允许带入这些 MSI 文件，镜像会将它们与 Go 构建的其他分发包一起复制到下载目录；Linux 镜像构建本身不生成 Windows MSI。
 
 普通 `go test ./...` 不安装 MSI、不注册机器服务或计划任务。Windows/macOS 旧更新测试只验证隔离目录中的替换和回滚，系统自启动脚本测试使用模拟接口。真实安装测试必须在一次性管理员 Windows 环境中显式执行：
 
@@ -83,6 +94,6 @@ MSI 版本采用 Windows Installer 三段版本号，发布时递增；程序版
 ./tools/msi/acceptance.ps1
 ```
 
-该测试拒绝接触已有 RemoteAgent 服务或服务配置，验证安装、自动启动/服务 SID/Session 0、服务身份下的实际工具子进程及原环境、设备鉴权心跳、网络重连、崩溃恢复、升级、注入失败后的产品回滚、修复、卸载，以及配置/项目/会话/原生 session ID/录音的保留。CI 的 `windows-msi` job 执行这套测试，再生成正式 x64/ARM64 安装包。
+该测试拒绝接触已有 RemoteAgent 服务或服务配置，验证安装、自动启动/服务 SID/Session 0、服务身份下的实际工具子进程及原环境、设备鉴权心跳、网络重连、崩溃恢复、升级、注入失败后的产品回滚、修复、卸载，以及系统 PATH 安装/升级去重/卸载、新 PowerShell 直接调用、旧程序清理和配置/项目/会话/原生 session ID/录音的保留。CI 的 `windows-msi` job 执行这套测试，再生成正式 x64/ARM64 安装包。
 
 SCM 生命周期与登录事件由自动化覆盖；真实整机冷启动和退出当前桌面登录的人工验收不在共享开发机上执行。ARM64 包在构建阶段校验，原生 ARM64 安装运行仍需目标硬件验收。

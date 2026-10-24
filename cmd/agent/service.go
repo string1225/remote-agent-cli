@@ -18,6 +18,7 @@ func runService(args []string) error {
 	profile := flags.String("profile", "", "profile captured in the original user's environment")
 	output := flags.String("output", "", "output file for service profile")
 	noStart := flags.Bool("no-start", false, "configure but disable and stop the service")
+	userSID := flags.String("user-sid", "", "original MSI user SID (legacy program cleanup only)")
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -32,6 +33,8 @@ func runService(args []string) error {
 		return agent.RunWindowsService()
 	case "prepare":
 		return agent.PrepareWindowsService()
+	case "cleanup-legacy":
+		return agent.CleanupLegacyWindows(*userSID)
 	case "status":
 		status, err := agent.WindowsServiceStatus()
 		if err != nil {
