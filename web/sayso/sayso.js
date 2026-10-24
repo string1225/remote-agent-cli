@@ -11314,7 +11314,7 @@ function Z1({
     /* @__PURE__ */ c.jsxs("p", { className: "empty-lead", children: [
       "新建一个暂停中的会话，准备好后再继续录音。",
       /* @__PURE__ */ c.jsx("br", {}),
-      "SaySo 会持续转写、分析，并把明确的事交给 Codex。"
+      "SaySo 会持续转写、分析，把确认的 Action 交给新的 Web 会话。"
     ] }),
     /* @__PURE__ */ c.jsxs("div", { className: "empty-actions", children: [
       /* @__PURE__ */ c.jsxs("button", { className: "primary-button", onClick: x, children: [
@@ -11683,7 +11683,7 @@ function w1({
                   children: [
                     /* @__PURE__ */ c.jsx(j1, { size: 14 }),
                     " ",
-                    V.status === "failed" ? "重新交给 Codex" : "交给 Codex"
+                    V.status === "failed" ? "重新创建 Web 会话" : "创建 Web 会话"
                   ]
                 }
               )
@@ -11695,7 +11695,7 @@ function w1({
     }) }),
     /* @__PURE__ */ c.jsxs("div", { className: "action-footnote", children: [
       /* @__PURE__ */ c.jsx(v1, { size: 13 }),
-      /* @__PURE__ */ c.jsx("span", { children: "Codex 将在当前项目目录内执行" })
+      /* @__PURE__ */ c.jsx("span", { children: "新 Web 会话使用当前项目的执行器与本机权限" })
     ] }),
     B && xt && /* @__PURE__ */ c.jsx(
       J1,
@@ -12023,7 +12023,7 @@ function F1({
     ra,
     {
       title: r ? "编辑项目" : "添加项目",
-      description: "Action 会在这个本地目录中交给 Codex。",
+      description: "Action 将通过这个项目的执行器创建新的 Web 会话。",
       onClose: x,
       children: /* @__PURE__ */ c.jsxs(
         "form",

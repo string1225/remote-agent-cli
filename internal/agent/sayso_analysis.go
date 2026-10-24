@@ -318,9 +318,15 @@ func (s *saysoStore) dispatch(p *peer, a *soAction) (any, error) {
 	if serviceID == "" {
 		return nil, errors.New("请先在客户端注册这个项目")
 	}
+	model := ""
+	for _, v := range s.a.services() {
+		if v.ID == serviceID && v.Provider == "codex" {
+			model = s.state.Settings.ExecutionModel
+		}
+	}
 	prompt := fmt.Sprintf("你正在处理由用户确认的产品讨论 Action。请遵守项目规则和当前沙箱权限，完成工作并验证。\nAction：%s\n详细说明：%s\n来源讨论：%s\n会话：%s", a.Title, a.Detail, a.Source, session.Title)
 	run := &soRun{ID: store.Token(), ActionID: a.ID, Status: "running", StartedAt: soNow()}
-	task, err := s.a.startTask(p.ctx, protocol.TaskStart{ServiceID: serviceID, Title: soBound(a.Title, 80), Prompt: soBound(prompt, 32000), Source: "sayso", ParentAgentID: s.a.Config.ID, ParentSessionID: session.ID, ActionID: a.ID, Notify: true, Model: s.state.Settings.ExecutionModel}, func(err error) {
+	task, err := s.a.startTask(p.ctx, protocol.TaskStart{ServiceID: serviceID, Title: soBound(a.Title, 80), Prompt: soBound(prompt, 32000), Source: "sayso", ParentAgentID: s.a.Config.ID, ParentSessionID: session.ID, ActionID: a.ID, Notify: true, Model: model}, func(err error) {
 		s.mu.Lock()
 		webSessionID := run.WebSessionID
 		s.mu.Unlock()

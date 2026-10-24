@@ -10,11 +10,17 @@ import (
 )
 
 func TestSaysoProjectMigrationAndActionCreatesIndependentWebSession(t *testing.T) {
+	for _, provider := range []string{"codex", "qoder"} {
+		t.Run(provider, func(t *testing.T) { verifySaysoProjectAction(t, provider) })
+	}
+}
+func verifySaysoProjectAction(t *testing.T, provider string) {
 	s, p := soFixture(t)
+	s.a.Config.Services[0].Provider = provider
 	daemon, stop := context.WithCancel(context.Background())
 	s.a.initTasks(daemon)
 	t.Cleanup(func() { stop(); <-s.a.taskDone; <-s.a.notifyDone })
-	s.a.Providers["codex"] = Provider{Name: "codex", Available: true}
+	s.a.Providers[provider] = Provider{Name: provider, Available: true}
 	old := s.state.Projects[0]
 	old.ServiceID = "" // pre-unified project with existing discussion and recordings
 	v := soNewSession(t, s, p)
@@ -32,6 +38,9 @@ func TestSaysoProjectMigrationAndActionCreatesIndependentWebSession(t *testing.T
 	s.a.Execute = func(ctx context.Context, _ Provider, service protocol.Service, _ string, write bool, send func(protocol.Event) error, id string) error {
 		if service.ID != "demo" || write {
 			t.Error("action changed project/permissions")
+		}
+		if provider == "qoder" && service.Model != "" {
+			t.Error("Codex execution model leaked into Qoder project")
 		}
 		close(started)
 		select {
