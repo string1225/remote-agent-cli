@@ -134,6 +134,17 @@ func (f *fixture) connectedDevice(c *http.Client) (store.Agent, string, *websock
 		f.t.Fatal(err)
 	}
 	f.t.Cleanup(func() { device.Close() })
+	// Completing the HTTP upgrade does not guarantee the server goroutine has
+	// published the device in its hub yet. Wait for a real heartbeat round trip.
+	if err := device.WriteJSON(protocol.Signal{Type: "heartbeat"}); err != nil {
+		f.t.Fatal(err)
+	}
+	_ = device.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var heartbeat protocol.Signal
+	if err := device.ReadJSON(&heartbeat); err != nil || heartbeat.Type != "heartbeat" {
+		f.t.Fatal("device heartbeat not ready", err)
+	}
+	_ = device.SetReadDeadline(time.Time{})
 	go func() {
 		for {
 			var msg protocol.Signal
