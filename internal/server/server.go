@@ -18,12 +18,13 @@ import (
 )
 
 type Config struct {
-	PublicURL    string
-	Downloads    string
-	AllowSignup  bool
-	GatewayURL   string
-	GatewayToken string
-	GatewayModel string
+	PublicURL         string
+	Downloads         string
+	AllowSignup       bool
+	GatewayURL        string
+	GatewayToken      string
+	GatewayAdminToken string
+	GatewayModel      string
 }
 type Server struct {
 	Store         *store.Store
@@ -71,6 +72,8 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("GET /api/tokens", s.tokens)
 	mux.HandleFunc("POST /api/tokens", s.createToken)
 	mux.HandleFunc("DELETE /api/tokens/{id}", s.revokeToken)
+	mux.HandleFunc("GET /api/admin/codex/accounts", s.codexAccounts)
+	mux.HandleFunc("POST /api/admin/codex/{action}", s.codexAccounts)
 	mux.HandleFunc("GET /api/admin/tokens", s.adminTokens)
 	mux.HandleFunc("DELETE /api/admin/tokens/{id}", s.adminRevokeToken)
 	mux.HandleFunc("GET /api/codex", s.codex)

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Token 管理 · Sunny String</title><link rel="stylesheet" href="/openai/admin/admin.css"></head>
+<body>
+<header><a class="brand" href="/openai/admin"><span class="logo">S</span><span>SUNNY STRING <small>/ 个人连接</small></span></a><button id="logout" class="quiet" hidden>退出管理</button></header>
+<main>
+ <section id="login-panel" class="login-panel">
+  <span class="eyebrow">你的设备，统一连接</span><h1>管理你的连接 Token。</h1><p class="muted">使用管理密码登录，为自己的每台电脑创建独立 Token。</p>
+  <form id="login-form"><label for="password">管理密码</label><input id="password" type="password" autocomplete="current-password" required placeholder="输入管理密码"><button class="primary" type="submit">进入管理</button></form>
+  <p class="note">这里使用独立的管理密码，无需输入 ChatGPT 密码。</p>
+ </section>
+ <section id="dashboard" hidden>
+  <div class="heading"><div><span class="eyebrow">个人设备管理</span><h1>让每台电脑都连得上。</h1><p class="muted">按设备分发，需要时单独撤销。</p></div><span id="upstream-status" class="status neutral">正在检查服务器登录…</span></div>
+  <div class="stats"><article><span>可用设备</span><strong id="active-count">—</strong></article><article><span>已撤销</span><strong id="revoked-count">—</strong></article><article class="endpoint-card"><span>模型接入地址</span><div><code id="endpoint">https://codex.sunny-string.cn/openai/personal/v1</code><button id="copy-endpoint" class="quiet">复制地址</button></div></article></div>
+  <section class="panel"><div class="section-heading"><div><h2>新建设备 Token</h2><p class="muted">建议一台电脑一个名称，便于日后管理。</p></div></div><form id="create-form" class="create-form"><div class="field"><label for="device-name">设备名称</label><input id="device-name" maxlength="80" autocomplete="off" placeholder="例如：办公电脑、MacBook" required></div><button class="primary" type="submit">创建 Token</button></form></section>
+  <section class="panel"><div class="section-heading"><h2>设备列表</h2><button id="refresh" class="quiet">刷新列表</button></div><div class="table-wrap"><table><thead><tr><th>设备名称</th><th>状态</th><th>创建时间</th><th class="action-column">操作</th></tr></thead><tbody id="devices"></tbody></table><p id="empty" class="empty" hidden>还没有设备。先创建一个 Token，即可开始连接。</p></div></section>
+  <section class="usage"><h2>怎么在其他电脑上使用？</h2><p>在下方复制配置，将设备 Token 保存为该电脑的 <code>SUNNY_CODEX_TOKEN</code> 环境变量，再重启 Codex CLI。每台电脑使用各自的 Token，所有设备共用服务器登录账号的额度。</p><pre><code id="config">model = "gpt-6-sol"
+model_provider = "sunny_personal"
+
+[model_providers.sunny_personal]
+name = "Sunny Personal"
+base_url = "https://codex.sunny-string.cn/openai/personal/v1"
+wire_api = "responses"
+env_key = "SUNNY_CODEX_TOKEN"
+requires_openai_auth = false
+supports_websockets = false</code></pre><button id="copy-config" class="quiet">复制配置</button><p class="note">在用户目录的 .codex/config.toml 中合并配置，替换已有的 model 和 model_provider，避免重复声明。此模式无需启动本站连接助手。模型范围以服务器账号为准；ChatGPT 网页、云端会话及连接器登录需分别处理。</p></section>
+ </section>
+ <p id="message" role="status" aria-live="polite"></p>
+</main>
+<dialog id="token-dialog"><div class="dialog-content"><span class="eyebrow">已准备好</span><h2>保存这个设备 Token。</h2><p id="new-device-label" class="muted"></p><p>Token 仅在本次创建时显示，请妥善保存。</p><textarea id="new-token" readonly aria-label="新设备 Token" spellcheck="false"></textarea><div class="dialog-actions"><button id="copy-token" class="primary">复制 Token</button><button id="close-dialog" class="quiet">我已保存</button></div></div></dialog>
+<footer>Sunny String · 个人模型连接</footer><script src="/openai/admin/admin.js" defer></script>
+</body></html>

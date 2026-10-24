@@ -1,6 +1,7 @@
 /* Account and token management stays separate from device/session transport. */
 (() => {
   let user, gateway, tab = "setup", revision = 0;
+  let codexPoll, codexLoginID, codexLoading = false;
   const dialog = $("platform-dialog");
   const server = location.origin + basePath;
   const shellQuote = (s) => "'" + s.replaceAll("'", "'\"'\"'") + "'";
@@ -21,6 +22,9 @@
   window.platformSignedOut = () => {
     user = null;
     revision++;
+    clearTimeout(codexPoll);
+    $("codex-login").hidden = true;
+    $("codex-login-code").value = "";
     clearSecret();
     for (const id of ["token-list", "admin-user-list", "admin-token-list"]) $(id).replaceChildren();
     for (const id of ["account-form", "admin-create-form", "token-form"]) $(id).reset();
@@ -76,6 +80,9 @@
   else if (/Linux/i.test(navigator.platform)) $("setup-platform").value = "linux";
   dialog.addEventListener("close", () => {
     revision++;
+    clearTimeout(codexPoll);
+    $("codex-login").hidden = true;
+    $("codex-login-code").value = "";
     clearSecret();
     $("account-form").elements.currentPassword.value = "";
     $("account-form").elements.password.value = "";
@@ -97,7 +104,7 @@
         updateCommands();
       } else if (tab === "tokens") { updateCommands(); await loadTokens(); }
       else if (tab === "account") $("account-form").elements.username.value = user.username;
-      else await loadAdmin();
+      else { await loadAdmin(); await loadCodexAccounts(); }
     } catch (e) { notice(e.message); }
   }
   for (const button of document.querySelectorAll("[data-platform]")) button.onclick = () => show(button.dataset.platform);
@@ -173,5 +180,55 @@
       e.target.reset(); notice("账号已创建"); await loadAdmin();
     } catch (e) { notice(e.message); } finally { button.disabled = false; }
   };
+  async function loadCodexAccounts() {
+    if (codexLoading || !user?.admin || !dialog.open || tab !== "admin") return;
+    codexLoading = true;
+    clearTimeout(codexPoll);
+    try {
+      const data = await api("/api/admin/codex/accounts");
+      if (!dialog.open || tab !== "admin" || !user?.admin) return;
+      $("codex-accounts-status").textContent = data.enabled ? "账号凭据仅存 139 服务器；授权使用 OpenAI 官方设备码流程。" : "尚未配置服务器账号管理，请部署账号管理网关及专用控制凭据。";
+      $("codex-account-form").hidden = !data.enabled;
+      $("codex-account-list").replaceChildren(...(data.accounts || []).map(account => {
+        const card = node("article", undefined, "platform-card"), info = node("div");
+        info.append(node("strong", account.name + (account.active ? " · 当前代理账号" : "")), node("p", ({ready:"已登录",login_required:"需要重新授权",unknown:"状态暂不可用"})[account.state] || "未知", "small"));
+        if (account.accountId) info.append(node("p", "账号 ID：" + account.accountId, "small muted"));
+        if (account.expiresAt > 0) info.append(node("p", "当前凭据有效期至 " + date(account.expiresAt) + " · 使用时自动续期", "small muted"));
+        card.append(info);
+        const reauth = node("button", "重新授权", "secondary");
+        reauth.disabled = data.login?.state === "pending";
+        reauth.onclick = () => startCodexLogin(account.id, account.name);
+        card.append(reauth);
+        if (!account.active) {
+          const activate = node("button", "设为当前账号", "secondary");
+          activate.disabled = account.state !== "ready";
+          activate.onclick = async () => { activate.disabled = true; try { await api("/api/admin/codex/activate", "POST", {id:account.id}); await loadCodexAccounts(); } catch (e) { notice(e.message); activate.disabled = false; } };
+          card.append(activate);
+        }
+        return card;
+      }));
+      const login = data.login;
+      codexLoginID = login?.id;
+      $("codex-login").hidden = !login;
+      $("codex-login-code").value = login?.userCode || "";
+      const url = $("codex-login-url"); url.removeAttribute("href"); url.textContent = "";
+      if (login?.verificationUrl) { const target = new URL(login.verificationUrl); if (target.protocol !== "https:" || !["auth.openai.com","chatgpt.com"].includes(target.hostname)) throw Error("授权地址无效"); url.href = target.href; url.textContent = "打开官方授权页面 ↗"; }
+      $("codex-login-state").textContent = login?.state === "pending" ? `等待授权 · 最迟 ${date(login.expiresAt)} 结束` : login?.state === "completed" ? "授权已完成。可在上方选择此账号供代理使用。" : login?.state === "cancelled" ? "本次授权已取消。" : login?.error || "";
+      $("cancel-codex-login").hidden = login?.state !== "pending";
+      $("copy-codex-code").hidden = !login?.userCode;
+      if (login?.state === "pending") codexPoll = setTimeout(() => loadCodexAccounts().catch(e => notice(e.message)), 3000);
+    } finally { codexLoading = false; }
+  }
+  async function startCodexLogin(id, name) {
+    const button = $("codex-account-form").querySelector("button"); button.disabled = true;
+    $("codex-accounts-status").textContent = "正在向 Codex 获取设备授权码…";
+    try { await api("/api/admin/codex/login", "POST", {id,name}); await loadCodexAccounts(); }
+    catch (e) { notice(e.message); $("codex-accounts-status").textContent = e.message; }
+    finally { button.disabled = false; }
+  }
+  $("codex-account-form").onsubmit = e => { e.preventDefault(); startCodexLogin("", e.target.elements.name.value); };
+  $("refresh-codex-accounts").onclick = () => loadCodexAccounts().catch(e => notice(e.message));
+  $("copy-codex-code").onclick = () => copy("codex-login-code");
+  $("cancel-codex-login").onclick = async () => { try { await api("/api/admin/codex/cancel", "POST", {id:codexLoginID}); await loadCodexAccounts(); } catch (e) { notice(e.message); } };
   if (state.user) window.platformSignedIn(state.user);
 })();

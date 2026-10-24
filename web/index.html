@@ -338,7 +338,14 @@
         <form id="account-form"><label>用户名<input name="username" required maxlength="64" autocomplete="username"></label><label>当前密码<input name="currentPassword" required type="password" autocomplete="current-password"></label><label>新密码（留空保持原密码）<input name="password" type="password" minlength="6" maxlength="72" autocomplete="new-password"></label><button class="primary" type="submit">保存并重新登录</button></form>
       </section>
       <section id="platform-admin" class="platform-panel" hidden>
-        <h3>账号管理</h3><form id="admin-create-form" class="admin-create"><label>用户名<input name="username" required maxlength="64" autocomplete="off"></label><label>初始密码<input name="password" required type="password" minlength="6" maxlength="72" autocomplete="new-password"></label><label class="check-label"><input name="admin" type="checkbox">管理员</label><button class="primary" type="submit">创建账号</button></form>
+        <h3>139 服务器 · Codex 账号</h3>
+        <p class="muted">多个账号独立保存授权；选择一个账号供模型代理使用。重新授权成功前保留原账号，正在执行的请求可继续完成。</p>
+        <p id="codex-accounts-status" class="small muted" role="status"></p>
+        <form id="codex-account-form" class="inline-form"><label>新 Codex 账号名称<input name="name" required maxlength="80" placeholder="例如：工作账号"></label><button class="primary" type="submit">添加并授权</button></form>
+        <button class="secondary" id="refresh-codex-accounts">刷新授权状态</button>
+        <div id="codex-account-list" class="platform-list"></div>
+        <div id="codex-login" class="platform-note" hidden><strong>完成设备授权</strong><p>打开官方授权页面，登录对应账号，再输入下面的设备授权码。</p><a id="codex-login-url" target="_blank" rel="noreferrer"></a><label>设备授权码<input id="codex-login-code" readonly autocomplete="off"></label><button class="secondary" id="copy-codex-code">复制设备码</button><p id="codex-login-state" class="small" role="status"></p><button class="secondary" id="cancel-codex-login">取消本次授权</button></div>
+        <h3>平台账号管理</h3><form id="admin-create-form" class="admin-create"><label>用户名<input name="username" required maxlength="64" autocomplete="off"></label><label>初始密码<input name="password" required type="password" minlength="6" maxlength="72" autocomplete="new-password"></label><label class="check-label"><input name="admin" type="checkbox">管理员</label><button class="primary" type="submit">创建账号</button></form>
         <form id="admin-search-form" class="inline-form"><label>查询账号<input name="search" type="search" placeholder="按用户名查询"></label><button class="secondary" type="submit">查询</button></form><div id="admin-user-list" class="platform-list"></div>
         <h3>全部代理 Token</h3><div id="admin-token-list" class="platform-list"></div>
       </section>

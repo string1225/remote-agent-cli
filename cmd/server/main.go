@@ -114,6 +114,25 @@ func configFromEnv() (server.Config, error) {
 	if len(raw) > 16384 || cfg.GatewayToken == "" || strings.ContainsAny(cfg.GatewayToken, "\r\n") {
 		return cfg, errors.New("CODEX_GATEWAY_TOKEN_FILE must contain one non-empty service token")
 	}
+	if path := os.Getenv("CODEX_ADMIN_TOKEN_FILE"); path != "" {
+		f, err := os.Open(path)
+		if err != nil {
+			return cfg, errors.New("cannot open CODEX_ADMIN_TOKEN_FILE")
+		}
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil || !info.Mode().IsRegular() || runtime.GOOS != "windows" && !privateGatewayToken(path, info.Mode()) {
+			return cfg, errors.New("CODEX_ADMIN_TOKEN_FILE must be private")
+		}
+		raw, err := io.ReadAll(io.LimitReader(f, 16385))
+		if err != nil || len(raw) > 16384 {
+			return cfg, errors.New("cannot read CODEX_ADMIN_TOKEN_FILE")
+		}
+		cfg.GatewayAdminToken = strings.TrimSpace(string(raw))
+		if len(cfg.GatewayAdminToken) < 32 || strings.ContainsAny(cfg.GatewayAdminToken, "\r\n") || cfg.GatewayAdminToken == cfg.GatewayToken {
+			return cfg, errors.New("CODEX_ADMIN_TOKEN_FILE must contain a separate private control credential")
+		}
+	}
 	return cfg, nil
 }
 

@@ -54,6 +54,9 @@ func (s *Server) cancelInference(userID string) {
 
 func validateGateway(cfg Config) error {
 	if cfg.GatewayURL == "" {
+		if cfg.GatewayAdminToken != "" {
+			return errors.New("account control requires a model gateway")
+		}
 		return nil
 	}
 	u, err := url.Parse(cfg.GatewayURL)
@@ -66,6 +69,9 @@ func validateGateway(cfg Config) error {
 	}
 	if strings.TrimSpace(cfg.GatewayToken) == "" || strings.ContainsAny(cfg.GatewayToken, "\r\n") {
 		return errors.New("a valid private gateway service token is required")
+	}
+	if cfg.GatewayAdminToken != "" && (len(cfg.GatewayAdminToken) < 32 || strings.ContainsAny(cfg.GatewayAdminToken, "\r\n") || cfg.GatewayAdminToken == cfg.GatewayToken) {
+		return errors.New("account control requires a separate private credential")
 	}
 	return nil
 }

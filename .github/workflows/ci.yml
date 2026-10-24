@@ -42,6 +42,7 @@ jobs:
           go-version-file: go.mod
       - run: go run ./tools/build
       - run: go build -trimpath -o bin/remote-server ./cmd/server
+      - run: go build -trimpath -o bin/personal-gateway ./cmd/personal-gateway
       - uses: actions/upload-artifact@v4
         with:
           name: remote-agent-binaries
