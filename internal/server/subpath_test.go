@@ -21,7 +21,7 @@ func TestSubpathMountAndInstallers(t *testing.T) {
 	if res.StatusCode != 308 || res.Header.Get("Location") != "/agents/" {
 		t.Fatal("mount URL did not redirect to a trailing slash")
 	}
-	for _, path := range []string{"/", "/app.js", "/style.css", "/healthz"} {
+	for _, path := range []string{"/", "/app.js", "/platform.js", "/channels.js", "/style.css", "/healthz"} {
 		res, err := client.Get(f.url + path)
 		if err != nil {
 			t.Fatal(err)
