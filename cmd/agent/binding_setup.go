@@ -36,6 +36,9 @@ func applyBoundCodex(client *http.Client, config agent.Config, home string, outp
 	if backup != "" {
 		fmt.Fprintf(output, tr("Previous configuration backed up to %s\n"), backup)
 	}
+	if _, err := codexsetup.InstallRemoteAgentSkill(home); err != nil {
+		return fmt.Errorf("安装 remote-agent skill 失败：%w", err)
+	}
 	fmt.Fprintf(output, tr("Codex Token belongs to platform account %s (%s) at %s; source: device binding.\n"), connection.AccountUsername, connection.AccountID, config.Server)
 	return nil
 }

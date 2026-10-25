@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/string1225/remote-agent-cli/internal/githubproxy"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 	"github.com/string1225/remote-agent-cli/internal/store"
 	"golang.org/x/crypto/bcrypt"
@@ -27,15 +28,16 @@ type Config struct {
 	GatewayModel      string
 }
 type Server struct {
-	Store         *store.Store
-	Config        Config
-	hub           *hub
-	mu            sync.Mutex
-	attempts      map[string]limit
-	gatewayClient *http.Client
-	gatewaySlots  chan struct{}
-	gatewayMu     sync.Mutex
-	gatewayCalls  map[string]map[*inferenceCall]struct{}
+	githubProxyPool githubproxy.Pool
+	Store           *store.Store
+	Config          Config
+	hub             *hub
+	mu              sync.Mutex
+	attempts        map[string]limit
+	gatewayClient   *http.Client
+	gatewaySlots    chan struct{}
+	gatewayMu       sync.Mutex
+	gatewayCalls    map[string]map[*inferenceCall]struct{}
 }
 type limit struct {
 	Count int
@@ -92,6 +94,7 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("GET /api/agent/catalog", s.agentCatalog)
 	mux.HandleFunc("POST /api/agent/tools", s.agentToolCall)
 	mux.HandleFunc("GET /api/agent/connect", s.agentSocket)
+	mux.HandleFunc("GET /api/agent/github-proxy", s.githubProxy)
 	mux.HandleFunc("GET /api/agents/{id}/connect", s.browserSocket)
 	mux.HandleFunc("GET /install/{script}", s.installer)
 	mux.HandleFunc("GET /install/codex-release", s.codexRelease)
@@ -401,6 +404,7 @@ func (s *Server) authenticateAgent(r *http.Request) (store.Agent, error) {
 	return s.Store.AuthenticateAgent(r.URL.Query().Get("id"), bearer(r))
 }
 func (s *Server) Close() {
+	s.githubProxyPool.Close()
 	s.cancelInference("")
 	s.gatewayClient.CloseIdleConnections()
 	s.hub.closeAll()

@@ -59,6 +59,9 @@ func runCodex(args []string) error {
 			return err
 		}
 		fmt.Printf(tr("Official Codex CLI installed at %s\n"), path)
+		if err := installRemoteAgentSkill(); err != nil {
+			return err
+		}
 		return nil
 	}
 	if *tokenStdin || *tokenPrompt {
@@ -108,6 +111,9 @@ func runCodex(args []string) error {
 	}
 	codexHome, err := codexsetup.Home()
 	if err != nil {
+		return err
+	}
+	if err := installRemoteAgentSkill(); err != nil {
 		return err
 	}
 	backup, err := codexsetup.Apply(codexHome, connection)

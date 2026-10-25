@@ -63,6 +63,8 @@ SaySo 仅接受预定义的 state/settings/projects/sessions/actions/runs/audio 
 
 ## 身份、模型代理与部署
 
+GitHub 本机代理与模型代理独立，默认关闭；`github-proxy on/off/status` 保存开关，daemon 每秒读取并应用，只绑定回环地址。HTTPS CONNECT 经设备鉴权的 `/api/agent/github-proxy` WebSocket 到 139，由 139 校验 GitHub 域名与公网 DNS 地址后连接 443，目标 TLS 透传，无直连回退。安装/更新/setup 为 Codex 安装不含凭证的 `remote-agent` skill。连接额度、恢复及验收见 [GitHub 代理说明](github-proxy.md)。
+
 仅管理员创建平台账号，bcrypt 密码，30 天 HttpOnly 登录 Cookie，同源写请求。用户名 Unicode 归一比较并保持稳定账号 ID；改名/改密码撤销已有会话。账号停用阻止设备、绑定、模型与工具访问，不能移除最后一名有效管理员。
 
 个人模型 Token 使用 SHA-256 验证；新 Token 另以 AES-GCM 加密保存，只有所属账号可通过同源 POST 再次读取/复制。普通及管理员列表仅返回元数据，管理员不能读取他人的 Token。旧哈希记录继续有效但无法复制，不提供补存入口。绑定时凭设备认证幂等申请设备关联 Token，默认 codex setup 使用该绑定并显示账号名/ID；手动粘贴的 Token 经 `/api/token/account` 验证账号。数据库旁的 `<数据库路径>.token-key` 必须与数据库成套备份恢复；密钥丢失且已有密文时拒绝生成替代密钥。

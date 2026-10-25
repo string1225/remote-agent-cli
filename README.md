@@ -20,6 +20,8 @@
 
 ## 已实现
 
+- 本机 GitHub HTTPS 代理通过 139 中转，可开关且默认关闭；`remote-agent github-proxy on/off/status` 管理，Git/curl 显式选择本机代理。安装/更新/setup 为 Codex 安装介绍客户端能力的 `remote-agent` skill，见 [代理与技能说明](docs/github-proxy.md)。
+
 - 仅管理员创建账号，公开注册始终关闭；bcrypt 密码哈希、30 天 HttpOnly Cookie 登录态、账号停用和最后一名有效管理员保护。
 - 用户确认当前密码后可修改用户名或密码；用户名支持 1–64 个 Unicode 字符，去首尾空白并按 Unicode 大小写折叠保持唯一。修改后退出所有浏览器登录，账号 ID、设备归属和会话数据保持不变。
 - 用户创建、复制和撤销自己的 Token，复制/撤销按钮右侧并列；管理员仅管理元数据和撤销。新 Token 加密保存，旧哈希 Token 继续有效但无法复制，不提供补存入口。设备绑定自动幂等申请账号关联 Token，并明确显示账号归属。
