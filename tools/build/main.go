@@ -38,6 +38,9 @@ func main() {
 				if err := core.Run(); err != nil {
 					log.Fatal(err)
 				}
+				if err := checksum(filepath.Join("dist", "remote-agent-core-windows-"+arch+".exe")); err != nil {
+					log.Fatal(err)
+				}
 			}
 			packagePath := "./cmd/agent"
 			if platform == "windows" {
@@ -50,15 +53,19 @@ func main() {
 			if err := cmd.Run(); err != nil {
 				log.Fatal(err)
 			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				log.Fatal(err)
-			}
-			digest := sha256.Sum256(data)
-			if err := os.WriteFile(path+".sha256", []byte(fmt.Sprintf("%x  %s\n", digest, name)), 0644); err != nil {
+			if err := checksum(path); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Println("Built", name)
 		}
 	}
+}
+
+func checksum(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(data)
+	return os.WriteFile(path+".sha256", []byte(fmt.Sprintf("%x  %s\n", digest, filepath.Base(path))), 0644)
 }
