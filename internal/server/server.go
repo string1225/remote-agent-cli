@@ -54,7 +54,7 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	if err := validateGateway(cfg); err != nil {
 		return nil, nil, err
 	}
-	s := &Server{Store: db, Config: cfg, hub: newHub(), attempts: map[string]limit{}, gatewayClient: newGatewayClient(), gatewaySlots: make(chan struct{}, 2), gatewayCalls: map[string]map[*inferenceCall]struct{}{}}
+	s := &Server{Store: db, Config: cfg, hub: newHub(), attempts: map[string]limit{}, gatewayClient: newGatewayClient(), gatewaySlots: make(chan struct{}, maxConcurrentInference), gatewayCalls: map[string]map[*inferenceCall]struct{}{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, map[string]bool{"ok": true}) })
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {

@@ -156,19 +156,55 @@ func TestGatewayStreamsBeforeUpstreamCompletesAndBoundsConcurrency(t *testing.T)
 	}))
 	client := &http.Client{Timeout: 5 * time.Second}
 	responses := []*http.Response{}
-	for range 2 {
+	for range 20 {
 		res, err := client.Do(modelRequest(t, f.url, token, "POST", "responses", `{"stream":true}`))
 		if err != nil {
 			t.Fatal("stream did not flush", err)
 		}
 		responses = append(responses, res)
 		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("stream %d was rejected: status %d", len(responses), res.StatusCode)
+		}
 		line, err := bufio.NewReader(res.Body).ReadString('\n')
 		if err != nil || line != "data: first\n" {
 			t.Fatal("missing streaming event", line, err)
 		}
 	}
 	modelDo(t, modelRequest(t, f.url, token, "POST", "responses", `{}`), 429)
+}
+
+func TestGatewayAllowsSlowUpstreamHeaders(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("exercises the former 30-second response-header cutoff")
+	}
+	f, token := gatewayFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The loopback gateway can still be refreshing credentials or waiting
+		// for OpenAI after the old outer proxy's 30-second timeout expires.
+		timer := time.NewTimer(31 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")
+	}))
+	client := &http.Client{Timeout: 40 * time.Second}
+	res, err := client.Do(modelRequest(t, f.url, token, "POST", "responses", `{"stream":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK || !bytes.Contains(body, []byte("response.completed")) {
+		t.Fatalf("valid slow model response was cut off: status %d: %s", res.StatusCode, body)
+	}
 }
 
 func TestGatewayBlocksRedirectsAndSanitizesUpstreamErrors(t *testing.T) {
@@ -366,7 +402,7 @@ func TestDisableInterruptsPartialHTTPUploadsAndReleasesGatewaySlots(t *testing.T
 		t.Fatal(err)
 	}
 	connections := []net.Conn{}
-	for range 2 {
+	for range 20 {
 		conn, err := net.DialTimeout("tcp", u.Host, time.Second)
 		if err != nil {
 			t.Fatal(err)
@@ -379,7 +415,7 @@ func TestDisableInterruptsPartialHTTPUploadsAndReleasesGatewaySlots(t *testing.T
 			t.Fatal(err)
 		}
 		// net/http sends 100 Continue only when the handler starts reading the
-		// body. Both continuations prove that both proxy slots are occupied.
+		// body. All continuations prove that the proxy slots are occupied.
 		res, err := http.ReadResponse(bufio.NewReader(conn), nil)
 		if err != nil {
 			t.Fatal(err)

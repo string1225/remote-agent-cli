@@ -14,6 +14,7 @@ import (
 
 const maxInferenceBody = 32 * 1024 * 1024
 const maxInferenceDuration = 30 * time.Minute
+const maxConcurrentInference = 20
 
 type inferenceCall struct{ cancel context.CancelFunc }
 
@@ -79,9 +80,11 @@ func validateGateway(cfg Config) error {
 func newGatewayClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
-	transport.ResponseHeaderTimeout = 30 * time.Second
-	transport.MaxConnsPerHost = 2
-	transport.MaxIdleConnsPerHost = 2
+	// The loopback broker may refresh credentials and retry its upstream once.
+	// Do not cut that work off at the former 30-second header deadline.
+	transport.ResponseHeaderTimeout = 3 * time.Minute
+	transport.MaxConnsPerHost = maxConcurrentInference
+	transport.MaxIdleConnsPerHost = maxConcurrentInference
 	transport.IdleConnTimeout = 90 * time.Second
 	return &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
