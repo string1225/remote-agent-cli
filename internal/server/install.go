@@ -18,7 +18,7 @@ import (
 //go:embed installers/*
 var installers embed.FS
 var tokenRE = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
-var artifactRE = regexp.MustCompile(`^remote-agent-(windows-(amd64|arm64)(\.exe|\.msi)?|(darwin|linux)-(amd64|arm64))(\.sha256)?$`)
+var artifactRE = regexp.MustCompile(`^remote-agent-(core-windows-(amd64|arm64)\.exe|windows-(amd64|arm64)(\.exe|\.msi)?|(darwin|linux)-(amd64|arm64))(\.sha256)?$`)
 
 func (s *Server) installer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("script")
@@ -187,4 +187,15 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
 	http.ServeFile(w, r, filepath.Join(s.Config.Downloads, name))
+}
+
+func (s *Server) runtimeRelease(w http.ResponseWriter, r *http.Request) {
+	platform, arch := r.PathValue("os"), r.PathValue("arch")
+	if platform != "windows" || (arch != "amd64.json" && arch != "arm64.json") {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeFile(w, r, filepath.Join(s.Config.Downloads, "updates", "v1", platform, arch))
 }

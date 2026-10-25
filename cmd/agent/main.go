@@ -27,6 +27,14 @@ func main() {
 	}
 }
 func run() error {
+	if len(os.Args) == 3 && os.Args[1] == "internal-worker" {
+		return agent.RunWorker(context.Background(), os.Args[2], os.Stdin, os.Stdout)
+	}
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		if handled, err := frameworkUpdate(context.Background(), os.Args[2:], i18n.Writer(os.Stdout)); handled {
+			return err
+		}
+	}
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
 		fmt.Println(tr("remote-agent: connect --server URL --token-prompt | enroll | run | start | stop | status | version | mcp | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup [--server URL --token-prompt] | app install/upgrade\nUse <command> --help for options.\nWindows: install the MSI first, then run a token/setup command in a new PowerShell. The MSI installs PATH and an automatic Windows Service."))
 		return nil

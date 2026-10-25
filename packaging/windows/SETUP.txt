@@ -24,10 +24,11 @@ Remote Agent for Windows
    inspect .remote-agent\service-setup.log beside the device configuration.
    Runtime connection messages are in .remote-agent\agent.log.
 
-Upgrades: download and install a newer MSI. The installer removes obsolete
-Remote Agent program copies and exactly matching legacy startup tasks only
-after successful commit. Device identity, config, projects, history.db, SaySo
-recordings, Codex/Qoder programs and their own settings remain in place.
+Routine updates: remote-agent update (or update --check / update --rollback).
+The fixed RemoteAgentUpdater service verifies signed business programs and
+switches versions without another MSI or UAC prompt. Automatic checks run when
+idle. MSI/SCM registration and device identity, projects, history and recordings
+stay in place. Host/trust-anchor changes still require an explicit host MSI.
 
 The service runs as LocalService with its own SID. Credentials remain in the
 original private user directory. The ProgramData service profile contains paths

@@ -214,14 +214,14 @@ remote-agent autostart remove
 
 本地 CLI / Codex 安装模式会将 `~/.remote-agent/bin` 加入用户 PATH：Windows MSI 将 `%ProgramFiles%\Remote Agent` 加入系统 PATH；macOS 更新 `.profile` / `.zshrc`，Linux 更新 `.profile` / `.bashrc`，同一行不会重复添加。启用自动 Codex 配置的设备安装也会执行此步骤；新终端才会继承持久修改。未刷新 PATH 时可使用上面的完整安装路径。
 
-Windows MSI 使用 MSI 包升级，拒绝通过 EXE `update` 原地替换；`update --check` 仍可检查。以下自更新说明适用于独立 CLI、历史 Windows 用户安装和其他平台。
+Windows MSI 1.1 首次安装固定宿主和更新服务。以后直接执行 `remote-agent update` 更新签名业务程序，无需重复 MSI 或 UAC；后台也会定期检查、空闲时更新。`update --check` 只读检查，`update --rollback` 恢复上一稳定版；录音或任务未完成时默认不切换。绑定、配置、项目、历史及录音保留，MSI 与 SCM 注册不变。不实现旧客户端兼容。协议见 [更新框架](docs/superpowers/specs/2026-10-25-client-update-framework.md)。以下原地替换说明适用于 macOS/Linux。
 
 更新命令从配置中的服务器下载对应系统和 CPU 架构的安装包及 SHA-256 文件，通过校验和版本启动检查后替换程序。`update --check` 只比较校验值，不下载程序、不重启服务；重复更新相同安装包会直接结束。Windows / macOS / Linux 会重启正在运行且与当前程序、配置匹配的 Scheduled Task / LaunchAgent / 安装器创建的 systemd 用户服务；检测到 CLI 子任务时拒绝更新，应先结束任务。自启动未运行时保持原状态；手动启动的 Agent 或自定义服务需自行重启。替换或重启失败时尝试恢复旧程序，成功后旧版本保留为 `remote-agent.exe.previous` / `remote-agent.previous`。设备凭证、权限配置、项目服务、会话和 SaySo 数据均保留。
 
 Windows PowerShell 可直接使用安装路径：
 
 ```powershell
-& "$env:USERPROFILE\.remote-agent\bin\remote-agent.exe" update
+& "$env:ProgramFiles\Remote Agent\remote-agent.exe" update
 ```
 
 macOS / Linux：

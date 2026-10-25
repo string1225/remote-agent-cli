@@ -168,6 +168,10 @@ func (r *channelRuntime) connect() {
 	}
 }
 func (r *channelRuntime) receive(in channelMessage) error {
+	if err := r.a.beginOperation(); err != nil {
+		return err
+	}
+	defer r.a.endOperation()
 	if r.ctx.Err() != nil {
 		return r.ctx.Err()
 	}

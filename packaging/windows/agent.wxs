@@ -35,8 +35,18 @@
                             Type="ownProcess" Start="auto" ErrorControl="normal" Vital="yes"
                             Account="NT AUTHORITY\LocalService" Arguments="service run" />
             <ServiceControl Id="AgentServiceControl" Name="RemoteAgent" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+            <ServiceInstall Id="UpdateServiceInstall" Name="RemoteAgentUpdater" DisplayName="Remote Agent Updater"
+                            Description="Verifies signed runtime updates and preserves the fixed Remote Agent installation."
+                            Type="ownProcess" Start="auto" ErrorControl="normal" Vital="yes" Arguments="update-service run" />
+            <ServiceControl Id="UpdateServiceControl" Name="RemoteAgentUpdater" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
           </Component>
+          <Directory Id="SEEDDIR" Name="seed">
+            <Component Id="SeedRuntime" Guid="1B0C865B-B3DA-4C8B-B2B5-A67921AB48FC" Win64="yes">
+              <File Id="SeedCore" Source="$(var.CoreBinary)" Name="remote-agent-core.exe" DefaultVersion="$(var.PackageVersion)" DefaultLanguage="1033" KeyPath="yes" />
+            </Component>
+          </Directory>
           <Component Id="InstallationRegistry" Guid="C9443878-4C38-4F10-BE23-D8EBD7E5C6D3" Win64="yes">
+            <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="HostProtocol" Type="integer" Value="1" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="InstallDir" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="Language" Type="string" Value="[CLI_LANGUAGE]" />
             <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\RemoteAgent" Name="EventMessageFile" Type="expandable" Value="[System64Folder]EventCreate.exe" />
@@ -55,18 +65,20 @@
     </Directory>
     <Feature Id="Complete" Title="Remote Agent" Level="1">
       <ComponentRef Id="AgentService" />
+      <ComponentRef Id="SeedRuntime" />
       <ComponentRef Id="InstallationRegistry" />
       <ComponentRef Id="CommandLinePath" />
       <ComponentRef Id="License" />
     </Feature>
     <CustomAction Id="PrepareAgentService" FileKey="AgentExe" ExeCommand="service prepare" Execute="deferred" Impersonate="no" Return="check" />
-    <CustomAction Id="CleanupLegacyAgent" FileKey="AgentExe" ExeCommand="service cleanup-legacy --user-sid &quot;[UserSID]&quot;" Execute="commit" Impersonate="no" Return="ignore" />
+    <Binary Id="MaintenanceHost" SourceFile="$(var.AgentBinary)" />
+    <CustomAction Id="CleanupRuntime" BinaryKey="MaintenanceHost" ExeCommand="runtime-cleanup" Execute="commit" Impersonate="no" Return="check" />
     <?ifdef var.InjectFailure?>
     <CustomAction Id="FailAcceptanceInstall" FileKey="AgentExe" ExeCommand="service invalid-installer-action" Execute="deferred" Impersonate="no" Return="check" />
     <?endif?>
     <InstallExecuteSequence>
       <Custom Action="PrepareAgentService" After="InstallServices">NOT REMOVE~="ALL"</Custom>
-      <Custom Action="CleanupLegacyAgent" After="PrepareAgentService">NOT REMOVE~="ALL"</Custom>
+      <Custom Action="CleanupRuntime" After="InstallInitialize">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
       <?ifdef var.InjectFailure?>
       <Custom Action="FailAcceptanceInstall" After="PrepareAgentService">NOT REMOVE~="ALL"</Custom>
       <?endif?>

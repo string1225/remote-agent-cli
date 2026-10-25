@@ -102,6 +102,7 @@ func (s *saysoStore) load() error {
 	return s.save()
 }
 func (s *saysoStore) save() error {
+	s.updateRecordingActivity()
 	if s.fatal != nil {
 		return s.fatal
 	}
@@ -496,6 +497,18 @@ func (s *saysoStore) stopRecording(v *soSession) {
 	v.Status = "paused"
 	v.AnalysisNextAt = ""
 	v.owner = nil
+}
+
+func (s *saysoStore) updateRecordingActivity() {
+	count := len(s.uploads)
+	for _, v := range s.state.Sessions {
+		if v.Status == "recording" {
+			count++
+		}
+	}
+	s.a.mu.Lock()
+	s.a.recordingActivity = count
+	s.a.mu.Unlock()
 }
 func (s *saysoStore) startRecording(p *peer, v *soSession) {
 	for _, other := range s.state.Sessions {

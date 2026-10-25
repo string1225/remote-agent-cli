@@ -22,26 +22,30 @@ import (
 
 type Runner func(context.Context, Provider, protocol.Service, string, bool, func(protocol.Event) error, string) error
 type Agent struct {
-	removingProjects map[string]bool
-	attachmentMu     sync.Mutex
-	notifyWake       chan struct{}
-	notifyDone       chan struct{}
-	channelMu        sync.Mutex
-	channels         map[string]*channelRuntime
-	channelFactory   func(ChannelConfig) channelAdapter
-	mu               sync.Mutex
-	Config           Config
-	Providers        map[string]Provider
-	Execute          Runner
-	busy             bool
-	saysoOnce        sync.Once
-	sayso            *saysoStore
-	saysoErr         error
-	tasksOnce        sync.Once
-	taskCtx          context.Context
-	tasks            chan queuedTask
-	taskCancels      map[string]context.CancelFunc
-	taskDone         chan struct{}
+	maintenance       bool
+	recordingActivity int
+	operations        int
+	activeCancel      context.CancelFunc
+	removingProjects  map[string]bool
+	attachmentMu      sync.Mutex
+	notifyWake        chan struct{}
+	notifyDone        chan struct{}
+	channelMu         sync.Mutex
+	channels          map[string]*channelRuntime
+	channelFactory    func(ChannelConfig) channelAdapter
+	mu                sync.Mutex
+	Config            Config
+	Providers         map[string]Provider
+	Execute           Runner
+	busy              bool
+	saysoOnce         sync.Once
+	sayso             *saysoStore
+	saysoErr          error
+	tasksOnce         sync.Once
+	taskCtx           context.Context
+	tasks             chan queuedTask
+	taskCancels       map[string]context.CancelFunc
+	taskDone          chan struct{}
 }
 
 func New(c Config) *Agent {
@@ -285,6 +289,11 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 }
 func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) error) {
 	fail := func(err error) { _ = send(protocol.Event{ID: req.ID, Type: "error", Error: err.Error()}) }
+	if err := a.beginOperation(); err != nil {
+		fail(err)
+		return
+	}
+	defer a.endOperation()
 	switch req.Type {
 	case "attachments.write", "attachments.read":
 		a.handleAttachment(req, send)
@@ -455,6 +464,9 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		a.busy = true
 		a.mu.Unlock()
 		ctx, cancel := context.WithTimeout(p.ctx, 20*time.Minute)
+		a.mu.Lock()
+		a.activeCancel = cancel
+		a.mu.Unlock()
 		p.mu.Lock()
 		p.runID = req.ID
 		p.runCancel = cancel
@@ -518,6 +530,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			p.mu.Unlock()
 			a.mu.Lock()
 			a.busy = false
+			a.activeCancel = nil
 			a.mu.Unlock()
 			event := protocol.Event{ID: req.ID, Type: "done", Data: map[string]bool{"ok": err == nil}}
 			if err != nil {

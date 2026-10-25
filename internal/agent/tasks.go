@@ -44,6 +44,10 @@ func (a *Agent) initTasks(ctx context.Context) {
 	})
 }
 func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete func(error)) (protocol.TaskStarted, error) {
+	if err := a.beginOperation(); err != nil {
+		return protocol.TaskStarted{}, err
+	}
+	defer a.endOperation()
 	a.initTasks(ctx)
 	var result protocol.TaskStarted
 	if in.Model != "" && !soModelPattern.MatchString(in.Model) {

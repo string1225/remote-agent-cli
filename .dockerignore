@@ -5,5 +5,8 @@ bin
 dist/*
 !dist/remote-agent-windows-*.msi
 !dist/remote-agent-windows-*.msi.sha256
+!dist/updates/
+!dist/updates/**
+!dist/remote-agent-core-windows-*.exe
 .env
 *.log

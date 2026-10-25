@@ -25,6 +25,7 @@ type soUpload struct {
 }
 
 func (s *saysoStore) audio(p *peer, method string, parts []string, b map[string]json.RawMessage) (any, error) {
+	defer s.updateRecordingActivity()
 	if len(parts) == 2 && parts[1] == "begin" && method == "POST" {
 		for id, u := range s.uploads {
 			if u.owner.ctx.Err() != nil || time.Since(u.updated) > 5*time.Minute {
@@ -98,6 +99,7 @@ func (s *saysoStore) audio(p *peer, method string, parts []string, b map[string]
 			<-p.ctx.Done()
 			s.mu.Lock()
 			defer s.mu.Unlock()
+			defer s.updateRecordingActivity()
 			if s.uploads[meta.ID] == u {
 				_ = os.Remove(u.path)
 				delete(s.uploads, meta.ID)

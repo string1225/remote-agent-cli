@@ -1,93 +1,81 @@
-# 客户端更新框架方案
+# 客户端更新框架
 
-状态：已完成代码调研与方案设计，尚未实现运行时版本切换。当前版本仍由 MSI 安装 Windows 客户端；本次先修复 MSI 安装/升级/修复页面。本文不将设计列为已交付功能。
+状态：已实现签名发布、固定 Windows 宿主、常驻更新服务、worker 就绪协议和事务切换。实际 MSI/SCM 验收与原生 ARM64、冷启动/退出登录仍需在目标环境单独进行。
 
-## 目标与边界
+## 目标
 
-用户执行 `remote-agent update` 即可更新业务逻辑。常规更新保持 MSI 产品、安装目录、`RemoteAgent` 服务名称和 SID、LocalService 身份、SCM 自动启动/恢复设置、系统 PATH 不变；不重新授权全部用户目录，不创建计划任务。账号绑定、配置、项目、会话和录音仍使用原位置。
+首次安装本框架 MSI 时授权一次。日常运行 remote-agent update，由已安装的更新服务完成业务更新，不再运行 MSI、不再弹 UAC，不重新配置 SCM、PATH 或项目目录权限。不实现旧客户端更新兼容或旧计划任务迁移。
 
-首次迁移到此框架需要安装一次新版 MSI。后续仅在宿主协议、服务身份、PATH、系统依赖或卸载规则改变时更新 MSI；普通客户端代码变更通过运行时更新完成。Windows 应用列表显示宿主安装版本，`remote-agent version` 同时显示宿主与业务版本，避免把二者混为一谈。
+后台启动一分钟后及每六小时检查签名发布，客户端空闲时使用同一事务更新；忙碌时保留现有版本。首次绑定、更改目录权限、卸载及未来宿主/信任锚更新属于系统维护，仍可能需要管理员授权。
 
-## 方案比较
-
-| 方案 | 优点 | 代价及适用范围 |
-| --- | --- | --- |
-| 固定宿主 + 独立版本目录（推荐） | 满足固定注册、业务独立更新、保留上一版及失败回退 | 要拆分 SCM 宿主和业务进程，定义兼容协议 |
-| 每次由 update 调用新版 MSI | 易复用现有事务、UAC、升级回滚 | 每次仍是 MSI 产品升级，适合框架上线前过渡及宿主升级 |
-| 直接覆盖 MSI 拥有的 remote-agent.exe | 改动较少 | MSI 修复可能恢复旧文件、版本信息不同步，运行中文件被锁；不采用 |
-
-## 文件归属
+## 安装和权限边界
 
 ```text
 %ProgramFiles%\Remote Agent\
-  remote-agent.exe                 固定 CLI 启动器与 Windows SCM 宿主；MSI 拥有
-  seed\remote-agent-core.exe       随 MSI 提供的初始业务程序；MSI 拥有
-
+  remote-agent.exe                 固定 CLI 启动器和 SCM 宿主；MSI 拥有
+  seed\remote-agent-core.exe       MSI 提供的初始业务程序
 %ProgramData%\RemoteAgent\
-  service.json                     沿用现有受保护的用户环境/配置路径
-  runtime\state.json               受保护的活动/上一版本与更新事务状态
+  service.json                     原用户路径、owner SID、更新站点
+  runtime\state.json               current / previous / pending / 发布序号上限
   runtime\versions\<sha256>\
-    remote-agent-core.exe          更新器管理，不覆盖 MSI 文件
-    release.json                   签名发布信息
-  update-logs\                     更新器日志；不包含 Token 或任务正文
-  health\                          服务可写的就绪/失败记录，不能提供可执行路径
-
-原用户目录\.remote-agent\           原配置、history.db、SaySo 讨论与录音
+    remote-agent-core.exe
+    release.json
+  update-logs\updater.log
+  health\status.json               运行版本、宿主 PID、就绪/暂停状态
+  health\host.log
+原用户目录\.remote-agent\          原绑定、项目、history.db、SaySo 和录音
 ```
 
-运行时代码及 `state.json` 仅管理员和 SYSTEM 可修改，普通用户及 RemoteAgent 服务 SID可读。LocalService 不获得写入运行时代码的权限。`health` 单独授予服务 SID 写权限；宿主绝不把该目录的任意路径当作程序执行。
+MSI 注册两个使用同一固定宿主的服务：
 
-## 服务与 CLI 进程
+- RemoteAgent：LocalService + 原服务 SID，执行业务 worker。开机运行，退出登录继续运行。
+- RemoteAgentUpdater：LocalSystem，只验证和存放签名包、写受保护状态、停止/启动已有业务服务。不执行下载的业务代码，不执行用户命令，不重新授权目录。
 
-```mermaid
-flowchart LR
-    SCM[Windows SCM] --> Host[固定宿主 remote-agent.exe]
-    CLI[remote-agent 命令] --> Host
-    Host --> Core[当前版本业务进程]
-    Updater[临时提权更新器] --> State[受保护的版本状态]
-    State --> Host
-    Core --> Data[原用户业务目录]
+runtime 和更新状态只有 SYSTEM/管理员可写；业务服务 SID 和普通用户只读。health 单独允许业务服务 SID 写入。安装拒绝运行时路径上的重解析点或非 SYSTEM/管理员属主；文件操作由固定路径和 os.Root 限制范围。
+
+更新服务使用本机命名管道，拒绝远程连接。绑定后只允许原配置 owner SID 或管理员请求更新，未绑定时允许本机用户更新。IPC 仅接受更新/回滚及受限参数，不接受可执行路径、任意命令或配置写入。CLI 使用只读 SCM 权限核对管道服务 PID，无需管理员权限。
+
+## 宿主和 worker
+
+cmd/agent-host 和 internal/servicehost 持有 SCM 连接，处理生命周期、Job Object 子进程清理、本地就绪超时。普通 CLI 命令转发原参数、标准输入输出和退出码。version 分别显示宿主协议与实际业务版本。
+
+core 内部 worker 使用继承的匿名管道，协议 v1 为 prepare / ready / activate / pause / resume / stop。prepare 只验证原配置和历史存储，不连接站点或恢复任务；activate 后才启动业务。未绑定时等待配置也算正常就绪，139 离线不判为版本故障。
+
+更新先关闭新任务入口，检查运行任务、排队任务和业务操作。默认忙碌即拒绝；--force 通过原取消上下文结束任务并保留历史和恢复 ID。录音或录音上传必须先完成，强制更新也不丢弃未完成录音。
+
+## 更新事务
+
+1. 从受保护配置捕获的站点或显式 --server 获取发布，不携带设备/模型凭据。未绑定电脑也能显式指定服务器更新。
+2. --check 只读比较，不下载二进制、不写状态、不调用更新服务。实际更新由固定服务取得进程内和文件单实例锁。
+3. 验证平台、架构、单调发布序号、最低宿主、worker/数据协议、Ed25519 签名、大小和 SHA-256。不跟随重定向，只访问原站点的固定下载路径。
+4. 在受保护目录下载校验，落盘后原子改名。损坏或中断下载不改变当前版本。
+5. 运行服务先暂停接收任务，在停止前记录 pending、原选择、上一稳定版和启停状态。候选通过本地就绪检查后提交；失败恢复原选择。宿主也可直接回退受保护状态批准的旧程序。
+6. 原先停止或禁用的服务只准备版本，不启动或启用；下次用户启动时验证候选，再由更新服务校对状态。
+7. 中断后先校对 pending，不依赖服务器在线。原先运行的服务可恢复启动，原先停止的保持停止。健康状态必须来自当前 SCM 宿主 PID，只能确认受保护状态中的候选或旧版。
+8. 保留当前版和上一稳定版，受限清理其他程序目录。失败候选不能成为上一稳定版。--rollback 仅选择已验证的上一稳定版；发布序号上限保留，允许重试同一已验证最高发布，拒绝过期发布或同序号不同摘要。
+
+状态在同目录临时文件中写入、同步并原子替换。首版只接受数据版本 1，不覆写配置、数据库和录音，不支持不可逆数据迁移。失败回退只切程序，不能用旧数据库覆盖已有新消息。
+
+## 发布和签名
+
+清单为 /updates/v1/windows/{amd64|arm64}.json，文件为 /downloads/remote-agent-core-windows-{arch}.exe。internal/clientupdate 共用验证和事务；macOS/Linux 沿用原更新器，不改变启动注册。
+
+清单包括 schemaVersion、sequence、version、os、arch、minHostVersion、workerProtocol、dataVersion、minRollbackDataVersion、size、sha256、keyId、signature。签名覆盖固定域、key ID 和规范化 Payload JSON。公钥编译进宿主，清单不能添加密钥或取消校验。宿主/协议不兼容时明确拒绝并提示升级宿主 MSI；首版不自动转为运行 MSI。
+
+生产私钥只保存在发布环境，不提交、不进入 dist、不部署到业务服务器。构建发布：
+
+```powershell
+go run ./tools/build -version <提交号>
+./tools/msi/build.ps1 -PackageVersion 1.1.0 -ReleaseVersion <提交号>
+go run ./tools/release-sign -key <发布私钥绝对路径> -sequence <递增整数> -version <提交号>
 ```
 
-SCM 必须由固定宿主连接。不能只启动子进程并让子进程运行现有 `service run`：当前服务注册和 SCM 生命周期属于宿主进程。固定宿主承担 StartPending/Running/Stop/Shutdown、Job Object 子进程清理与就绪超时；业务进程提供内部 worker 入口，沿用 `service.json` 捕获的用户环境和数据路径。
+一起发布对应 core 和 dist/updates/v1/windows/*.json。CI 一次性管理员验收使用独立测试密钥和测试宿主，禁止使用生产私钥。
 
-宿主与 worker 使用继承的匿名管道，协议 v1 包含 `prepare/ready/activate/stop`。worker 先打开并验证本地配置与存储，报告本地就绪；收到 activate 后才接收任务。无绑定时进入等待配置状态也算正常启动；139 离线不算版本故障，不触发回滚。普通 CLI 命令转发原参数、输入输出、取消信号和退出码；内部 worker 参数不出现在常用帮助中。
+## 修复、卸载和验收
 
-## 更新流程
+MSI 修复只恢复宿主和 seed，不降低 runtime 选择。卸载成功提交后由包内固定维护程序清理 runtime/health；失败事务保留运行时供 MSI 回滚。不删除 service.json、原绑定、配置、项目、历史或录音。
 
-1. 从原配置服务器（或显式 `--server`）读取平台发布信息，不要求仅使用模型代理的电脑先绑定设备。`--check` 只读取和比较信息，不写状态、不提权。
-2. 检查 OS/架构、发布序号、最低宿主版本、worker 协议、下载大小、SHA-256 与 Ed25519 发布签名。公钥内置宿主，私钥仅在发布环境保存，下载不携带设备/模型凭证。最低宿主版本不足时，命令自动转为已校验 MSI 升级并提示原因。
-3. 检查是否有正在执行的任务。默认要求任务结束后重试；显式强制更新时按现有取消流程保留提示词、已有输出和恢复 ID，不自动重发任务。
-4. 在受保护目录取得单实例更新锁。由临时 UAC 提权的更新器建立待安装版本目录，下载、校验、落盘并原子重命名；普通用户临时目录中的未验证文件不能直接作为管理员程序运行。
-5. 记录原运行/停止状态与 `current/previous`，仅停止已有服务。写入 pending 状态后，用固定宿主以 prepare 模式启动候选 worker，检查本地就绪和协议。
-6. 候选正常时原子提交 current/previous，再 activate。候选失败时恢复原选择并启动上一版。用户原先停止或禁用的服务不被升级流程擅自启用。
-7. 提权更新器退出。保留当前版和上一稳定版，清理其他未使用版本；路径必须属于固定 runtime 根目录且不是重解析点。CLI 输出版本、服务状态和日志位置。
+临时目录/模拟凭据测试覆盖签名、损坏包、路径限制、任务忙碌、停止状态、启动失败、中断恢复和回滚。tools/msi/acceptance.ps1 只能在显式授权的一次性管理员 Windows runner 执行，覆盖普通用户令牌更新、MSI/SCM 注册不变、启动回退、MSI 修复保持 runtime 和卸载保留数据。原生 ARM64、真实断电、冷启动/退出登录另行验收。
 
-宿主启动候选失败时可在内存中回退到受保护状态已批准的上一版；服务无权更改代码和受保护状态。健康目录仅记录实际运行版本及失败原因，不能指定第三个版本。下一次提权更新操作负责修正持久状态。宿主升级走 MSI，核心升级不改 SCM 注册。
-
-## 发布协议与兼容
-
-新增独立版本化发布入口 `/updates/v1/<os>/<arch>.json`，保留现有 `/downloads` 文件和 SHA-256 接口，避免旧客户端失去更新入口。发布信息包含 `schemaVersion`、单调递增发布序号、业务版本/提交、架构、签名、文件大小/摘要、最低宿主版本、worker 协议版本、最低可回退数据版本，以及宿主 MSI 升级信息。
-
-客户端仅接受已配置站点中固定下载路径，不跟随重定向到任意来源。签名检查必须在运行任何下载代码前完成。显式回滚只允许保留的已验证上一稳定版本，并检查数据版本；普通更新不把过期发布或任意历史版本当作最新版本。
-
-发布签名包含 key ID，宿主只信任内置公钥集合。密钥轮换或吊销通过宿主 MSI 更新信任锚；业务发布清单不能自行提供新公钥或取消签名检查。无法满足新信任链时停止业务更新，明确提示先更新宿主。
-
-跨平台发布信息、校验和事务状态可共用 `internal/clientupdate`。Windows 新增 `cmd/agent-host` / `internal/servicehost`；现有 `cmd/agent` 保留业务逻辑并提供 worker 入口。macOS/Linux 第一阶段沿用现有更新器，不变更其已安装启动注册；后续复用相同发布和回滚协议，不借本需求创建新的系统服务或 LaunchAgent。
-
-## 数据、失败恢复与卸载
-
-首版仅允许可向后读取的数据变更，更新不自动替换用户配置和业务数据库。需要不可逆迁移的发布须声明新的最低数据版本，先停止全部写入，再在原目录创建带版本清单的快照，确保失败能恢复；原录音文件不迁移、不删除。迁移期间保持 prepare 状态，未完成前不接收任务。
-
-激活后如果已有新业务写入，不能盲目用旧数据库覆盖；仅在数据兼容时切回旧程序，否则保留新数据、停止并明确报告恢复路径。下载中断不影响 current，状态提交采用同目录临时文件、同步落盘与原子替换；重启时忽略未完成的 staging。
-
-MSI 修复只修复宿主和 seed，不将运行时选择降回 seed。卸载先停止宿主，事务成功提交后由包内固定维护程序清理 runtime 程序目录和更新状态；路径固定并检查重解析点，不触碰 service.json 或原用户业务数据。失败的卸载保留运行时供 MSI 回滚恢复。宿主升级沿用原组件 GUID/服务路径，保留独立运行时状态。
-
-## 分步交付与验收
-
-1. **当前热修复**：修正 OutOfDiskSpace 判断；通过 FindRelatedProducts 显示安装/升级/修复；构建时运行无安装副作用的 MSI 条件测试。
-2. **发布协议与事务核心**：实现平台清单、签名验证、受保护目录状态、串行更新与旧版兼容；用临时目录、模拟下载和故障注入测试各个中断点。
-3. **固定宿主与一次性迁移 MSI**：拆分 SCM/worker，保留原 SID、身份、配置及任务恢复；CLI update 负责候选验证、健康检查、回退与宿主升级。
-4. **真实隔离验收**：在显式授权的一次性管理员 Windows runner 验证首次安装、旧版本迁移、日常升级不改变产品/服务注册、损坏包拒绝、断电恢复、启动失败回退、已停止服务保留状态、MSI 修复及卸载。原生 ARM64、冷启动/退出登录单独验收。
-
-日常更新的通过标准：`remote-agent update` 完成后业务版本改变，MSI 产品版本/产品标识与 SCM 配置未改变；旧绑定、项目、会话和录音可继续读取。宿主升级发生时明确说明为什么需要 MSI，不能宣称所有版本永远不需要安装器。
+日常更新通过标准：业务版本改变，MSI 产品代码/版本、RemoteAgent 路径/身份/SID/启动/恢复配置不变；绑定、项目、会话和录音仍可用，没有新 UAC。

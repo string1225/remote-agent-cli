@@ -97,6 +97,7 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("GET /install/codex-release", s.codexRelease)
 	mux.HandleFunc("GET /downloads/codex/{file}", s.codexDownload)
 	mux.HandleFunc("GET /downloads/{file}", s.download)
+	mux.HandleFunc("GET /updates/v1/{os}/{arch}", s.runtimeRelease)
 	mux.Handle("GET /", http.FileServerFS(web))
 	var handler http.Handler = s.protect(mux)
 	if u.Path != "" {

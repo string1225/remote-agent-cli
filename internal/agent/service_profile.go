@@ -10,8 +10,10 @@ import (
 // ServiceProfile contains paths and an explicit tool environment, never device
 // or model credentials. Business data stays beside the original configuration.
 type ServiceProfile struct {
-	Config      string            `json:"config"`
-	Environment map[string]string `json:"environment"`
+	OwnerSID     string            `json:"ownerSid,omitempty"`
+	UpdateServer string            `json:"updateServer,omitempty"`
+	Config       string            `json:"config"`
+	Environment  map[string]string `json:"environment"`
 }
 
 var serviceEnvironmentKeys = map[string]bool{
@@ -25,10 +27,16 @@ func CaptureServiceProfile(config string) (ServiceProfile, error) {
 	if err != nil {
 		return ServiceProfile{}, err
 	}
-	if _, err = Load(path); err != nil {
+	c, err := Load(path)
+	if err != nil {
 		return ServiceProfile{}, err
 	}
 	p := ServiceProfile{Config: path, Environment: map[string]string{}}
+	p.OwnerSID, err = currentProfileOwner()
+	if err != nil {
+		return p, err
+	}
+	p.UpdateServer = c.Server
 	for key := range serviceEnvironmentKeys {
 		if value := os.Getenv(key); value != "" {
 			p.Environment[key] = value

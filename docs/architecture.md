@@ -47,6 +47,8 @@ sequenceDiagram
 
 ## 本地数据与权限
 
+Windows MSI 1.1 使用固定 `cmd/agent-host`，业务 core 在 MSI seed 或受保护的 `runtime/versions/<sha256>`。RemoteAgent 维持 LocalService + 原 SID；RemoteAgentUpdater SYSTEM 服务只验证签名、写状态并控制原服务，不执行下载的业务代码。普通用户经本机命名管道更新，日常无 UAC。匿名 worker 管道先 prepare 验证存储，再 activate 执行业务。停止状态、任务、录音及上一稳定版受事务保护。公开 `/updates/v1/windows/{arch}.json` 和 core 下载不使用业务凭据。见 [更新框架](superpowers/specs/2026-10-25-client-update-framework.md)。
+
 客户端配置保存设备身份、服务器、项目、允许目录、写入策略及渠道 Secret。`history.db` 保存 Web/IM 会话、原生 ID、聊天记录、任务来源和通知队列。SaySo `sayso/state.json` 原子保存讨论/Action，录音在 `sayso/recordings/`。升级保留全部目录；旧空 Kind 视作 Web，旧 SaySo 按相同工作目录绑定到原项目并保留原讨论/录音 ID，其他执行器项目独立创建绑定。
 
 浏览器按稳定账号/客户端/项目/会话 ID 保存草稿、已完成上传的附件引用与有界消息缓存；不缓存设备凭据、模型 Token 或渠道 Secret。缓存优先展示，远端完整页替换旧历史，草稿与待确认发送记录单独校对；存储不可用时回退内存。退出账号不会向其他账号加载原缓存。离线可读已有缓存并编辑草稿，执行与上传必须重新连接客户端。

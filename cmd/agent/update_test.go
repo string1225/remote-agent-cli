@@ -16,6 +16,9 @@ import (
 )
 
 func TestUpdateCLI(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows uses the signed fixed-host update protocol; legacy executable replacement is no longer a supported CLI")
+	}
 	t.Setenv("REMOTE_AGENT_LANGUAGE", "en")
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", filepath.Join(dir, "codex"))

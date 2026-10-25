@@ -393,6 +393,10 @@ func (a *Agent) runSayso(ctx context.Context, p *peer, workspace, prompt, model,
 	defer func() { a.mu.Lock(); a.busy = false; a.mu.Unlock() }()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	a.mu.Lock()
+	a.activeCancel = cancel
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); a.activeCancel = nil; a.mu.Unlock() }()
 	id := store.Token()
 	p.mu.Lock()
 	p.runID = id

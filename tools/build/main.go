@@ -30,7 +30,20 @@ func main() {
 				name += ".exe"
 			}
 			path := filepath.Join("dist", name)
-			cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w -X github.com/string1225/remote-agent-cli/internal/buildinfo.Version="+*version, "-o", path, "./cmd/agent")
+			if platform == "windows" {
+				core := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w -X github.com/string1225/remote-agent-cli/internal/buildinfo.Version="+*version, "-o", filepath.Join("dist", "remote-agent-core-windows-"+arch+".exe"), "./cmd/agent")
+				core.Env = append(os.Environ(), "GOOS=windows", "GOARCH="+arch, "CGO_ENABLED=0")
+				core.Stdout = os.Stdout
+				core.Stderr = os.Stderr
+				if err := core.Run(); err != nil {
+					log.Fatal(err)
+				}
+			}
+			packagePath := "./cmd/agent"
+			if platform == "windows" {
+				packagePath = "./cmd/agent-host"
+			}
+			cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w -X github.com/string1225/remote-agent-cli/internal/buildinfo.Version="+*version, "-o", path, packagePath)
 			cmd.Env = append(os.Environ(), "GOOS="+platform, "GOARCH="+arch, "CGO_ENABLED=0")
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr

@@ -3,6 +3,7 @@ module github.com/string1225/remote-agent-cli
 go 1.26.0
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/gorilla/websocket v1.5.3
 	github.com/larksuite/oapi-sdk-go/v3 v3.12.2
 	github.com/open-dingtalk/dingtalk-stream-sdk-go v0.9.1

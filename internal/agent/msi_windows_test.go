@@ -262,6 +262,8 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := ServiceProfile{Config: c.Path, Environment: map[string]string{"USERPROFILE": home, "CODEX_HOME": codexHome, "PATH": os.Getenv("PATH"), "RA_CODEX_PATH": fakeCLI, "RA_QODER_PATH": filepath.Join(workspace, "missing-qoder")}}
+	p.OwnerSID, _ = currentProfileOwner()
+	p.UpdateServer = c.Server
 	if err = ConfigureWindowsService(p, false); err != nil {
 		t.Fatal(err)
 	}
@@ -358,29 +360,13 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	assertRetained()
 
 	before = connections.Load()
-	legacyBin := filepath.Join(home, ".remote-agent", "bin")
-	if err = os.MkdirAll(legacyBin, 0700); err != nil {
-		t.Fatal(err)
-	}
-	legacyProgram := filepath.Join(legacyBin, "remote-agent.exe")
-	if err = os.WriteFile(legacyProgram, []byte("obsolete agent fixture; must not execute"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	retainedTool := filepath.Join(legacyBin, "codex.exe")
-	if err = os.WriteFile(retainedTool, []byte("retained Codex fixture"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	runtimeAcceptance(t, exe, assertRetained)
+	before = connections.Load()
 	msi("/i", goodMSI, false)
 	assertCommandPath(true)
-	if _, err = os.Stat(legacyProgram); !os.IsNotExist(err) {
-		t.Fatal("MSI commit did not clean legacy Agent program", err)
-	}
-	if b, e := os.ReadFile(retainedTool); e != nil || string(b) != "retained Codex fixture" {
-		t.Fatal("MSI cleanup removed another tool")
-	}
 	wait("heartbeat after major upgrade", func() bool { return connections.Load() > before })
 	t.Log("major upgrade restored the authenticated connection")
-	if version, e := exec.Command(exe, "version").CombinedOutput(); e != nil || !strings.Contains(string(version), "acceptance-upgrade") {
+	if version, e := exec.Command(exe, "version").CombinedOutput(); e != nil || !strings.Contains(string(version), "acceptance-runtime") {
 		t.Fatalf("major upgrade did not replace the executable: %v %s", e, version)
 	}
 	goodDigest, err := fileDigest(exe)
@@ -408,8 +394,8 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	wait("service after MSI repair", func() bool { return connections.Load() > before })
 	t.Log("MSI repair restored the authenticated connection")
 	assertRetained()
-	if output, e := exec.Command(exe, "update", "--config", c.Path).CombinedOutput(); e == nil || !strings.Contains(string(output), "managed by Windows Installer") {
-		t.Fatal("EXE update bypassed MSI ownership", e)
+	if version, e := exec.Command(exe, "version").CombinedOutput(); e != nil || !strings.Contains(string(version), "acceptance-runtime") {
+		t.Fatal("MSI repair downgraded runtime", e, string(version))
 	}
 	msi("/x", goodMSI, false)
 	assertCommandPath(false)
