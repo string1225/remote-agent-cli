@@ -70,8 +70,8 @@ func (a *Agent) catalogServices() []protocol.Service {
 }
 func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
-	stopGitHubProxy := a.startGitHubProxy(ctx)
-	defer stopGitHubProxy()
+	stopWebProxy := a.startWebProxy(ctx)
+	defer stopWebProxy()
 	defer func() {
 		cancel()
 		timer := time.NewTimer(8 * time.Second)

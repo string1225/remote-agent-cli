@@ -41,15 +41,15 @@ func run() error {
 		}
 	}
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
-		fmt.Println("github-proxy on/off/status/run [--config PATH] [--listen 127.0.0.1:17891]：本机 GitHub HTTPS 代理（默认关闭）。")
+		fmt.Println("web-proxy on/off/status/run [--config PATH] [--listen 127.0.0.1:17891]：GitHub/ChatGPT 经 139，其他请求直连（默认关闭）。")
 		fmt.Println(tr("remote-agent: connect --server URL --token-prompt | enroll | run | start | stop | status | version | mcp | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup [--server URL --token-prompt] | app install/upgrade\nUse <command> --help for options.\nWindows: install the MSI first, then run a token/setup command in a new PowerShell. The MSI installs PATH and an automatic Windows Service."))
 		return nil
 	}
 	if os.Args[1] == "codex" {
 		return runCodex(os.Args[2:])
 	}
-	if os.Args[1] == "github-proxy" {
-		return runGitHubProxy(os.Args[2:])
+	if os.Args[1] == "web-proxy" {
+		return runWebProxy(os.Args[2:])
 	}
 	if os.Args[1] == "connect" {
 		return runConnect(os.Args[2:])

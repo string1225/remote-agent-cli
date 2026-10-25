@@ -1,13 +1,13 @@
 ---
 name: remote-agent
-description: 使用本机 Remote Agent 客户端查询设备与项目、创建远程任务、通知已绑定的飞书或钉钉会话，或管理客户端、Codex CLI 和经 139 的 GitHub 代理时使用。
+description: 使用本机 Remote Agent 客户端查询设备与项目、创建远程任务、通知已绑定的飞书或钉钉会话，或管理客户端、Codex CLI 和按域名分流的 Web 代理时使用。
 ---
 
 # Remote Agent 客户端
 
 Remote Agent 是本机常驻客户端，属于一个平台账号，管理多个“工作目录 + Codex/Qoder 执行器”项目。工作台、Web/IM 会话和 SaySo 共享项目身份。这里的 `code` 指 Qoder。
 
-先执行 `remote-agent version`、`remote-agent status` 和 `remote-agent github-proxy status` 核对当前客户端。配置默认在 `~/.remote-agent/config.json`；自定义配置用 `--config PATH`。status 返回的项目、工具检测与代理状态才是当前能力，不要把安装了本技能当作已绑定、在线或已配置渠道的证据。不要读取、输出或复制配置中的 credential、模型 Token 或机器人 Secret。
+先执行 `remote-agent version`、`remote-agent status` 和 `remote-agent web-proxy status` 核对当前客户端。配置默认在 `~/.remote-agent/config.json`；自定义配置用 `--config PATH`。status 返回的项目、工具检测与代理状态才是当前能力，不要把安装了本技能当作已绑定、在线或已配置渠道的证据。不要读取、输出或复制配置中的 credential、模型 Token 或机器人 Secret。
 
 ## 任务与跨设备协作
 
@@ -25,26 +25,27 @@ Remote Agent 是本机常驻客户端，属于一个平台账号，管理多个�
 
 飞书/钉钉长连接由客户端直接建立，凭证仅存本机；每项目最多一个渠道，私聊/群聊自动映射独立持久会话。SaySo 提供讨论、录音、分析和 Action；Action 经确认后派生同项目 Web 会话。录音需要用户主动开始及麦克风授权，不能通过本技能自动录音。
 
-## 经 139 访问 GitHub
+## Web 代理与 139 分流
 
-GitHub HTTP CONNECT 代理**默认关闭**，与模型代理分别配置。仅在用户要求或已授权的流程需要时开启：
+Web 代理**默认关闭**，与模型代理分别配置。GitHub 和 ChatGPT 经 139 中转，其他请求由客户端直接放行。仅在用户要求或已授权的流程需要时开启：
 
 ```text
-remote-agent github-proxy status
-remote-agent github-proxy on
-remote-agent github-proxy off
+remote-agent web-proxy status
+remote-agent web-proxy on
+remote-agent web-proxy off
 ```
 
-`on` 默认监听 `127.0.0.1:17891`，可用 `--listen 127.0.0.1:PORT` 改端口。常驻客户端约 1 秒内应用保存的开关；未运行时须先启动客户端。`status` 显示配置状态，不证明监听或公网访问成功。临时前台运行用 `remote-agent github-proxy run`，以 Ctrl+C 停止；保存的开关只控制常驻客户端。
+`on` 默认监听 `127.0.0.1:17891`，可用 `--listen 127.0.0.1:PORT` 改端口。常驻客户端约 1 秒内应用保存的开关；未运行时须先启动客户端。`status` 显示配置状态，不证明监听或公网访问成功。临时前台运行用 `remote-agent web-proxy run`，以 Ctrl+C 停止；保存的开关只控制常驻客户端。
 
 开启后按单次请求显式选择代理，例如：
 
 ```text
 git -c http.proxy=http://127.0.0.1:17891 ls-remote https://github.com/OWNER/REPO.git
 curl --proxy http://127.0.0.1:17891 https://api.github.com/
+curl --proxy http://127.0.0.1:17891 https://chatgpt.com/
 ```
 
-仅支持 `github.com`、`githubusercontent.com`、`githubassets.com` 及其子域的 HTTPS 443，包括 API、raw、codeload、发布附件和 LFS。SSH、HTTP 80 和其他网站不在范围内；重定向到其他域会明确失败。目标 TLS 由 Git/curl 正常校验；不要关闭证书验证。流量经已绑定站点的鉴权 WebSocket 到 139，再连接 GitHub；中转失败不会回退直连。不要擅自改全局 Git、系统代理或永久环境变量。
+支持普通 HTTP 转发和 HTTPS CONNECT：`github.com`、`githubusercontent.com`、`githubassets.com`、`chatgpt.com` 及其子域的 80/443 经已绑定站点的鉴权 WebSocket 到 139，其他目标直接放行。重定向后按新目标重新选择路由。中转失败报错，不回退直连；其他目标不依赖 139 在线。CONNECT 中目标 TLS/WSS 透传，由应用正常校验证书，不要关闭证书验证。旧 `.github-proxy.json` 开关保留，新 `.web-proxy.json` 优先。不要擅自改全局 Git、系统代理或永久环境变量。
 
 ## 本机维护
 
@@ -54,4 +55,4 @@ curl --proxy http://127.0.0.1:17891 https://api.github.com/
 - `remote-agent codex install/update/setup`：安装/更新官方 CLI，或备份并配置所属账号的模型入口，同时安装本技能。`app install/upgrade` 在 Windows 打开商店页面，仍需用户完成商店操作。
 - 设备绑定/恢复从已登录工作台复制命令；保留原项目、会话、录音和备份，不打印 Secret。不要自行撤销、重建或强制替换设备。
 
-网络与业务经 139 中转，无 P2P/WebRTC 回退。当前跨设备接口仅有上述目录查询、派生任务和通知工具，不能声称存在独立通用远程 shell API。真实 MSI/服务生命周期、机器人收发和模型授权须在目标环境验证，单元测试通过不能替代这些验收。
+平台远程业务经 139 中转，无 P2P/WebRTC 回退；Web 代理按上述域名规则分流。当前跨设备接口仅有上述目录查询、派生任务和通知工具，不能声称存在独立通用远程 shell API。真实 MSI/服务生命周期、机器人收发和模型授权须在目标环境验证，单元测试通过不能替代这些验收。

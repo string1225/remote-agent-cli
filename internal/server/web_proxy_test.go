@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/string1225/remote-agent-cli/internal/githubproxy"
 	"github.com/string1225/remote-agent-cli/internal/store"
+	"github.com/string1225/remote-agent-cli/internal/webproxy"
 )
 
-func gitHubProxyFixture(t *testing.T) (*Server, string, string) {
+func webProxyFixture(t *testing.T) (*Server, string, string) {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "proxy.db"))
 	if err != nil {
@@ -47,8 +47,8 @@ func gitHubProxyFixture(t *testing.T) (*Server, string, string) {
 	return s, a.ID, credential
 }
 
-func TestGitHubProxyRelayAuthenticatesBeforeDialAndRestrictsTargets(t *testing.T) {
-	s, id, credential := gitHubProxyFixture(t)
+func TestWebProxyRelayAuthenticatesBeforeDialAndRestrictsTargets(t *testing.T) {
+	s, id, credential := webProxyFixture(t)
 	var calls atomic.Int32
 	dial := func(context.Context, string) (net.Conn, error) {
 		calls.Add(1)
@@ -68,8 +68,12 @@ func TestGitHubProxyRelayAuthenticatesBeforeDialAndRestrictsTargets(t *testing.T
 		{"github.com:22", credential, "", true, 403},
 		{"github.com:443", credential, "", false, 426},
 		{"github.com:443", credential, "", true, 502},
+		{"chatgpt.com:443", credential, "", true, 502},
+		{"ws.chatgpt.com:443", credential, "", true, 502},
+		{"github.com:80", credential, "", true, 502},
+		{"chatgpt.com.evil.test:443", credential, "", true, 403},
 	} {
-		r := httptest.NewRequest("GET", "/api/agent/github-proxy?id="+id+"&target="+url.QueryEscape(item.target), nil)
+		r := httptest.NewRequest("GET", "/api/agent/web-proxy?id="+id+"&target="+url.QueryEscape(item.target), nil)
 		r.Header.Set("Authorization", "Bearer "+item.token)
 		r.Header.Set("Origin", item.origin)
 		if item.upgrade {
@@ -77,31 +81,31 @@ func TestGitHubProxyRelayAuthenticatesBeforeDialAndRestrictsTargets(t *testing.T
 			r.Header.Set("Connection", "Upgrade")
 		}
 		w := httptest.NewRecorder()
-		s.serveGitHubProxy(w, r, dial)
+		s.serveWebProxy(w, r, dial)
 		if w.Code != item.status || strings.Contains(w.Body.String(), credential) {
 			t.Fatalf("%s: got %d: %s", item.target, w.Code, w.Body.String())
 		}
 	}
-	if calls.Load() != 1 {
+	if calls.Load() != 4 {
 		t.Fatal("denied request dialed network", calls.Load())
 	}
 	if err := s.Store.Revoke("owner", id); err != nil {
 		t.Fatal(err)
 	}
-	r := httptest.NewRequest("GET", "/api/agent/github-proxy?id="+id+"&target=github.com:443", nil)
+	r := httptest.NewRequest("GET", "/api/agent/web-proxy?id="+id+"&target=github.com:443", nil)
 	r.Header.Set("Authorization", "Bearer "+credential)
 	w := httptest.NewRecorder()
-	s.serveGitHubProxy(w, r, dial)
-	if w.Code != 401 || calls.Load() != 1 {
+	s.serveWebProxy(w, r, dial)
+	if w.Code != 401 || calls.Load() != 4 {
 		t.Fatal("revoked device admitted")
 	}
 }
 
-func TestGitHubProxyRelayBinaryStreamingAndShutdown(t *testing.T) {
-	s, id, credential := gitHubProxyFixture(t)
+func TestWebProxyRelayBinaryStreamingAndShutdown(t *testing.T) {
+	s, id, credential := webProxyFixture(t)
 	echoDone := make(chan struct{})
 	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.serveGitHubProxy(w, r, func(ctx context.Context, target string) (net.Conn, error) {
+		s.serveWebProxy(w, r, func(ctx context.Context, target string) (net.Conn, error) {
 			if target != "raw.githubusercontent.com:443" {
 				t.Error("wrong destination", target)
 			}
@@ -147,21 +151,21 @@ func TestGitHubProxyRelayBinaryStreamingAndShutdown(t *testing.T) {
 	}
 }
 
-func TestGitHubProxyRelayLimitsPendingDialsAndRechecksCredentials(t *testing.T) {
-	s, id, credential := gitHubProxyFixture(t)
-	for range githubproxy.MaxPerDevice {
-		_, release, ok := s.githubProxyPool.Open(context.Background(), id)
+func TestWebProxyRelayLimitsPendingDialsAndRechecksCredentials(t *testing.T) {
+	s, id, credential := webProxyFixture(t)
+	for range webproxy.MaxPerDevice {
+		_, release, ok := s.webProxyPool.Open(context.Background(), id)
 		if !ok {
 			t.Fatal("pool setup failed")
 		}
 		defer release()
 	}
-	r := httptest.NewRequest("GET", "/api/agent/github-proxy?id="+id+"&target=github.com:443", nil)
+	r := httptest.NewRequest("GET", "/api/agent/web-proxy?id="+id+"&target=github.com:443", nil)
 	r.Header.Set("Authorization", "Bearer "+credential)
 	r.Header.Set("Upgrade", "websocket")
 	r.Header.Set("Connection", "Upgrade")
 	w := httptest.NewRecorder()
-	s.serveGitHubProxy(w, r, func(context.Context, string) (net.Conn, error) {
+	s.serveWebProxy(w, r, func(context.Context, string) (net.Conn, error) {
 		t.Error("limit allowed dial")
 		return nil, errors.New("unexpected")
 	})
@@ -169,13 +173,13 @@ func TestGitHubProxyRelayLimitsPendingDialsAndRechecksCredentials(t *testing.T) 
 		t.Fatal("limit returned", w.Code)
 	}
 
-	s2, id2, credential2 := gitHubProxyFixture(t)
-	r = httptest.NewRequest("GET", "/api/agent/github-proxy?id="+id2+"&target=github.com:443", nil)
+	s2, id2, credential2 := webProxyFixture(t)
+	r = httptest.NewRequest("GET", "/api/agent/web-proxy?id="+id2+"&target=github.com:443", nil)
 	r.Header.Set("Authorization", "Bearer "+credential2)
 	r.Header.Set("Upgrade", "websocket")
 	r.Header.Set("Connection", "Upgrade")
 	w = httptest.NewRecorder()
-	s2.serveGitHubProxy(w, r, func(context.Context, string) (net.Conn, error) {
+	s2.serveWebProxy(w, r, func(context.Context, string) (net.Conn, error) {
 		if err := s2.Store.Revoke("owner", id2); err != nil {
 			t.Fatal(err)
 		}

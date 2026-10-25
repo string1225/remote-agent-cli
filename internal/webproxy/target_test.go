@@ -1,4 +1,4 @@
-package githubproxy
+package webproxy
 
 import (
 	"context"
@@ -7,15 +7,33 @@ import (
 	"time"
 )
 
-func TestTargetRestrictsGitHubHTTPS(t *testing.T) {
-	for _, target := range []string{"github.com:443", "API.GITHUB.COM:443", "codeload.github.com:443", "raw.githubusercontent.com:443", "release-assets.githubusercontent.com:443", "github.githubassets.com:443"} {
+func TestTargetRestrictsRelayHostsAndWebPorts(t *testing.T) {
+	for _, target := range []string{"github.com:443", "github.com:80", "API.GITHUB.COM:443", "codeload.github.com:443", "raw.githubusercontent.com:443", "release-assets.githubusercontent.com:443", "github.githubassets.com:443", "chatgpt.com:443", "ws.chatgpt.com:443", "AUTH.CHATGPT.COM:80", "chatgpt.com.:443", "github.com:0443"} {
 		if _, err := Target(target); err != nil {
 			t.Errorf("rejected %q: %v", target, err)
 		}
 	}
-	for _, target := range []string{"github.com", "github.com:80", "github.com:22", "github.com:0443", "github.com.evil.test:443", "evilgithub.com:443", "github.io:443", "127.0.0.1:443", "[::1]:443", "169.254.169.254:443", "github.com.:443", "user@github.com:443", "github.com/path:443", "foo..github.com:443", "-foo.github.com:443", "foo_.github.com:443"} {
+	for _, target := range []string{"github.com", "github.com:22", "github.com.evil.test:443", "evilgithub.com:443", "chatgpt.com.evil.test:443", "evilchatgpt.com:443", "chatgpt.com:8443", "github.io:443", "127.0.0.1:443", "[::1]:443", "169.254.169.254:443", "user@github.com:443", "github.com/path:443", "foo..github.com:443", "-foo.github.com:443", "foo_.github.com:443"} {
 		if _, err := Target(target); err == nil {
 			t.Errorf("accepted forbidden target %q", target)
+		}
+	}
+}
+
+func TestRelayHostLeavesOtherDestinationsDirect(t *testing.T) {
+	for _, host := range []string{"github.com", "api.github.com", "raw.githubusercontent.com", "chatgpt.com", "ws.chatgpt.com", "FOO.CHATGPT.COM."} {
+		if !RelayHost(host) {
+			t.Errorf("missed relay host %s", host)
+		}
+	}
+	for _, host := range []string{"example.com", "github.com.example.com", "chatgpt.com.example.com", "notchatgpt.com", "127.0.0.1", "::1", "github.io", "api.openai.com"} {
+		if RelayHost(host) {
+			t.Errorf("unexpected relay host %s", host)
+		}
+	}
+	for _, address := range []string{"example.com:1234", "127.0.0.1:8080", "[::1]:8080"} {
+		if _, err := Address(address); err != nil {
+			t.Error("direct address rejected", address, err)
 		}
 	}
 }

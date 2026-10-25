@@ -1,43 +1,68 @@
-// Package githubproxy implements the restricted GitHub CONNECT relay.
-package githubproxy
+// Package webproxy defines web proxy routing and the restricted server relay.
+package webproxy
 
 import (
 	"context"
 	"errors"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// Target accepts only GitHub's HTTPS hosts, including API, source archives,
-// release assets, raw files, and Git LFS objects. SSH and arbitrary sites are
-// intentionally outside this service's scope.
-func Target(authority string) (string, error) {
+// Address validates a CONNECT/dial authority without restricting direct
+// destinations. Relay-only policy is enforced separately by Target.
+func Address(authority string) (string, error) {
 	host, port, err := net.SplitHostPort(authority)
-	if err != nil || port != "443" {
-		return "", errors.New("GitHub proxy requires a GitHub hostname on port 443")
+	number, portErr := strconv.Atoi(port)
+	if err != nil || host == "" || portErr != nil || number < 1 || number > 65535 || strings.ContainsAny(host, " /\\@?#\r\n\t") {
+		return "", errors.New("invalid proxy destination")
+	}
+	return net.JoinHostPort(strings.ToLower(strings.TrimSuffix(host, ".")), strconv.Itoa(number)), nil
+}
+
+// RelayHost matches names on label boundaries, including bare chatgpt.com.
+// Other hosts are connected directly by the client, never by the server.
+func RelayHost(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, domain := range []string{"github.com", "githubusercontent.com", "githubassets.com", "chatgpt.com"} {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
+}
+
+// Target is the server's allowlist: GitHub, its assets, and ChatGPT over web
+// ports. A relay-selected host on another port must fail rather than go direct.
+func Target(authority string) (string, error) {
+	target, err := Address(authority)
+	if err != nil {
+		return "", err
+	}
+	host, port, _ := net.SplitHostPort(target)
+	if port != "443" && port != "80" {
+		return "", errors.New("web relay requires port 80 or 443")
 	}
 	host = strings.ToLower(host)
 	if len(host) > 253 {
-		return "", errors.New("invalid GitHub hostname")
+		return "", errors.New("invalid relay hostname")
 	}
 	for _, label := range strings.Split(host, ".") {
 		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return "", errors.New("invalid GitHub hostname")
+			return "", errors.New("invalid relay hostname")
 		}
 		for _, c := range label {
 			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
-				return "", errors.New("invalid GitHub hostname")
+				return "", errors.New("invalid relay hostname")
 			}
 		}
 	}
-	for _, domain := range []string{"github.com", "githubusercontent.com", "githubassets.com"} {
-		if host == domain || strings.HasSuffix(host, "."+domain) {
-			return net.JoinHostPort(host, port), nil
-		}
+	if RelayHost(host) {
+		return target, nil
 	}
-	return "", errors.New("destination is outside the GitHub proxy allowlist")
+	return "", errors.New("destination is outside the web relay allowlist")
 }
 
 // Dial resolves on the relay server and dials a checked IP directly, so DNS
@@ -53,11 +78,11 @@ func Dial(ctx context.Context, authority string) (net.Conn, error) {
 	host, port, _ := net.SplitHostPort(target)
 	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 	if err != nil || len(ips) == 0 {
-		return nil, errors.New("cannot resolve GitHub destination")
+		return nil, errors.New("cannot resolve relay destination")
 	}
 	for _, ip := range ips {
 		if !publicIP(ip) {
-			return nil, errors.New("GitHub destination resolved to a non-public address")
+			return nil, errors.New("relay destination resolved to a non-public address")
 		}
 	}
 	var dialer net.Dialer
@@ -67,7 +92,7 @@ func Dial(ctx context.Context, authority string) (net.Conn, error) {
 			return conn, nil
 		}
 	}
-	return nil, errors.New("cannot connect to GitHub destination")
+	return nil, errors.New("cannot connect to relay destination")
 }
 
 func publicIP(ip netip.Addr) bool {

@@ -1,4 +1,4 @@
-package githubproxy
+package webproxy
 
 import (
 	"context"

@@ -18,26 +18,33 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/string1225/remote-agent-cli/internal/githubproxy"
+	"github.com/string1225/remote-agent-cli/internal/webproxy"
 )
 
-func startTestGitHubProxy(t *testing.T, cfg Config) (string, context.CancelFunc, <-chan error) {
+func startTestWebProxy(t *testing.T, cfg Config) (string, context.CancelFunc, <-chan error) {
 	t.Helper()
-	listener, err := ListenGitHubProxy("127.0.0.1:0")
+	listener, err := ListenWebProxy("127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- ServeGitHubProxy(ctx, cfg, listener) }()
+	go func() { done <- ServeWebProxy(ctx, cfg, listener) }()
 	t.Cleanup(cancel)
 	return listener.Addr().String(), cancel, done
 }
 
-func TestGitHubProxyHTTPSStreamsThroughBoundRelay(t *testing.T) {
+func TestWebProxyHTTPSStreamsThroughBoundRelay(t *testing.T) {
+	for _, host := range []string{"release-assets.githubusercontent.com", "chatgpt.com", "ws.chatgpt.com"} {
+		t.Run(host, func(t *testing.T) { assertWebProxyHTTPSRelay(t, host) })
+	}
+}
+
+func assertWebProxyHTTPSRelay(t *testing.T, host string) {
+	t.Helper()
 	payload := bytes.Repeat([]byte("GitHub release fixture\n"), 40000)
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Host != "release-assets.githubusercontent.com" || r.Header.Get("Authorization") != "Bearer github-user-token" || r.Header.Get("Proxy-Authorization") != "" {
+		if r.Host != host || r.Header.Get("Authorization") != "Bearer github-user-token" || r.Header.Get("Proxy-Authorization") != "" {
 			t.Error("target request or GitHub credentials changed")
 		}
 		if r.Method == http.MethodPost {
@@ -52,7 +59,7 @@ func TestGitHubProxyHTTPSStreamsThroughBoundRelay(t *testing.T) {
 	var calls atomic.Int32
 	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		if r.URL.Path != "/agents/api/agent/github-proxy" || r.URL.Query().Get("id") != "device-fixture" || r.URL.Query().Get("target") != "release-assets.githubusercontent.com:443" || r.Header.Get("Authorization") != "Bearer device-only-secret" || r.Header.Get("Proxy-Authorization") != "" {
+		if r.URL.Path != "/agents/api/agent/web-proxy" || r.URL.Query().Get("id") != "device-fixture" || r.URL.Query().Get("target") != host+":443" || r.Header.Get("Authorization") != "Bearer device-only-secret" || r.Header.Get("Proxy-Authorization") != "" {
 			t.Error("wrong relay routing or leaked proxy headers")
 		}
 		u, _ := url.Parse(upstream.URL)
@@ -66,10 +73,10 @@ func TestGitHubProxyHTTPSStreamsThroughBoundRelay(t *testing.T) {
 			conn.Close()
 			return
 		}
-		githubproxy.Tunnel(r.Context(), ws, conn, conn, nil)
+		webproxy.Tunnel(r.Context(), ws, conn, conn, nil)
 	}))
 	defer relay.Close()
-	address, cancel, done := startTestGitHubProxy(t, Config{Server: relay.URL + "/agents", ID: "device-fixture", Credential: "device-only-secret"})
+	address, cancel, done := startTestWebProxy(t, Config{Server: relay.URL + "/agents", ID: "device-fixture", Credential: "device-only-secret"})
 	proxyURL, _ := url.Parse("http://" + address)
 	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL), TLSClientConfig: upstream.Client().Transport.(*http.Transport).TLSClientConfig.Clone()}
 	// The fixture certificate is issued for example.com; keep verification on and
@@ -82,7 +89,7 @@ func TestGitHubProxyHTTPSStreamsThroughBoundRelay(t *testing.T) {
 		if method == http.MethodPost {
 			upload = bytes.NewReader(payload)
 		}
-		req, _ := http.NewRequest(method, "https://release-assets.githubusercontent.com/download", upload)
+		req, _ := http.NewRequest(method, "https://"+host+"/download", upload)
 		req.Header.Set("Authorization", "Bearer github-user-token")
 		res, err := client.Do(req)
 		if err != nil {
@@ -108,7 +115,7 @@ func TestGitHubProxyHTTPSStreamsThroughBoundRelay(t *testing.T) {
 	}
 }
 
-func TestGitHubProxyPreservesPipelinedCONNECTBytesAndClosesTunnels(t *testing.T) {
+func TestWebProxyPreservesPipelinedCONNECTBytesAndClosesTunnels(t *testing.T) {
 	relayDone := make(chan struct{})
 	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer close(relayDone)
@@ -128,7 +135,7 @@ func TestGitHubProxyPreservesPipelinedCONNECTBytesAndClosesTunnels(t *testing.T)
 		}
 	}))
 	defer relay.Close()
-	address, cancel, _ := startTestGitHubProxy(t, Config{Server: relay.URL, ID: "fixture", Credential: "test-secret"})
+	address, cancel, _ := startTestWebProxy(t, Config{Server: relay.URL, ID: "fixture", Credential: "test-secret"})
 	conn, err := net.DialTimeout("tcp", address, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -156,24 +163,24 @@ func TestGitHubProxyPreservesPipelinedCONNECTBytesAndClosesTunnels(t *testing.T)
 	}
 }
 
-func TestGitHubProxyRejectsForbiddenTargetsAndFailsClosed(t *testing.T) {
+func TestWebProxyRejectsInvalidRequestsAndRelayFailuresStayClosed(t *testing.T) {
 	var calls atomic.Int32
 	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		http.Error(w, "fixture server unavailable", 503)
 	}))
 	defer relay.Close()
-	address, _, _ := startTestGitHubProxy(t, Config{Server: relay.URL, ID: "fixture", Credential: "test-secret"})
+	address, _, _ := startTestWebProxy(t, Config{Server: relay.URL, ID: "fixture", Credential: "test-secret"})
 	for _, item := range []struct {
 		method, target, origin string
 		status                 int
 	}{
-		{"CONNECT", "example.com:443", "", 403},
-		{"CONNECT", "github.com.evil.test:443", "", 403},
-		{"CONNECT", "127.0.0.1:443", "", 403},
 		{"CONNECT", "github.com:22", "", 403},
-		{"CONNECT", "github.com:443", "https://evil.test", 403},
-		{"GET", "http://github.com/", "", 405},
+		{"CONNECT", "github.com", "", 400},
+		{"CONNECT", "github.com:0", "", 400},
+		{"CONNECT", "ws.chatgpt.com:8443", "", 403},
+		{"GET", "http://github.com/", "", 502},
+		{"CONNECT", "ws.chatgpt.com:443", "", 502},
 		{"CONNECT", "github.com:443", "", 502},
 	} {
 		conn, err := net.DialTimeout("tcp", address, time.Second)
@@ -198,14 +205,14 @@ func TestGitHubProxyRejectsForbiddenTargetsAndFailsClosed(t *testing.T) {
 			t.Fatalf("%s: got %d: %s", item.target, res.StatusCode, body)
 		}
 	}
-	if calls.Load() != 1 {
-		t.Fatal("forbidden request reached relay", calls.Load())
+	if calls.Load() != 3 {
+		t.Fatal("wrong relay request count", calls.Load())
 	}
 }
 
-func TestGitHubProxyListenerRejectsNetworkExposure(t *testing.T) {
+func TestWebProxyListenerRejectsNetworkExposure(t *testing.T) {
 	for _, address := range []string{":17891", "0.0.0.0:17891", "[::]:17891", "192.168.1.10:17891", "localhost:17891", "127.0.0.1:-1", "127.0.0.1:65536", "[::1%zone]:17891"} {
-		listener, err := ListenGitHubProxy(address)
+		listener, err := ListenWebProxy(address)
 		if err == nil {
 			listener.Close()
 			t.Errorf("accepted unsafe listener %s", address)
@@ -213,7 +220,7 @@ func TestGitHubProxyListenerRejectsNetworkExposure(t *testing.T) {
 	}
 }
 
-func TestGitHubProxySwitchPreservesConfigurationAndAppliesWithoutRestart(t *testing.T) {
+func TestWebProxySwitchPreservesConfigurationAndAppliesWithoutRestart(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Server: "https://relay.example.test/agents", ID: "switch-fixture", Credential: "temporary-secret", Path: filepath.Join(root, "config.json")}
 	if err := cfg.Save(); err != nil {
@@ -228,20 +235,20 @@ func TestGitHubProxySwitchPreservesConfigurationAndAppliesWithoutRestart(t *test
 		t.Fatal(err)
 	}
 	loaded, err := Load(cfg.Path)
-	initialAddress, settingErr := GitHubProxyAddress(cfg.Path)
+	initialAddress, settingErr := WebProxyAddress(cfg.Path)
 	if err != nil || settingErr != nil || initialAddress != "" {
 		t.Fatal("old config did not default off", err)
 	}
-	listener, err := ListenGitHubProxy("127.0.0.1:0")
+	listener, err := ListenWebProxy("127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	address := listener.Addr().String()
 	listener.Close()
 	a := &Agent{Config: loaded}
-	stop := a.startGitHubProxy(context.Background())
+	stop := a.startWebProxy(context.Background())
 	defer stop()
-	_, err = SetGitHubProxy(cfg.Path, address)
+	_, err = SetWebProxy(cfg.Path, address)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,8 +269,8 @@ func TestGitHubProxySwitchPreservesConfigurationAndAppliesWithoutRestart(t *test
 		t.Fatal("proxy was not enabled without restart", err)
 	}
 	defer opened.Close()
-	onSettings, _ := os.ReadFile(cfg.Path + ".github-proxy.json")
-	backup, err := SetGitHubProxy(cfg.Path, "")
+	onSettings, _ := os.ReadFile(cfg.Path + ".web-proxy.json")
+	backup, err := SetWebProxy(cfg.Path, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,11 +300,11 @@ func TestGitHubProxySwitchPreservesConfigurationAndAppliesWithoutRestart(t *test
 		}
 	}
 	loaded, err = Load(cfg.Path)
-	finalAddress, settingErr := GitHubProxyAddress(cfg.Path)
+	finalAddress, settingErr := WebProxyAddress(cfg.Path)
 	if err != nil || loaded.ID != cfg.ID || loaded.Credential != cfg.Credential || settingErr != nil || finalAddress != "" {
 		t.Fatal("switch changed binding or failed to disable", err)
 	}
-	if _, err := SetGitHubProxy(cfg.Path, "0.0.0.0:17891"); err == nil {
+	if _, err := SetWebProxy(cfg.Path, "0.0.0.0:17891"); err == nil {
 		t.Fatal("unsafe configuration accepted")
 	}
 	after, _ := os.ReadFile(cfg.Path)

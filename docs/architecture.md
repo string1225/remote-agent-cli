@@ -63,7 +63,7 @@ SaySo 仅接受预定义的 state/settings/projects/sessions/actions/runs/audio 
 
 ## 身份、模型代理与部署
 
-GitHub 本机代理与模型代理独立，默认关闭；`github-proxy on/off/status` 保存开关，daemon 每秒读取并应用，只绑定回环地址。HTTPS CONNECT 经设备鉴权的 `/api/agent/github-proxy` WebSocket 到 139，由 139 校验 GitHub 域名与公网 DNS 地址后连接 443，目标 TLS 透传，无直连回退。安装/更新/setup 为 Codex 安装不含凭证的 `remote-agent` skill。连接额度、恢复及验收见 [GitHub 代理说明](github-proxy.md)。
+本机 Web 代理与模型代理独立，默认关闭；`web-proxy on/off/status` 保存开关，daemon 每秒读取并应用，只绑定回环地址。HTTP 转发及 HTTPS CONNECT 按域名路由：GitHub/附件域名、chatgpt.com 及其子域经设备鉴权的 `/api/agent/web-proxy` WebSocket 到 139，其他请求由客户端直接放行。139 仅接受规则内域名的 80/443，校验公网 DNS 并固定目标 IP；CONNECT 保持目标 TLS，中转失败不回退直连。旧代理开关文件原样保留，新设置优先。安装/更新/setup 为 Codex 安装不含凭证的 `remote-agent` skill。连接额度、恢复及验收见 [Web 代理说明](web-proxy.md)。
 
 仅管理员创建平台账号，bcrypt 密码，30 天 HttpOnly 登录 Cookie，同源写请求。用户名 Unicode 归一比较并保持稳定账号 ID；改名/改密码撤销已有会话。账号停用阻止设备、绑定、模型与工具访问，不能移除最后一名有效管理员。
 

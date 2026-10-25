@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func TestGitHubProxySettingsInheritServiceDirectoryAccess(t *testing.T) {
+func TestWebProxySettingsInheritServiceDirectoryAccess(t *testing.T) {
 	root := t.TempDir()
 	owner, err := user.Current()
 	if err != nil {
@@ -36,14 +36,14 @@ func TestGitHubProxySettingsInheritServiceDirectoryAccess(t *testing.T) {
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SetGitHubProxy(cfg.Path, DefaultGitHubProxyListen); err != nil {
+	if _, err := SetWebProxy(cfg.Path, DefaultWebProxyListen); err != nil {
 		t.Fatal(err)
 	}
-	backup, err := SetGitHubProxy(cfg.Path, "")
+	backup, err := SetWebProxy(cfg.Path, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{cfg.Path + ".github-proxy.json", backup} {
+	for _, path := range []string{cfg.Path + ".web-proxy.json", backup} {
 		sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 		if err != nil {
 			t.Fatal(err)

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -16,48 +15,48 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/string1225/remote-agent-cli/internal/githubproxy"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
+	"github.com/string1225/remote-agent-cli/internal/webproxy"
 )
 
-const DefaultGitHubProxyListen = "127.0.0.1:17891"
+const DefaultWebProxyListen = "127.0.0.1:17891"
 
-type gitHubProxy struct {
+type webProxy struct {
 	config Config
-	pool   githubproxy.Pool
+	pool   webproxy.Pool
 }
 
-// ListenGitHubProxy never accepts LAN/wildcard listeners or DNS hostnames.
+// ListenWebProxy never accepts LAN/wildcard listeners or DNS hostnames.
 // Port zero is supported for isolated callers and tests.
-func ListenGitHubProxy(address string) (net.Listener, error) {
-	if err := validateGitHubProxyListen(address); err != nil {
+func ListenWebProxy(address string) (net.Listener, error) {
+	if err := validateWebProxyListen(address); err != nil {
 		return nil, err
 	}
 	return net.Listen("tcp", address)
 }
 
-func validateGitHubProxyListen(address string) error {
+func validateWebProxyListen(address string) error {
 	host, port, err := net.SplitHostPort(address)
 	ip, ipErr := netip.ParseAddr(host)
 	portNumber, portErr := strconv.Atoi(port)
 	if err != nil || ipErr != nil || !ip.IsLoopback() || ip.Zone() != "" || portErr != nil || portNumber < 0 || portNumber > 65535 {
-		return errors.New("GitHub proxy must listen on a literal loopback IP and valid port")
+		return errors.New("web proxy must listen on a literal loopback IP and valid port")
 	}
 	return nil
 }
 
-// ServeGitHubProxy owns listener until cancellation. It never rewrites global
+// ServeWebProxy owns listener until cancellation. It never rewrites global
 // Git/system proxy configuration, and credentials only travel to the bound site.
-func ServeGitHubProxy(ctx context.Context, cfg Config, listener net.Listener) error {
+func ServeWebProxy(ctx context.Context, cfg Config, listener net.Listener) error {
 	if err := ValidateServer(cfg.Server); err != nil {
 		listener.Close()
 		return err
 	}
 	if cfg.ID == "" || cfg.Credential == "" {
 		listener.Close()
-		return errors.New("GitHub proxy requires an enrolled client")
+		return errors.New("web proxy requires an enrolled client")
 	}
-	p := &gitHubProxy{config: cfg}
+	p := &webProxy{config: cfg}
 	server := &http.Server{
 		Handler:           p,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -75,48 +74,35 @@ func ServeGitHubProxy(ctx context.Context, cfg Config, listener net.Listener) er
 	return err
 }
 
-func (p *gitHubProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (p *webProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodConnect {
-		w.Header().Set("Allow", http.MethodConnect)
-		http.Error(w, "Use this HTTP proxy for HTTPS GitHub URLs (CONNECT).", http.StatusMethodNotAllowed)
+		p.forwardHTTP(w, r)
 		return
 	}
-	if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
-		http.Error(w, "browser origin denied", http.StatusForbidden)
-		return
-	}
-	target, err := githubproxy.Target(r.Host)
+	target, err := webproxy.Address(r.Host)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	host, _, _ := net.SplitHostPort(target)
+	if webproxy.RelayHost(host) {
+		if _, err := webproxy.Target(target); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 	}
 	ctx, release, ok := p.pool.Open(r.Context(), p.config.ID)
 	if !ok {
-		http.Error(w, "GitHub proxy connection limit reached", http.StatusTooManyRequests)
+		http.Error(w, "web proxy connection limit reached", http.StatusTooManyRequests)
 		return
 	}
 	defer release()
-	u, _ := protocol.ParseServerURL(p.config.Server)
-	if u.Scheme == "https" {
-		u.Scheme = "wss"
-	} else {
-		u.Scheme = "ws"
-	}
-	u.Path += "/api/agent/github-proxy"
-	query := u.Query()
-	query.Set("id", p.config.ID)
-	query.Set("target", target)
-	u.RawQuery = query.Encode()
-	dialer := websocket.Dialer{HandshakeTimeout: 20 * time.Second, WriteBufferSize: githubproxy.ChunkSize}
-	ws, response, err := dialer.DialContext(ctx, u.String(), http.Header{"Authorization": {"Bearer " + p.config.Credential}})
+	upstream, err := p.dial(ctx, target)
 	if err != nil {
-		if response != nil && response.Body != nil {
-			response.Body.Close()
-		}
-		http.Error(w, "GitHub relay unavailable; check the client binding and server version", http.StatusBadGateway)
+		http.Error(w, "web proxy destination unavailable", http.StatusBadGateway)
 		return
 	}
-	defer ws.Close()
+	defer upstream.Close()
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		http.Error(w, "CONNECT unavailable", http.StatusInternalServerError)
@@ -129,13 +115,55 @@ func (p *gitHubProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Time{})
 	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if _, err := io.WriteString(buffered, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil || buffered.Flush() != nil {
+	if _, err := buffered.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil || buffered.Flush() != nil {
 		return
 	}
-	githubproxy.Tunnel(ctx, ws, conn, buffered.Reader, nil)
+	_ = conn.SetWriteDeadline(time.Time{})
+	webproxy.Stream(ctx, conn, buffered.Reader, upstream)
 }
 
-func (a *Agent) startGitHubProxy(ctx context.Context) func() {
+// The route is chosen before dialing. Relay failures must never dial the
+// selected host directly. Ordinary destinations use the local network as-is.
+func (p *webProxy) dial(ctx context.Context, authority string) (net.Conn, error) {
+	target, err := webproxy.Address(authority)
+	if err != nil {
+		return nil, err
+	}
+	host, _, _ := net.SplitHostPort(target)
+	if !webproxy.RelayHost(host) {
+		dialer := net.Dialer{Timeout: 15 * time.Second}
+		return dialer.DialContext(ctx, "tcp", target)
+	}
+	if _, err := webproxy.Target(target); err != nil {
+		return nil, err
+	}
+	u, _ := protocol.ParseServerURL(p.config.Server)
+	if u.Scheme == "https" {
+		u.Scheme = "wss"
+	} else {
+		u.Scheme = "ws"
+	}
+	u.Path += "/api/agent/web-proxy"
+	query := u.Query()
+	query.Set("id", p.config.ID)
+	query.Set("target", target)
+	u.RawQuery = query.Encode()
+	dialer := websocket.Dialer{HandshakeTimeout: 20 * time.Second, WriteBufferSize: webproxy.ChunkSize}
+	ws, response, err := dialer.DialContext(ctx, u.String(), http.Header{"Authorization": {"Bearer " + p.config.Credential}})
+	if err != nil {
+		if response != nil && response.Body != nil {
+			response.Body.Close()
+		}
+		return nil, errors.New("web relay unavailable; check the client binding and server version")
+	}
+	// net.Pipe gives HTTP transports and CONNECT the same streaming connection
+	// interface while the existing WebSocket heartbeat and cancellation run.
+	relay, local := net.Pipe()
+	go webproxy.Tunnel(ctx, ws, relay, relay, nil)
+	return local, nil
+}
+
+func (a *Agent) startWebProxy(ctx context.Context) func() {
 	a.mu.Lock()
 	cfg := a.Config
 	a.mu.Unlock()
@@ -154,7 +182,7 @@ func (a *Agent) startGitHubProxy(ctx context.Context) func() {
 		defer ticker.Stop()
 		for {
 			current := cfg
-			address, settingErr := GitHubProxyAddress(cfg.Path)
+			address, settingErr := WebProxyAddress(cfg.Path)
 			if cfg.Path != "" {
 				loaded, err := Load(cfg.Path)
 				if err != nil || loaded.ID != cfg.ID || loaded.Credential != cfg.Credential || loaded.Server != cfg.Server {
@@ -173,20 +201,20 @@ func (a *Agent) startGitHubProxy(ctx context.Context) func() {
 				}
 				active = address
 				if address != "" {
-					listener, err := ListenGitHubProxy(address)
+					listener, err := ListenWebProxy(address)
 					if err != nil {
-						log.Printf("GitHub proxy unavailable at %s: %v", address, err)
+						log.Printf("web proxy unavailable at %s: %v", address, err)
 					} else {
 						proxyCtx, stop := context.WithCancel(managerCtx)
 						proxyDone := make(chan struct{})
 						go func() {
 							defer close(proxyDone)
-							if err := ServeGitHubProxy(proxyCtx, current, listener); err != nil {
-								log.Printf("GitHub proxy stopped: %v", err)
+							if err := ServeWebProxy(proxyCtx, current, listener); err != nil {
+								log.Printf("web proxy stopped: %v", err)
 							}
 						}()
 						stopProxy = func() { stop(); <-proxyDone }
-						log.Printf("GitHub proxy listening on http://%s via the bound relay", listener.Addr())
+						log.Printf("web proxy listening on http://%s via the bound relay", listener.Addr())
 					}
 				}
 			}
@@ -200,14 +228,17 @@ func (a *Agent) startGitHubProxy(ctx context.Context) func() {
 	return func() { cancel(); <-done }
 }
 
-// GitHubProxyAddress returns the configured listener, or empty when disabled.
+// WebProxyAddress returns the configured listener, or empty when disabled.
 // A separate settings file keeps stale project/configuration saves from
 // re-enabling or disabling the proxy, and contains no device credentials.
-func GitHubProxyAddress(configPath string) (string, error) {
+func WebProxyAddress(configPath string) (string, error) {
 	if configPath == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(configPath + ".github-proxy.json")
+	data, err := os.ReadFile(configPath + ".web-proxy.json")
+	if os.IsNotExist(err) {
+		data, err = os.ReadFile(configPath + ".github-proxy.json")
+	}
 	if os.IsNotExist(err) {
 		return "", nil
 	}
@@ -221,25 +252,25 @@ func GitHubProxyAddress(configPath string) (string, error) {
 		return "", err
 	}
 	if settings.Listen != "" {
-		if err := validateGitHubProxyListen(settings.Listen); err != nil {
+		if err := validateWebProxyListen(settings.Listen); err != nil {
 			return "", err
 		}
 	}
 	return settings.Listen, nil
 }
 
-// SetGitHubProxy updates only the independent proxy settings, preserving an
+// SetWebProxy updates only the independent proxy settings, preserving an
 // exact backup and any unknown settings. Empty disables the service.
-func SetGitHubProxy(configPath, address string) (string, error) {
+func SetWebProxy(configPath, address string) (string, error) {
 	if address != "" {
-		if err := validateGitHubProxyListen(address); err != nil {
+		if err := validateWebProxyListen(address); err != nil {
 			return "", err
 		}
 	}
 	if _, err := Load(configPath); err != nil {
 		return "", err
 	}
-	path := configPath + ".github-proxy.json"
+	path := configPath + ".web-proxy.json"
 	unlock, err := lockFile(path + ".write.lock")
 	if err != nil {
 		return "", errors.New("device configuration is being updated; retry shortly")
@@ -251,8 +282,15 @@ func SetGitHubProxy(configPath, address string) (string, error) {
 		return "", errors.New("proxy configuration must not be a symbolic link")
 	}
 	before, err := os.ReadFile(path)
+	newFile := os.IsNotExist(err)
 	if err != nil && !os.IsNotExist(err) {
 		return "", err
+	}
+	if newFile {
+		before, err = os.ReadFile(configPath + ".github-proxy.json")
+		if err != nil && !os.IsNotExist(err) {
+			return "", err
+		}
 	}
 	document := map[string]json.RawMessage{}
 	if len(before) > 0 {
@@ -272,13 +310,13 @@ func SetGitHubProxy(configPath, address string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if bytes.Equal(bytes.TrimSpace(before), after) {
+	if !newFile && bytes.Equal(bytes.TrimSpace(before), after) {
 		return "", nil
 	}
 	backup := ""
 	if len(before) > 0 {
 		backup = path + ".backup-" + time.Now().UTC().Format("20060102T150405.000000000")
-		if err := writeGitHubProxyFile(backup, before); err != nil {
+		if err := writeWebProxyFile(backup, before); err != nil {
 			return "", err
 		}
 	}
@@ -286,10 +324,14 @@ func SetGitHubProxy(configPath, address string) (string, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return backup, err
 	}
-	if !bytes.Equal(before, latest) {
+	expected := before
+	if newFile {
+		expected = nil
+	}
+	if !bytes.Equal(expected, latest) {
 		return backup, errors.New("proxy configuration changed; setting was not saved")
 	}
-	if err := writeGitHubProxyFile(path, after); err != nil {
+	if err := writeWebProxyFile(path, after); err != nil {
 		return backup, err
 	}
 	return backup, nil
@@ -298,8 +340,8 @@ func SetGitHubProxy(configPath, address string) (string, error) {
 // These settings contain no secrets. Inherit the config directory's access so
 // the Windows Service can read user-written toggles; credential-file protection
 // deliberately removes that inherited service grant and must not be used here.
-func writeGitHubProxyFile(path string, data []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(path), ".github-proxy-*")
+func writeWebProxyFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".web-proxy-*")
 	if err != nil {
 		return err
 	}

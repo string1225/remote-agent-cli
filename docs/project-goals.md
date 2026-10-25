@@ -17,7 +17,7 @@
 | 能力 | 当前实现 | 尚需验证或补齐 |
 | --- | --- | --- |
 | 服务器 | 账号/设备注册与撤销、心跳、网页、项目目录、机器人唯一绑定、139 WebSocket 中转 | 多节点扩展留待后续 |
-| GitHub 代理与 Codex 技能 | 本机 GitHub HTTPS CONNECT 经 139 中转，可开关且默认关闭；安装/更新/setup 自动安装 remote-agent skill | 同版 139/客户端部署、真实 Git clone/push、LFS/附件及 Windows Service 开关验收，见 [使用说明](github-proxy.md) |
+| Web 代理与 Codex 技能 | 默认关闭的 web-proxy，GitHub/ChatGPT 经 139，其他 HTTP/HTTPS 直接放行；安装/更新/setup 自动安装 remote-agent skill | 同版 139/客户端部署、真实 Git/LFS、ChatGPT、直连与 Windows Service 开关验收，见 [使用说明](web-proxy.md) |
 | Windows 安装 | x64/ARM64 MSI、自动 Windows Service、失败恢复、旧任务迁移、保留数据升级/回滚；不新建计划任务 | 发布者签名、原生 ARM64、真实整机冷启动/退出桌面验收 |
 | Windows 业务更新 | MSI 1.1 固定宿主 + SYSTEM 更新服务，签名 core、普通用户命令/后台检查、事务切换/上一稳定版回退，日常无需 MSI/UAC；不做旧客户端兼容 | 一次性管理员 runner 的真实 MSI/SCM 验收，原生 ARM64、断电与冷启动/退出桌面验收 |
 | 本机任务 | Codex danger-full-access/never、Qoder bypass_permissions；Web/IM/SaySo 统一完整授权，旧配置内存迁移；输出/取消/超时、设备单任务互斥 | 独立通用命令 API 仍待实现；旧 Windows RX 项目目录需运行 connect 重新配置服务 ACL |
