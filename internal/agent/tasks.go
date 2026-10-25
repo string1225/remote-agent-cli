@@ -37,9 +37,11 @@ func (a *Agent) initTasks(ctx context.Context) {
 		a.taskCtx = ctx
 		a.recoverTasks()
 		a.initNotifications(ctx)
+		a.mu.Lock()
 		a.tasks = make(chan queuedTask, 32)
 		a.taskDone = make(chan struct{})
 		a.taskCancels = map[string]context.CancelFunc{}
+		a.mu.Unlock()
 		go a.workTasks(ctx)
 	})
 }
