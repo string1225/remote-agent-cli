@@ -5,6 +5,7 @@ import "encoding/json"
 type Service struct {
 	ToolNotifyAgent   string       `json:"-"`
 	ToolNotifyProject string       `json:"-"`
+	ToolNotifySession string       `json:"-"`
 	ToolSource        string       `json:"-"`
 	Channel           *ChannelInfo `json:"channel,omitempty"`
 	ToolBinary        string       `json:"-"`

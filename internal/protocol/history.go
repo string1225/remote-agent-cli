@@ -2,8 +2,14 @@ package protocol
 
 // Sessions and their entries travel over the authenticated server relay.
 type Conversation struct {
+	ChannelProvider string `json:"channelProvider,omitempty"`
+	ChannelChatID   string `json:"channelChatId,omitempty"`
+	ChannelChatType string `json:"channelChatType,omitempty"`
+	ChannelName     string `json:"channelName,omitempty"`
+	ChannelPeerName string `json:"channelPeerName,omitempty"`
 	NotifyAgentID   string `json:"notifyAgentId,omitempty"`
 	NotifyServiceID string `json:"notifyServiceId,omitempty"`
+	NotifySessionID string `json:"notifySessionId,omitempty"`
 	TaskID          string `json:"taskId,omitempty"`
 	ID              string `json:"id"`
 	ServiceID       string `json:"serviceId"`

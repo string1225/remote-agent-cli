@@ -30,6 +30,9 @@ function Format-ControlText([string]$Control) {
 }
 try {
     $database = $installer.OpenDatabase($package,0)
+    if ((Read-Scalar 'SELECT `Value` FROM `Property` WHERE `Property`=''TOKEN_SETUP_COMMAND''') -ne 'remote-agent codex setup') { throw 'Default Codex setup must use the enrolled account.' }
+    if ((Read-Scalar 'SELECT `Property` FROM `Control` WHERE `Dialog_`=''AgentComplete'' AND `Control`=''TokenCommand''') -ne 'DEVICE_SETUP_COMMAND') { throw 'Completion must show website binding before Token setup.' }
+    if ((Read-Scalar 'SELECT `Property` FROM `Control` WHERE `Dialog_`=''AgentComplete'' AND `Control`=''DeviceCommand''') -ne 'TOKEN_SETUP_COMMAND') { throw 'Completion must show account-scoped Codex setup after binding.' }
     $session = $installer.OpenPackage($package,0)
     foreach ($action in @('FindRelatedProducts','CostInitialize','FileCost','CostFinalize')) {
         if ($session.DoAction($action) -ne 1) { throw "Read-only MSI action failed: $action" }

@@ -18,7 +18,7 @@ func (s *Store) RepairEnrollment(userID, id string) (a Agent, token string, err 
 			return nil
 		}
 		token = Token()
-		return put(tx, "enrollments", Hash(token), enrollment{a.ID, time.Now().Add(15 * time.Minute).Unix()})
+		return put(tx, "enrollments", Hash(token), enrollment{AgentID: a.ID, ExpiresAt: time.Now().Add(15 * time.Minute).Unix()})
 	})
 	return
 }

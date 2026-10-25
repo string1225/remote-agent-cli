@@ -34,12 +34,12 @@ func TestMCPToolsUseEnrolledSiteAndProjectSessionContext(t *testing.T) {
 			t.Error("invalid tool request")
 		}
 		if in.Type == "tasks.start" {
-			if in.AgentID != "target" || in.Body["serviceId"] != "project-b" || in.Body["parentSessionId"] != "origin-im" || in.Body["source"] != "im" || in.Body["notify"] != true {
+			if in.AgentID != "target" || in.Body["serviceId"] != "project-b" || in.Body["parentSessionId"] != "origin-im" || in.Body["source"] != "im" || in.Body["notify"] != true || in.Body["notifySessionId"] != "origin-im" {
 				t.Error("lost caller or target context")
 			}
 			io.WriteString(w, `{"session":{"id":"new-web","kind":"web"},"taskId":"task"}`)
 		} else if in.Type == "channels.notify" {
-			if in.AgentID != "source-client" || in.Body["serviceId"] != "project-a" || in.Body["message"] != "done" {
+			if in.AgentID != "source-client" || in.Body["serviceId"] != "project-a" || in.Body["sessionId"] != "origin-im" || in.Body["message"] != "done" {
 				t.Error("notification not scoped to current project")
 			}
 			io.WriteString(w, `{"queued":true}`)
@@ -77,5 +77,42 @@ func TestMCPToolsUseEnrolledSiteAndProjectSessionContext(t *testing.T) {
 	}
 	if count != 5 {
 		t.Fatal("notifications produced replies or lost responses", count)
+	}
+}
+
+func TestMCPDelegationRetainsOriginIMConversation(t *testing.T) {
+	operations := 0
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			AgentID string         `json:"agentId"`
+			Type    string         `json:"type"`
+			Body    map[string]any `json:"body"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
+			t.Error("invalid request")
+		}
+		operations++
+		if in.Type == "tasks.start" {
+			if in.Body["parentSessionId"] != "web-child" || in.Body["notifySessionId"] != "original-im" || in.Body["notify"] != true || in.Body["notifyAgentId"] != "origin-client" || in.Body["notifyServiceId"] != "origin-project" {
+				t.Error("nested task lost original IM route")
+			}
+		} else if in.AgentID != "origin-client" || in.Body["serviceId"] != "origin-project" || in.Body["sessionId"] != "original-im" {
+			t.Error("progress notification used worker Web session")
+		}
+		io.WriteString(w, `{"ok":true}`)
+	}))
+	defer site.Close()
+	c := agent.Config{Path: filepath.Join(t.TempDir(), "config.json"), Server: site.URL, ID: "worker-client", Credential: "mock"}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"start_web_session","arguments":{"prompt":"nested work"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"notify_im_session","arguments":{"message":"progress"}}}`)
+	var out bytes.Buffer
+	if err := runMCP(context.Background(), []string{"--config", c.Path, "--project", "worker-project", "--session", "web-child", "--source", "web", "--notify-client", "origin-client", "--notify-project", "origin-project", "--notify-session", "original-im"}, input, &out); err != nil {
+		t.Fatal(err)
+	}
+	if operations != 2 {
+		t.Fatal("missing nested operations", out.String())
 	}
 }

@@ -83,11 +83,11 @@ func TestTranscriptParsingAndNativeResume(t *testing.T) {
 		t.Fatalf("incorrect transcript: %q, %q", native, text.String())
 	}
 	args := strings.Join(providerSessionArgs("codex", false, native), " ")
-	if !strings.Contains(args, "exec resume") || !strings.Contains(args, `sandbox_mode="read-only"`) || !strings.Contains(args, `approval_policy="never"`) || strings.Contains(args, "--last") {
+	if !strings.Contains(args, "exec resume") || !strings.Contains(args, `sandbox_mode="danger-full-access"`) || !strings.Contains(args, `approval_policy="never"`) || strings.Contains(args, "--last") {
 		t.Fatalf("unsafe or wrong resume arguments: %s", args)
 	}
 	args = strings.Join(providerSessionArgs("qoder", false, native), " ")
-	if !strings.Contains(args, "--resume thread-123") || !strings.Contains(args, "--permission-mode plan") {
+	if !strings.Contains(args, "--resume thread-123") || !strings.Contains(args, "--permission-mode bypass_permissions") {
 		t.Fatal(args)
 	}
 }

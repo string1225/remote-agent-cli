@@ -21,10 +21,14 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 	project := flags.String("project", "", "current project")
 	notifyClient := flags.String("notify-client", "", "origin notification client")
 	notifyProject := flags.String("notify-project", "", "origin notification project")
+	notifySession := flags.String("notify-session", "", "origin IM conversation")
 	source := flags.String("source", "web", "origin session kind")
 	session := flags.String("session", "", "current session")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return errors.New("mcp requires --config, --project and --session")
+	}
+	if *notifySession == "" && *source == "im" {
+		*notifySession = *session
 	}
 	c, err := agent.Load(*path)
 	if err != nil {
@@ -68,6 +72,7 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 					Title     string `json:"title"`
 					Message   string `json:"message"`
 					Notify    bool   `json:"notify"`
+					SessionID string `json:"sessionId"`
 				} `json:"arguments"`
 			}
 			if json.Unmarshal(request.Params, &call) != nil {
@@ -86,13 +91,19 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 			case "list_clients_projects":
 				data, err = agent.ClientAPI(ctx, c, "GET", "/api/agent/catalog", nil)
 			case "start_web_session":
-				data, err = agent.ClientTool(ctx, c, target, "tasks.start", protocol.TaskStart{ServiceID: serviceID, Title: call.Arguments.Title, Prompt: call.Arguments.Prompt, Source: *source, ParentSessionID: *session, Notify: call.Arguments.Notify || *source == "im", NotifyAgentID: notificationTarget(*notifyClient, c.ID), NotifyServiceID: notificationTarget(*notifyProject, *project)})
+				data, err = agent.ClientTool(ctx, c, target, "tasks.start", protocol.TaskStart{ServiceID: serviceID, Title: call.Arguments.Title, Prompt: call.Arguments.Prompt, Source: *source, ParentSessionID: *session, Notify: call.Arguments.Notify || *source == "im" || *notifySession != "", NotifyAgentID: notificationTarget(*notifyClient, c.ID), NotifyServiceID: notificationTarget(*notifyProject, *project), NotifySessionID: *notifySession})
 			case "notify_im_session":
-				if call.Arguments.AgentID == "" && call.Arguments.ProjectID == "" && *notifyClient != "" && *notifyProject != "" {
-					target = *notifyClient
-					serviceID = *notifyProject
+				if call.Arguments.AgentID == "" {
+					target = notificationTarget(*notifyClient, c.ID)
 				}
-				data, err = agent.ClientTool(ctx, c, target, "channels.notify", map[string]string{"serviceId": serviceID, "sessionId": *session, "message": call.Arguments.Message})
+				if call.Arguments.ProjectID == "" {
+					serviceID = notificationTarget(*notifyProject, *project)
+				}
+				conversation := call.Arguments.SessionID
+				if conversation == "" && target == notificationTarget(*notifyClient, c.ID) && serviceID == notificationTarget(*notifyProject, *project) {
+					conversation = *notifySession
+				}
+				data, err = agent.ClientTool(ctx, c, target, "channels.notify", map[string]string{"serviceId": serviceID, "sessionId": conversation, "message": call.Arguments.Message})
 			default:
 				err = errors.New("unknown tool")
 			}
@@ -126,7 +137,7 @@ func clientTools() []any {
 	return []any{
 		map[string]any{"name": "list_clients_projects", "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false}, "description": "列出当前账号的全部客户端与项目，包含客户端在线状态和项目 ID。跨设备操作先调用此工具确认目标。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}},
 		map[string]any{"name": "start_web_session", "annotations": map[string]bool{"readOnlyHint": false, "destructiveHint": false}, "description": "在同账号指定客户端/项目创建独立的新 Web 会话并排队执行任务。返回可跟踪的会话与任务 ID；遵守目标设备本机权限。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "title": str("会话标题，最多 80 字"), "prompt": str("任务内容，最多 32000 字节"), "notify": map[string]any{"type": "boolean", "description": "完成后通知发起会话项目已绑定的 IM 渠道"}}, "required": []string{"prompt"}, "additionalProperties": false}},
-		map[string]any{"name": "notify_im_session", "annotations": map[string]bool{"readOnlyHint": false, "destructiveHint": false}, "description": "向同账号目标项目固定的 IM 渠道会话发送通知，并保存在渠道会话历史。需要项目已绑定飞书或钉钉。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认任务来源项目；没有来源时为当前项目"), "message": str("发送给用户的任务进度或完成通知")}, "required": []string{"message"}, "additionalProperties": false}},
+		map[string]any{"name": "notify_im_session", "annotations": map[string]bool{"readOnlyHint": false, "destructiveHint": false}, "description": "向同账号目标项目的 IM 会话发送通知，默认返回任务来源的原始私聊或群聊，并保存在对应会话历史。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"clientId": str("目标客户端 ID；默认任务来源客户端"), "projectId": str("目标项目 ID；默认任务来源项目"), "sessionId": str("目标 IM 会话 ID；默认继承任务来源私聊/群聊，多会话时需要准确指定"), "message": str("发送给用户的任务进度或完成通知")}, "required": []string{"message"}, "additionalProperties": false}},
 	}
 }
 

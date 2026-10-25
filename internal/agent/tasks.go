@@ -94,9 +94,19 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 		if in.NotifyServiceID == "" {
 			in.NotifyServiceID = in.ServiceID
 		}
+		if in.NotifySessionID == "" && in.ParentAgentID == a.Config.ID && in.ParentSessionID != "" {
+			if parent, e := a.historyStore().get(in.ParentSessionID); e == nil {
+				if parent.Kind == "im" && in.NotifyAgentID == a.Config.ID && parent.ServiceID == in.NotifyServiceID {
+					in.NotifySessionID = parent.ID
+				} else if parent.NotifyAgentID == in.NotifyAgentID && parent.NotifyServiceID == in.NotifyServiceID {
+					in.NotifySessionID = parent.NotifySessionID
+				}
+			}
+		}
 	}
 	session.NotifyAgentID = in.NotifyAgentID
 	session.NotifyServiceID = in.NotifyServiceID
+	session.NotifySessionID = in.NotifySessionID
 	session.TaskStatus = "queued"
 	session.TaskID = store.Token()
 	if err = a.historyStore().update(session.ID, func(v *protocol.Conversation) { *v = session }); err != nil {

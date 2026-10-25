@@ -10,12 +10,12 @@
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="CLI_LANGUAGE" Value="en" Secure="yes" />
     <SetProperty Id="CLI_LANGUAGE" Value="zh" Before="CostFinalize" Sequence="both">SystemLanguageID = 4 OR SystemLanguageID = 1028 OR SystemLanguageID = 2052 OR SystemLanguageID = 3076 OR SystemLanguageID = 4100 OR SystemLanguageID = 5124 OR SystemLanguageID = 30724 OR SystemLanguageID = 31748</SetProperty>
-    <Property Id="TOKEN_SETUP_COMMAND" Value="remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt" />
-    <Property Id="DEVICE_SETUP_COMMAND" Value="remote-agent connect --server https://codex.sunny-string.cn/agents --token-prompt" />
+    <Property Id="TOKEN_SETUP_COMMAND" Value="remote-agent codex setup" />
+    <Property Id="DEVICE_SETUP_COMMAND" Value="https://codex.sunny-string.cn/agents" />
     <Property Id="AGENT_SETUP_ACTION" Value="安装" />
     <Property Id="AGENT_SETUP_TITLE" Value="安装 Remote Agent" />
-    <Property Id="AGENT_SETUP_DESCRIPTION" Value="安装命令行工具与自动启动的 Windows Service，并将程序加入系统 PATH。&#13;&#10;&#13;&#10;安装后打开新的 PowerShell，运行完成页上的命令设置 Token 或绑定设备。退出登录后，已绑定的服务仍保持运行。" />
-    <Property Id="AGENT_COMPLETE_TITLE" Value="安装完成 · 下一步配置 Token" />
+    <Property Id="AGENT_SETUP_DESCRIPTION" Value="安装命令行工具与自动启动的 Windows Service，并将程序加入系统 PATH。&#13;&#10;&#13;&#10;安装后在网页登录账号，添加设备，将绑定命令复制到新的 PowerShell 执行。绑定会自动配置所属账号的 Token。退出登录后，已绑定的服务仍保持运行。" />
+    <Property Id="AGENT_COMPLETE_TITLE" Value="安装完成 · 下一步绑定设备" />
     <SetProperty Id="AGENT_SETUP_ACTION" Action="SetAgentUpgradeAction" Value="升级" After="FindRelatedProducts" Sequence="ui">WIX_UPGRADE_DETECTED AND NOT Installed</SetProperty>
     <SetProperty Id="AGENT_SETUP_TITLE" Action="SetAgentUpgradeTitle" Value="升级 Remote Agent 至 [ProductVersion]" After="SetAgentUpgradeAction" Sequence="ui">WIX_UPGRADE_DETECTED AND NOT Installed</SetProperty>
     <SetProperty Id="AGENT_SETUP_DESCRIPTION" Action="SetAgentUpgradeDescription" Value="检测到本机已安装 Remote Agent。点击升级，将更新程序并保留现有设备绑定、配置、项目、会话和录音。&#13;&#10;&#13;&#10;升级期间后台服务会短暂重启；完成后无需重新绑定或重新设置 Token。" After="SetAgentUpgradeTitle" Sequence="ui">WIX_UPGRADE_DETECTED AND NOT Installed</SetProperty>
@@ -109,11 +109,11 @@
       <Dialog Id="AgentComplete" Width="500" Height="330" Title="Remote Agent [AGENT_SETUP_ACTION]完成">
         <Control Id="Title" Type="Text" X="20" Y="15" Width="460" Height="28" Text="{\Title}[AGENT_COMPLETE_TITLE]" />
         <Control Id="Description" Type="Text" X="20" Y="52" Width="460" Height="45" Text="程序已加入系统 PATH。请打开新的 PowerShell；若使用 Windows Terminal，请完全退出后重新打开。选中下方命令按 Ctrl+C 复制。" />
-        <Control Id="TokenLabel" Type="Text" X="20" Y="103" Width="460" Height="20" Text="设置或刷新本机 Codex 代理 Token（运行后粘贴 Token，不会回显）：" />
-        <Control Id="TokenCommand" Type="Edit" X="20" Y="128" Width="460" Height="40" Property="TOKEN_SETUP_COMMAND" Multiline="yes" Sunken="yes" />
-        <Control Id="DeviceLabel" Type="Text" X="20" Y="182" Width="460" Height="20" Text="需要远程访问时，先在网页添加客户端，再运行绑定命令：" />
-        <Control Id="DeviceCommand" Type="Edit" X="20" Y="207" Width="460" Height="40" Property="DEVICE_SETUP_COMMAND" Multiline="yes" Sunken="yes" />
-        <Control Id="Note" Type="Text" X="20" Y="259" Width="460" Height="22" Text="无需再运行安装脚本。此窗口会保持打开，直到你点击完成。" />
+        <Control Id="TokenLabel" Type="Text" X="20" Y="103" Width="460" Height="20" Text="1. 打开网页，登录后添加设备，复制绑定命令到这台电脑执行：" />
+        <Control Id="TokenCommand" Type="Edit" X="20" Y="128" Width="460" Height="40" Property="DEVICE_SETUP_COMMAND" Multiline="yes" Sunken="yes" />
+        <Control Id="DeviceLabel" Type="Text" X="20" Y="182" Width="460" Height="20" Text="2. 绑定后刷新配置并补装 Codex CLI（终端显示所属账号）：" />
+        <Control Id="DeviceCommand" Type="Edit" X="20" Y="207" Width="460" Height="40" Property="TOKEN_SETUP_COMMAND" Multiline="yes" Sunken="yes" />
+        <Control Id="Note" Type="Text" X="20" Y="259" Width="460" Height="22" Text="配置成功后运行 codex。升级已有设备无需重新绑定。此窗口由你关闭。" />
         <Control Id="Finish" Type="PushButton" X="410" Y="294" Width="70" Height="23" Default="yes" Cancel="yes" Text="完成">
           <Publish Event="EndDialog" Value="Return">1</Publish>
         </Control>

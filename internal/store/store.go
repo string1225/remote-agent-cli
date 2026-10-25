@@ -48,6 +48,7 @@ type Agent struct {
 type enrollment struct {
 	AgentID   string `json:"agentId"`
 	ExpiresAt int64  `json:"expiresAt"`
+	Recovery  bool   `json:"recovery,omitempty"`
 }
 type Store struct {
 	db          *bolt.DB
@@ -185,7 +186,7 @@ func (s *Store) Enroll(userID, name string) (a Agent, token string, err error) {
 		if e := put(tx, "agents", a.ID, a); e != nil {
 			return e
 		}
-		return put(tx, "enrollments", Hash(token), enrollment{a.ID, time.Now().Add(15 * time.Minute).Unix()})
+		return put(tx, "enrollments", Hash(token), enrollment{AgentID: a.ID, ExpiresAt: time.Now().Add(15 * time.Minute).Unix()})
 	})
 	return
 }
@@ -196,7 +197,7 @@ func (s *Store) Redeem(token, osName, arch string) (a Agent, credential string, 
 		if err := get(tx, "enrollments", Hash(token), &e); err != nil {
 			return ErrDenied
 		}
-		if e.ExpiresAt <= time.Now().Unix() {
+		if e.Recovery || e.ExpiresAt <= time.Now().Unix() {
 			return ErrDenied
 		}
 		if err := get(tx, "agents", e.AgentID, &a); err != nil || a.Revoked || a.Enrolled {

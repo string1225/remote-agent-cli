@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 	"github.com/string1225/remote-agent-cli/internal/store"
@@ -13,8 +14,281 @@ import (
 )
 
 type channelDelivery struct {
-	ID, Destination, SessionID, Text string
-	Sequence                         uint64
+	ID, Destination, SessionID, Text         string
+	Sequence                                 uint64
+	Fingerprint, ServiceID, ChatID, ChatType string
+	MessageID, ReactionID                    string
+	Delivered                                bool
+}
+type channelReaction struct {
+	Fingerprint, ServiceID, MessageID, ReactionID string
+	Pending                                       bool
+}
+
+func channelReactionKey(c ChannelConfig, messageID string) []byte {
+	return []byte(store.Hash(c.fingerprint() + "\x00" + c.ServiceID + "\x00" + messageID))
+}
+func (h historyStore) channelTrackReaction(c ChannelConfig, messageID, reactionID string) error {
+	return h.transact(true, func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte("channel_reactions"))
+		if err != nil {
+			return err
+		}
+		if b.Stats().KeyN >= 1000 {
+			return errors.New("IM 表情清理队列已满")
+		}
+		data, err := json.Marshal(channelReaction{Fingerprint: c.fingerprint(), ServiceID: c.ServiceID, MessageID: messageID, ReactionID: reactionID})
+		if err != nil {
+			return err
+		}
+		return b.Put(channelReactionKey(c, messageID), data)
+	})
+}
+func (h historyStore) channelRetireReaction(c ChannelConfig, messageID string) error {
+	return h.transact(true, func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("channel_reactions"))
+		if b == nil {
+			return nil
+		}
+		key := channelReactionKey(c, messageID)
+		data := b.Get(key)
+		if data == nil {
+			return nil
+		}
+		var item channelReaction
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		item.Pending = true
+		data, err := json.Marshal(item)
+		if err != nil {
+			return err
+		}
+		return b.Put(key, data)
+	})
+}
+func (h historyStore) channelPendingReactions(c ChannelConfig, all bool) (items []channelReaction, err error) {
+	err = h.transact(false, func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("channel_reactions"))
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(_, data []byte) error {
+			var item channelReaction
+			if err := json.Unmarshal(data, &item); err != nil {
+				return err
+			}
+			if item.Fingerprint == c.fingerprint() && item.ServiceID == c.ServiceID && (all || item.Pending) {
+				items = append(items, item)
+			}
+			return nil
+		})
+	})
+	return
+}
+func (h historyStore) channelReactionCleared(c ChannelConfig, messageID, reactionID string) error {
+	return h.transact(true, func(tx *bolt.Tx) error {
+		if b := tx.Bucket([]byte("channel_reactions")); b != nil {
+			if err := b.Delete(channelReactionKey(c, messageID)); err != nil {
+				return err
+			}
+		}
+		b := tx.Bucket([]byte("channel_outbox"))
+		if b == nil {
+			return nil
+		}
+		var changed []channelDelivery
+		if err := b.ForEach(func(_, data []byte) error {
+			var item channelDelivery
+			if err := json.Unmarshal(data, &item); err != nil {
+				return err
+			}
+			if item.Fingerprint == c.fingerprint() && item.ServiceID == c.ServiceID && item.MessageID == messageID && item.ReactionID == reactionID {
+				item.MessageID, item.ReactionID = "", ""
+				changed = append(changed, item)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, item := range changed {
+			data, err := json.Marshal(item)
+			if err != nil {
+				return err
+			}
+			if err = b.Put([]byte(item.ID), data); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func channelRouteKey(c ChannelConfig) string {
+	return store.Hash(c.fingerprint() + "\x00" + c.ServiceID + "\x00" + c.ChatType + "\x00" + c.ChatID)
+}
+func (c ChannelConfig) validLegacyTarget() bool {
+	return c.ChatID != "" && (c.ChatType == "user" || c.ChatType == "group") && (c.Provider != "feishu" || strings.HasPrefix(c.ChatID, "oc_"))
+}
+
+// Capture the old fixed destination before replacing the client configuration.
+// Legacy outbox rows contained only a destination hash, so retaining their
+// actual target now prevents a later default-target edit from hiding them.
+func (h historyStore) channelMigrateLegacy(c ChannelConfig, project protocol.Service) error {
+	if !c.validLegacyTarget() || c.SessionID == "" {
+		return nil
+	}
+	if _, _, err := h.channelSession(c, project, channelMessage{ChatID: c.ChatID, ChatType: c.ChatType}); err != nil {
+		return err
+	}
+	return h.transact(true, func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("channel_outbox"))
+		if b == nil {
+			return nil
+		}
+		var changed []channelDelivery
+		if err := b.ForEach(func(_, data []byte) error {
+			var item channelDelivery
+			if err := json.Unmarshal(data, &item); err != nil {
+				return err
+			}
+			if item.Fingerprint == "" && item.Destination == c.destination() {
+				item.Fingerprint, item.ServiceID, item.ChatID, item.ChatType = c.fingerprint(), c.ServiceID, c.ChatID, c.ChatType
+				changed = append(changed, item)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, item := range changed {
+			data, err := json.Marshal(item)
+			if err != nil {
+				return err
+			}
+			if err = b.Put([]byte(item.ID), data); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// Route identities are separate from the old fixed session. An upgrade never
+// moves existing entries or guesses which new peer owns an old conversation.
+func (h historyStore) channelSession(c ChannelConfig, project protocol.Service, in channelMessage) (session protocol.Conversation, route ChannelConfig, err error) {
+	route = c
+	if in.ChatID != "" {
+		route.ChatID, route.ChatType = in.ChatID, in.ChatType
+	}
+	if route.ChatID == "" || route.ChatType != "user" && route.ChatType != "group" {
+		return session, route, errors.New("IM 会话身份无效")
+	}
+	err = h.transact(true, func(tx *bolt.Tx) error {
+		b, e := tx.CreateBucketIfNotExists([]byte("channel_routes"))
+		if e != nil {
+			return e
+		}
+		key := []byte(channelRouteKey(route))
+		if id := b.Get(key); id != nil {
+			session, e = sessionFrom(tx, string(id))
+			if e != nil {
+				return e
+			}
+		} else {
+			// Only an exact old destination can retain the old native context.
+			reuseLegacy := false
+			if c.SessionID != "" && c.ChatID == route.ChatID && c.ChatType == route.ChatType {
+				session, e = sessionFrom(tx, c.SessionID)
+				if e != nil {
+					return e
+				}
+				reuseLegacy = session.ChannelChatID == "" && session.ServiceID == project.ID
+			}
+			if !reuseLegacy {
+				now := time.Now().UnixMilli()
+				session = protocol.Conversation{ID: store.Token(), ServiceID: project.ID, Provider: project.Provider, Workspace: project.Workspace, CreatedAt: now, UpdatedAt: now}
+				if _, e = tx.Bucket([]byte("entries")).CreateBucket([]byte(session.ID)); e != nil {
+					return e
+				}
+			}
+			if e = b.Put(key, []byte(session.ID)); e != nil {
+				return e
+			}
+		}
+		session.Kind, session.Source = "im", "im"
+		session.ChannelProvider, session.ChannelChatID, session.ChannelChatType = c.Provider, route.ChatID, route.ChatType
+		session.ChannelName = c.Name
+		if session.ChannelName == "" {
+			session.ChannelName = in.Name
+		}
+		if session.ChannelName == "" {
+			session.ChannelName = c.Provider
+		}
+		if in.PeerName != "" {
+			session.ChannelPeerName = soBound(strings.TrimSpace(in.PeerName), 160)
+		}
+		if session.ChannelPeerName == "" {
+			session.ChannelPeerName = route.ChatID
+		}
+		session.Title = soBound("IM · "+session.ChannelName+" · "+session.ChannelPeerName, 80)
+		route.SessionID = session.ID
+		return saveSession(tx, session)
+	})
+	return
+}
+
+func (h historyStore) channelConversations(c ChannelConfig) (out []protocol.Conversation, err error) {
+	err = h.transact(false, func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("channel_routes"))
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(_, id []byte) error {
+			s, e := sessionFrom(tx, string(id))
+			if e != nil {
+				return e
+			}
+			candidate := c
+			candidate.ChatID, candidate.ChatType = s.ChannelChatID, s.ChannelChatType
+			if s.ServiceID == c.ServiceID && s.ChannelProvider == c.Provider && string(b.Get([]byte(channelRouteKey(candidate)))) == s.ID {
+				s.NativeID = ""
+				out = append(out, s)
+			}
+			return nil
+		})
+	})
+	return
+}
+
+func (h historyStore) channelTarget(c ChannelConfig, sessionID string) (ChannelConfig, error) {
+	all, err := h.channelConversations(c)
+	if err != nil {
+		return c, err
+	}
+	for _, s := range all {
+		if s.ID == sessionID {
+			c.ChatID, c.ChatType, c.SessionID = s.ChannelChatID, s.ChannelChatType, s.ID
+			return c, nil
+		}
+	}
+	if sessionID != "" {
+		if sessionID == c.SessionID && c.validLegacyTarget() {
+			return c, nil
+		}
+		return c, errors.New("请选择此渠道已收到消息的 IM 会话")
+	}
+	if c.validLegacyTarget() {
+		return c, nil
+	}
+	if len(all) == 1 {
+		s := all[0]
+		c.ChatID, c.ChatType, c.SessionID = s.ChannelChatID, s.ChannelChatType, s.ID
+		return c, nil
+	}
+	if len(all) > 1 {
+		return c, errors.New("项目有多个 IM 会话，请指定通知会话")
+	}
+	return c, errors.New("等待第一条 IM 来信后可发送通知")
 }
 
 func (c ChannelConfig) destination() string {
@@ -69,6 +343,9 @@ func (h historyStore) channelNotification(c ChannelConfig, id, text string) erro
 	return h.channelQueue(c, id, text, true)
 }
 func (h historyStore) channelQueue(c ChannelConfig, id, text string, record bool) error {
+	return h.channelQueueReply(c, id, text, record, "", "")
+}
+func (h historyStore) channelQueueReply(c ChannelConfig, id, text string, record bool, messageID, reactionID string) error {
 	return h.transact(true, func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte("channel_outbox"))
 		if err != nil {
@@ -89,7 +366,7 @@ func (h historyStore) channelQueue(c ChannelConfig, id, text string, record bool
 		if err != nil {
 			return err
 		}
-		data, err := json.Marshal(channelDelivery{ID: id, Destination: c.destination(), SessionID: c.SessionID, Text: text, Sequence: sequence})
+		data, err := json.Marshal(channelDelivery{ID: id, Destination: c.destination(), SessionID: c.SessionID, Text: text, Sequence: sequence, Fingerprint: c.fingerprint(), ServiceID: c.ServiceID, ChatID: c.ChatID, ChatType: c.ChatType, MessageID: messageID, ReactionID: reactionID})
 		if err != nil {
 			return err
 		}
@@ -97,6 +374,9 @@ func (h historyStore) channelQueue(c ChannelConfig, id, text string, record bool
 	})
 }
 func (h historyStore) channelPending(c ChannelConfig) (out []channelDelivery, err error) {
+	return h.channelPendingItems(c, false)
+}
+func (h historyStore) channelPendingItems(c ChannelConfig, all bool) (out []channelDelivery, err error) {
 	err = h.transact(false, func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("channel_outbox"))
 		if b == nil {
@@ -107,7 +387,9 @@ func (h historyStore) channelPending(c ChannelConfig) (out []channelDelivery, er
 			if err := json.Unmarshal(v, &item); err != nil {
 				return err
 			}
-			if item.Destination == c.destination() {
+			sameRoute := item.Destination == c.destination() && (item.Fingerprint != "" || c.validLegacyTarget())
+			sameBinding := item.Fingerprint == c.fingerprint() && item.ServiceID == c.ServiceID
+			if sameRoute || all && sameBinding {
 				out = append(out, item)
 			}
 			return nil
@@ -123,6 +405,28 @@ func (h historyStore) channelDelivered(id string) error {
 			return nil
 		}
 		return b.Delete([]byte(id))
+	})
+}
+func (h historyStore) channelSent(id string) error {
+	return h.transact(true, func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("channel_outbox"))
+		if b == nil {
+			return nil
+		}
+		data := b.Get([]byte(id))
+		if data == nil {
+			return nil
+		}
+		var item channelDelivery
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		item.Delivered = true
+		data, err := json.Marshal(item)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(id), data)
 	})
 }
 func (h historyStore) turnText(sessionID, turnID string, limit int) string {

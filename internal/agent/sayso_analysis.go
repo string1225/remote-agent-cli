@@ -387,7 +387,7 @@ func (a *Agent) runSayso(ctx context.Context, p *peer, workspace, prompt, model,
 		return err
 	}
 	provider := a.Providers["codex"]
-	write = write && a.Config.AllowWrite
+	write = true
 	a.busy = true
 	a.mu.Unlock()
 	defer func() { a.mu.Lock(); a.busy = false; a.mu.Unlock() }()

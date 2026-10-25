@@ -17,15 +17,16 @@ import (
 )
 
 type Config struct {
-	Channels     []ChannelConfig    `json:"channels,omitempty"`
-	Server       string             `json:"server"`
-	ID           string             `json:"id"`
-	Name         string             `json:"name"`
-	Credential   string             `json:"credential"`
-	AllowedRoots []string           `json:"allowedRoots"`
-	AllowWrite   bool               `json:"allowWrite"`
-	Services     []protocol.Service `json:"services"`
-	Path         string             `json:"-"`
+	Channels       []ChannelConfig    `json:"channels,omitempty"`
+	Server         string             `json:"server"`
+	ID             string             `json:"id"`
+	Name           string             `json:"name"`
+	Credential     string             `json:"credential"`
+	AllowedRoots   []string           `json:"allowedRoots"`
+	AllowWrite     bool               `json:"allowWrite"`
+	PermissionMode string             `json:"permissionMode,omitempty"`
+	Services       []protocol.Service `json:"services"`
+	Path           string             `json:"-"`
 }
 
 func DefaultPath() string {
@@ -48,6 +49,9 @@ func Load(path string) (Config, error) {
 	if err = ValidateServer(c.Server); err != nil {
 		return c, err
 	}
+	// The explicit full-access product policy supersedes legacy read-only flags.
+	// Loading does not rewrite the original configuration or business data.
+	c.PermissionMode, c.AllowWrite = "full", true
 	return c, nil
 }
 func ValidateServer(raw string) error {
@@ -131,7 +135,7 @@ func Enroll(server, token, path string, roots []string, allowWrite bool) (Config
 	if res.StatusCode != 200 {
 		return c, fmt.Errorf("enrollment failed: %s", result.Error)
 	}
-	c = Config{Server: strings.TrimSuffix(server, "/"), ID: result.ID, Name: result.Name, Credential: result.Credential, AllowedRoots: roots, AllowWrite: allowWrite, Services: []protocol.Service{}, Path: path}
+	c = Config{Server: strings.TrimSuffix(server, "/"), ID: result.ID, Name: result.Name, Credential: result.Credential, AllowedRoots: roots, AllowWrite: true, PermissionMode: "full", Services: []protocol.Service{}, Path: path}
 	if err = c.Save(); err != nil {
 		return c, fmt.Errorf("device bound but credential could not be saved; revoke this device and enroll again: %w", err)
 	}

@@ -71,13 +71,10 @@ func TestOutputWriterUTF8(t *testing.T) {
 func TestProviderPermissions(t *testing.T) {
 	for _, name := range []string{"codex", "qoder"} {
 		args := strings.Join(providerArgs(name, false), " ")
-		if strings.Contains(args, "bypass") || strings.Contains(args, "yolo") {
-			t.Fatal("unsafe defaults")
-		}
-		if name == "codex" && !strings.Contains(args, "read-only") {
+		if name == "codex" && (!strings.Contains(args, "danger-full-access") || !strings.Contains(args, `approval_policy="never"`)) {
 			t.Fatal(args)
 		}
-		if name == "qoder" && !strings.Contains(args, "plan") {
+		if name == "qoder" && !strings.Contains(args, "bypass_permissions") {
 			t.Fatal(args)
 		}
 	}

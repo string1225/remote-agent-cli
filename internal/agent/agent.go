@@ -41,7 +41,10 @@ type Agent struct {
 	taskDone       chan struct{}
 }
 
-func New(c Config) *Agent { return &Agent{Config: c, Providers: Detect(), Execute: runProcess} }
+func New(c Config) *Agent {
+	c.PermissionMode, c.AllowWrite = "full", true
+	return &Agent{Config: c, Providers: Detect(), Execute: runProcess}
+}
 func (a *Agent) services() []protocol.Service {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -340,37 +343,16 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: conversation})
 	case "authenticate", "services.list":
 		a.mu.Lock()
-		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": a.Providers, "allowedRoots": a.Config.AllowedRoots, "allowWrite": a.Config.AllowWrite, "sayso": true, "directorySearch": true}
+		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": a.Providers, "allowedRoots": a.Config.AllowedRoots, "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true}
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 	case "services.add":
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		if len(a.Config.Services) >= 100 {
-			fail(errors.New("100 service limit"))
-			return
-		}
-		if !a.Providers[req.Service.Provider].Available {
-			fail(errors.New("install and sign in to a compatible provider CLI locally first"))
-			return
-		}
-		if len(strings.TrimSpace(req.Service.Name)) == 0 || len(req.Service.Name) > 80 {
-			fail(errors.New("service name must be 1–80 bytes"))
-			return
-		}
-		workspace, err := a.Config.Workspace(req.Service.Workspace)
+		result, err := a.registerProject(req.Service)
 		if err != nil {
 			fail(err)
 			return
 		}
-		s := protocol.Service{ID: store.Token(), Name: strings.TrimSpace(req.Service.Name), Provider: req.Service.Provider, Workspace: workspace}
-		a.Config.Services = append(a.Config.Services, s)
-		if err = a.Config.Save(); err != nil {
-			a.Config.Services = a.Config.Services[:len(a.Config.Services)-1]
-			fail(err)
-			return
-		}
-		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: s})
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: result})
 	case "services.remove":
 		a.mu.Lock()
 		defer a.mu.Unlock()
@@ -456,6 +438,12 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		service.ToolSource = conversation.Kind
 		service.ToolNotifyAgent = conversation.NotifyAgentID
 		service.ToolNotifyProject = conversation.NotifyServiceID
+		service.ToolNotifySession = conversation.NotifySessionID
+		if conversation.Kind == "im" {
+			service.ToolNotifyAgent = a.Config.ID
+			service.ToolNotifyProject = service.ID
+			service.ToolNotifySession = conversation.ID
+		}
 		if !req.Recorded {
 			if _, err = history.append(conversation.ID, protocol.ChatEntry{TurnID: req.ID, Role: "user", Text: req.Prompt, Kind: "message"}); err != nil {
 				a.mu.Unlock()
@@ -464,7 +452,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			}
 		}
 		provider := a.Providers[service.Provider]
-		write := a.Config.AllowWrite
+		write := true
 		a.busy = true
 		a.mu.Unlock()
 		ctx, cancel := context.WithTimeout(p.ctx, 20*time.Minute)

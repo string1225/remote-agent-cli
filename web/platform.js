@@ -31,7 +31,7 @@
     dialog.close();
   };
   function installCommand(mode = "cli") {
-    if (platform() === "windows") return `remote-agent codex setup --server ${psQuote(server)} --token-prompt`;
+    if (mode === "cli") return platform() === "windows" ? "remote-agent codex setup" : '"$HOME/.remote-agent/bin/remote-agent" codex setup';
     const url = server + "/install/" + mode + "-" + ({macos:"macos.sh",linux:"linux.sh"})[platform()];
     return `curl -fsSL ${shellQuote(url)} | bash`;
   }
@@ -39,26 +39,27 @@
     $("local-cli-command").value = installCommand();
     const token = $("token-secret").value;
     if (token) $("token-config-command").value = platform() === "windows"
-      ? `${psQuote(token)} | remote-agent codex setup --server ${psQuote(server)} --token-stdin`
-      : `${installCommand()} && printf '%s' ${shellQuote(token)} | "$HOME/.remote-agent/bin/remote-agent" codex setup --server ${shellQuote(server)} --token-stdin`;
+      ? `remote-agent codex setup --server ${psQuote(server)} --token-prompt`
+      : `"$HOME/.remote-agent/bin/remote-agent" codex setup --server ${shellQuote(server)} --token-prompt`;
     const windows = platform() === "windows";
-    $("local-command-label").firstChild.textContent = windows ? "安装 MSI 后，设置或刷新本机 Token" : "安装本地 CLI（不启用远程服务）";
-    $("copy-local-cli").textContent = windows ? "复制 Token 配置命令" : "复制安装命令";
-    $("setup-install-description").textContent = windows ? "先下载下方 MSI 并安装，再在新 PowerShell 中运行配置命令。只使用代理时无需绑定设备。" : "以下命令安装独立的本地 CLI；无需绑定设备，也不会启动远程服务。";
+    $("local-command-label").firstChild.textContent = "刷新已绑定设备的 Codex 配置";
+    $("copy-local-cli").textContent = "复制配置命令";
+    $("setup-install-description").textContent = "设备绑定会自动申请所属账号的 Token 并配置 Codex。再次刷新时，使用本机绑定识别账号，终端会显示账号名称。";
     $("remote-install-help").textContent = windows
-      ? "先下载并双击 MSI（x64 / ARM64）。安装器会更新系统 PATH，安装自动启动的 Windows Service，完成页会保留 Token 配置命令。再打开新 PowerShell 执行配置或设备绑定命令，无需安装脚本。"
+      ? "先下载并安装 MSI（x64 / ARM64），再打开新的 PowerShell，执行当前账号生成的设备绑定命令。升级时安装新版 MSI，原有绑定和数据会保留。"
       : platform() === "macos" ? "macOS 使用 LaunchAgent，登录后自动启动。请在目标用户的终端运行绑定命令。" : "Linux 使用 systemd 用户服务；启用 linger 后可开机启动并在退出登录后继续在线。请勿在整条安装命令前加 sudo。";
     $("msi-downloads").replaceChildren();
     if (windows) for (const arch of ["amd64", "arm64"]) {
       const link = node("a", `下载 ${arch === "amd64" ? "x64" : "ARM64"} MSI`);
-      link.href = server + `/downloads/remote-agent-windows-${arch}.msi`;
+      link.href = server + `/downloads/remote-agent-windows-${arch}.msi?v=${Date.now()}`;
       $("msi-downloads").append(link, document.createTextNode("　"));
     }
     const help = [
       ["remote-agent --help", "查看本地 CLI 命令"],
       [`remote-agent codex install --server ${server}`, "安装官方 Codex CLI，无需 Node.js"],
       [`remote-agent codex update --server ${server}`, "更新托管的 Codex CLI"],
-      ["remote-agent codex setup", "已绑定设备：刷新本机代理 Token 并合并 TOML"],
+      ["remote-agent codex setup", "使用设备绑定的账号申请 Token，显示所属账号并更新配置"],
+      ["codex", "配置成功后，在终端启动 Codex CLI"],
       ["remote-agent app install", windows ? "打开 Windows 商店安装 Codex App" : "通过 Homebrew 安装 Codex App"],
       ["remote-agent app upgrade", "通过 Microsoft Store / Homebrew 升级 Codex App"],
       ["remote-agent start", "启动远程 Agent 并启用自启动（需先绑定设备）"],
@@ -121,47 +122,35 @@
   function renderTokens(host, tokens, admin) {
     if (!tokens.length) { host.replaceChildren(node("p", "暂无 Token。", "muted")); return; }
     host.replaceChildren(...tokens.map((token) => {
-      const card = node("article", undefined, "platform-card"), info = node("div");
-      info.append(node("strong", token.name), node("p", `${token.prefix}… · ${token.revoked ? "已撤销" : "可用"}`, "small"), node("p", `创建 ${date(token.createdAt)} · 最近使用 ${date(token.lastUsedAt)}`, "small muted"));
+      const card = node("article", undefined, "platform-card"), info = node("div"), actions = node("div", undefined, "token-actions");
+      const title = node("strong", token.name); title.append(node("span", token.revoked ? "已撤销" : "可用", "token-state" + (token.revoked ? " revoked" : "")));
+      info.append(title, node("p", `${token.prefix}…${token.agentId ? " · 设备自动申请" : ""}`, "small muted"), node("p", `创建 ${date(token.createdAt)}`, "small muted"), node("p", `最近使用 ${date(token.lastUsedAt)}`, "small muted"));
       if (admin) info.append(node("p", "账号 ID：" + token.userId, "small muted"));
       card.append(info);
       if (!admin && !token.revoked) {
         const reveal = node("button", "复制 Token", "secondary");
         reveal.disabled = !token.copyable;
+        if (!token.copyable) reveal.title = "旧 Token 未保存原文，可创建新的 Token";
         reveal.onclick = async () => {
           const stamp = revision, account = user.id;
           reveal.disabled = true;
           try {
             const result = await api(`/api/tokens/${token.id}/reveal`, "POST", {});
             if (!dialog.open || !user || user.id !== account || revision !== stamp || tab !== "tokens") return;
-            clearSecret(); $("token-secret").value = result.token; $("token-secret-box").hidden = false;
-            updateCommands(); await copy("token-secret");
+            try { await navigator.clipboard.writeText(result.token); notice("Token 已复制"); }
+            catch { if (dialog.open && user?.id === account && revision === stamp && tab === "tokens") { clearSecret(); $("token-secret").value = result.token; $("token-secret-box").hidden = false; updateCommands(); $("token-secret").select(); notice("请按 Ctrl / ⌘ + C 复制"); } }
           } catch (e) { notice(e.message); } finally { reveal.disabled = false; }
         };
-        info.append(reveal);
-        if (!token.copyable) {
-          const details = node("details"), form = node("form"), input = node("input"), label = node("label", "原 Token"), save = node("button", "校验并保存", "secondary");
-          details.append(node("summary", "补存已有 Token"), node("p", "旧版本只保存验证值。补存你已保存的原 Token 后即可复制；原 Token 继续有效。", "small muted"));
-          input.type = "password"; input.required = true; input.autocomplete = "off"; input.maxLength = 100;
-          label.append(input); form.append(label, save); details.append(form); info.append(details);
-          form.onsubmit = async e => {
-            e.preventDefault(); const stamp = revision, account = user.id; save.disabled = true;
-            try {
-              await api(`/api/tokens/${token.id}/save`, "POST", {token:input.value});
-              input.value = "";
-              if (dialog.open && user?.id === account && revision === stamp && tab === "tokens") { await loadTokens(); notice("已保存，可复制原 Token"); }
-            } catch (error) { input.value = ""; notice(error.message); } finally { save.disabled = false; }
-          };
-        }
+        actions.append(reveal);
       }
-      const revoke = node("button", token.revoked ? "已撤销" : "撤销", "secondary"); revoke.disabled = token.revoked;
+      const revoke = node("button", token.revoked ? "已撤销" : "撤销", "secondary token-revoke"); revoke.disabled = token.revoked;
       revoke.onclick = async () => {
         if (!confirm(`撤销「${token.name}」？使用它的设备将无法发起新的模型请求。`)) return;
         revoke.disabled = true;
         try { await api((admin ? "/api/admin/tokens/" : "/api/tokens/") + token.id, "DELETE"); clearSecret(); if (admin) await loadAdmin(); else await loadTokens(); }
         catch (e) { revoke.disabled = false; notice(e.message); }
       };
-      card.append(revoke); return card;
+      actions.append(revoke); card.append(actions); return card;
     }));
   }
   $("token-form").onsubmit = async (e) => {

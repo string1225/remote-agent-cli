@@ -11,7 +11,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-type remoteNotification struct{ ID, AgentID, ServiceID, Text string }
+type remoteNotification struct{ ID, AgentID, ServiceID, SessionID, Text string }
 
 func (a *Agent) initNotifications(ctx context.Context) {
 	a.notifyWake = make(chan struct{}, 1)
@@ -42,7 +42,7 @@ func (a *Agent) initNotifications(ctx context.Context) {
 						a.mu.Lock()
 						config := a.Config
 						a.mu.Unlock()
-						_, err = ClientTool(ctx, config, item.AgentID, "channels.notify", map[string]string{"serviceId": item.ServiceID, "message": item.Text})
+						_, err = ClientTool(ctx, config, item.AgentID, "channels.notify", map[string]string{"serviceId": item.ServiceID, "sessionId": item.SessionID, "message": item.Text})
 						if err != nil {
 							break
 						}

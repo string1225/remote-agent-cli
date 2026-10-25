@@ -231,8 +231,8 @@ func TestWebSocketRelayRPCAndRevocation(t *testing.T) {
 			stopped := make(chan struct{})
 			a := &agent.Agent{Config: cfg, Providers: map[string]agent.Provider{"codex": {Name: "codex", Available: true}}, Execute: func(ctx context.Context, p agent.Provider, s protocol.Service, prompt string, write bool, send func(protocol.Event) error, id string) error {
 				ran <- prompt
-				if write {
-					t.Error("read-only policy lost")
+				if !write {
+					t.Error("full authorization policy lost")
 				}
 				if err := send(protocol.Event{ID: id, Type: "output", Data: map[string]string{"stream": "stdout", "text": "relay-output-中文"}}); err != nil {
 					return err

@@ -24,12 +24,30 @@ import (
 )
 
 type imAdapter struct {
-	c      ChannelConfig
-	client *http.Client
-	mu     sync.Mutex
-	token  string
-	until  time.Time
-	botID  string
+	c       ChannelConfig
+	client  *http.Client
+	mu      sync.Mutex
+	token   string
+	until   time.Time
+	botID   string
+	botName string
+	names   map[string]channelIdentity
+}
+type channelIdentity struct {
+	Name, PeerName string
+	Until          time.Time
+}
+
+type imAPIError struct {
+	HTTPStatus int
+	Code       string
+}
+
+func (e *imAPIError) Error() string {
+	if e.Code != "" {
+		return fmt.Sprintf("IM 服务拒绝请求（API %s），请检查应用权限和事件订阅", e.Code)
+	}
+	return fmt.Sprintf("IM 服务返回 HTTP %d，请检查网络、应用凭据与权限", e.HTTPStatus)
 }
 
 func newChannelAdapter(c ChannelConfig) channelAdapter {
@@ -61,22 +79,30 @@ func (m *imAdapter) request(ctx context.Context, method, target, token string, b
 	if err != nil || len(data) > 1<<20 {
 		return nil, errors.New("IM 响应无效")
 	}
+	var status struct {
+		Code json.RawMessage `json:"code"`
+	}
+	validJSON := json.Unmarshal(data, &status) == nil
+	code := strings.Trim(string(status.Code), `"`)
+	if len(code) > 24 || strings.Trim(code, "0123456789") != "" {
+		code = "unknown"
+	}
+	if code == "0" {
+		code = ""
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		if res.StatusCode == 401 {
 			m.mu.Lock()
 			m.token = ""
 			m.mu.Unlock()
 		}
-		return nil, fmt.Errorf("IM 服务返回 HTTP %d", res.StatusCode)
+		return nil, &imAPIError{HTTPStatus: res.StatusCode, Code: code}
 	}
-	var status struct {
-		Code json.RawMessage `json:"code"`
-	}
-	if json.Unmarshal(data, &status) != nil {
+	if !validJSON {
 		return nil, errors.New("IM 响应无效")
 	}
 	if len(status.Code) > 0 && string(status.Code) != "0" && string(status.Code) != `"0"` && string(status.Code) != `""` {
-		return nil, errors.New("IM 服务拒绝请求，请检查权限与接收目标")
+		return nil, &imAPIError{HTTPStatus: res.StatusCode, Code: code}
 	}
 	return data, nil
 }
@@ -132,7 +158,8 @@ func (m *imAdapter) Validate(ctx context.Context) error {
 	}
 	var info struct {
 		Bot struct {
-			OpenID string `json:"open_id"`
+			OpenID  string `json:"open_id"`
+			AppName string `json:"app_name"`
 		} `json:"bot"`
 	}
 	if json.Unmarshal(data, &info) != nil || info.Bot.OpenID == "" {
@@ -140,36 +167,103 @@ func (m *imAdapter) Validate(ctx context.Context) error {
 	}
 	m.mu.Lock()
 	m.botID = info.Bot.OpenID
+	m.botName = info.Bot.AppName
 	m.mu.Unlock()
 	return nil
 }
+
+// Names improve the session list, while a missing optional directory permission
+// must never prevent a user from talking to the bot.
+func (m *imAdapter) ResolveConversation(ctx context.Context, in channelMessage) channelMessage {
+	if m.c.Provider != "feishu" || in.ChatID == "" {
+		return in
+	}
+	m.mu.Lock()
+	cached := m.names[in.ChatID]
+	botName := m.botName
+	m.mu.Unlock()
+	if time.Now().Before(cached.Until) {
+		in.Name, in.PeerName = cached.Name, cached.PeerName
+		return in
+	}
+	in.Name = m.c.Name
+	if in.Name == "" {
+		in.Name = botName
+	}
+	token, err := m.accessToken(ctx)
+	if err != nil {
+		return in
+	}
+	data, err := m.request(ctx, "GET", "https://open.feishu.cn/open-apis/im/v1/chats/"+url.PathEscape(in.ChatID), token, nil)
+	if err == nil {
+		var info struct {
+			Data struct {
+				Name string `json:"name"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(data, &info) == nil {
+			in.PeerName = info.Data.Name
+		}
+	}
+	if in.ChatType == "user" && in.PeerID != "" {
+		data, err = m.request(ctx, "GET", "https://open.feishu.cn/open-apis/contact/v3/users/"+url.PathEscape(in.PeerID)+"?user_id_type=open_id", token, nil)
+		if err == nil {
+			var info struct {
+				Data struct {
+					User struct {
+						Name string `json:"name"`
+					} `json:"user"`
+				} `json:"data"`
+			}
+			if json.Unmarshal(data, &info) == nil && info.Data.User.Name != "" {
+				in.PeerName = info.Data.User.Name
+			}
+		}
+	}
+	m.mu.Lock()
+	if m.names == nil {
+		m.names = map[string]channelIdentity{}
+	}
+	if len(m.names) > 2000 {
+		m.names = map[string]channelIdentity{}
+	}
+	m.names[in.ChatID] = channelIdentity{Name: in.Name, PeerName: in.PeerName, Until: time.Now().Add(15 * time.Minute)}
+	m.mu.Unlock()
+	return in
+}
 func (m *imAdapter) Send(ctx context.Context, id, text string) error {
+	return m.SendTo(ctx, m.c, id, text)
+}
+func (m *imAdapter) SendTo(ctx context.Context, route ChannelConfig, id, text string) error {
+	if route.ChatID == "" {
+		return errors.New("等待 IM 会话来信")
+	}
 	token, err := m.accessToken(ctx)
 	if err != nil {
 		return err
 	}
 	runes := []rune(text)
 	for i := 0; len(runes) > 0; i++ {
-		n := min(len(runes), 1000)
+		n := min(len(runes), 3000)
 		part := string(runes[:n])
 		runes = runes[n:]
 		if m.c.Provider == "feishu" {
-			content, _ := json.Marshal(map[string]string{"text": part})
+			content, _ := json.Marshal(map[string]any{"config": map[string]bool{"wide_screen_mode": true}, "elements": []any{map[string]any{"tag": "div", "text": map[string]string{"tag": "lark_md", "content": part}}}})
 			uuid := store.Hash(fmt.Sprintf("%s-%d", id, i))[:32]
-			_, err = m.request(ctx, "POST", "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id", token, map[string]string{"receive_id": m.c.ChatID, "msg_type": "text", "content": string(content), "uuid": uuid})
+			_, err = m.request(ctx, "POST", "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id", token, map[string]string{"receive_id": route.ChatID, "msg_type": "interactive", "content": string(content), "uuid": uuid})
 		} else {
-			content, _ := json.Marshal(map[string]string{"content": part})
+			content, _ := json.Marshal(map[string]string{"title": "Remote Agent", "text": part})
 			robot := m.c.RobotCode
 			if robot == "" {
 				robot = m.c.AppID
 			}
-			body := map[string]any{"robotCode": robot, "msgKey": "sampleText", "msgParam": string(content)}
+			body := map[string]any{"robotCode": robot, "msgKey": "sampleMarkdown", "msgParam": string(content)}
 			target := "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
-			if m.c.ChatType == "user" {
+			if route.ChatType == "user" {
 				target = "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
-				body["userIds"] = []string{m.c.ChatID}
+				body["userIds"] = []string{route.ChatID}
 			} else {
-				body["openConversationId"] = m.c.ChatID
+				body["openConversationId"] = route.ChatID
 			}
 			_, err = m.request(ctx, "POST", target, token, body)
 		}
@@ -178,6 +272,42 @@ func (m *imAdapter) Send(ctx context.Context, id, text string) error {
 		}
 	}
 	return nil
+}
+
+// Feishu exposes message reactions to application bots. DingTalk's robot
+// message APIs do not expose an equivalent reaction operation.
+func (m *imAdapter) Thinking(ctx context.Context, in channelMessage) (string, error) {
+	if m.c.Provider != "feishu" {
+		return "", nil
+	}
+	token, err := m.accessToken(ctx)
+	if err != nil {
+		return "", err
+	}
+	data, err := m.request(ctx, "POST", "https://open.feishu.cn/open-apis/im/v1/messages/"+url.PathEscape(in.ID)+"/reactions", token, map[string]any{"reaction_type": map[string]string{"emoji_type": "THINKING"}})
+	if err != nil {
+		return "", err
+	}
+	var reply struct {
+		Data struct {
+			ReactionID string `json:"reaction_id"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(data, &reply) != nil || reply.Data.ReactionID == "" {
+		return "", errors.New("IM 表情回复响应无效")
+	}
+	return reply.Data.ReactionID, nil
+}
+func (m *imAdapter) ClearThinking(ctx context.Context, messageID, reactionID string) error {
+	if m.c.Provider != "feishu" || reactionID == "" {
+		return nil
+	}
+	token, err := m.accessToken(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = m.request(ctx, "DELETE", "https://open.feishu.cn/open-apis/im/v1/messages/"+url.PathEscape(messageID)+"/reactions/"+url.PathEscape(reactionID), token, nil)
+	return err
 }
 
 type silentIMLogger struct{}
@@ -197,7 +327,7 @@ func (m *imAdapter) feishuMessage(event *larkim.P2MessageReceiveV1) (channelMess
 		return channelMessage{}, false
 	}
 	v := event.Event.Message
-	if str(v.ChatId) != m.c.ChatID || str(v.MessageType) != "text" || m.c.ChatType == "group" && str(v.ChatType) != "group" || m.c.ChatType == "user" && str(v.ChatType) != "p2p" {
+	if str(v.ChatId) == "" || str(v.MessageType) != "text" || str(v.ChatType) != "group" && str(v.ChatType) != "p2p" {
 		return channelMessage{}, false
 	}
 	if str(v.ChatType) == "group" {
@@ -225,7 +355,15 @@ func (m *imAdapter) feishuMessage(event *larkim.P2MessageReceiveV1) (channelMess
 			content.Text = strings.ReplaceAll(content.Text, str(mention.Key), "")
 		}
 	}
-	return channelMessage{str(v.MessageId), strings.TrimSpace(content.Text)}, true
+	kind := "user"
+	if str(v.ChatType) == "group" {
+		kind = "group"
+	}
+	peerID := ""
+	if event.Event.Sender.SenderId != nil {
+		peerID = str(event.Event.Sender.SenderId.OpenId)
+	}
+	return channelMessage{ID: str(v.MessageId), Text: strings.TrimSpace(content.Text), ChatID: str(v.ChatId), ChatType: kind, PeerID: peerID}, true
 }
 func (m *imAdapter) Connect(ctx context.Context, receive func(channelMessage) error, state func(string)) error {
 	if m.c.Provider == "dingtalk" {
@@ -241,7 +379,7 @@ func (m *imAdapter) Connect(ctx context.Context, receive func(channelMessage) er
 		}
 		return receive(msg)
 	})
-	client := larkws.NewClient(m.c.AppID, m.c.AppSecret, larkws.WithEventHandler(handler), larkws.WithHttpClient(m.client), larkws.WithLogger(silentIMLogger{}), larkws.WithLogLevel(larkcore.LogLevelError), larkws.WithOnReady(func() { state("connected") }), larkws.WithOnReconnecting(func() { state("retrying") }), larkws.WithOnReconnected(func() { state("connected") }), larkws.WithOnDisconnected(func() { state("retrying") }))
+	client := larkws.NewClient(m.c.AppID, m.c.AppSecret, larkws.WithEventHandler(handler), larkws.WithHttpClient(m.client), larkws.WithLogger(silentIMLogger{}), larkws.WithLogLevel(larkcore.LogLevelError), larkws.WithOnReady(func() { state("connected") }), larkws.WithOnError(func(error) { state("error") }), larkws.WithOnReconnecting(func() { state("retrying") }), larkws.WithOnReconnected(func() { state("connected") }), larkws.WithOnDisconnected(func() { state("retrying") }))
 	return client.Start(ctx)
 }
 func (m *imAdapter) dingMessage(data string) (channelMessage, bool) {
@@ -249,14 +387,16 @@ func (m *imAdapter) dingMessage(data string) (channelMessage, bool) {
 	if json.Unmarshal([]byte(data), &v) != nil || v.Msgtype != "text" {
 		return channelMessage{}, false
 	}
-	if m.c.ChatType == "group" {
-		if v.ConversationType != "2" || v.ConversationId != m.c.ChatID || !v.IsInAtList {
+	chatID, kind, name := v.SenderStaffId, "user", v.SenderNick
+	if v.ConversationType == "2" {
+		if v.ConversationId == "" || !v.IsInAtList {
 			return channelMessage{}, false
 		}
-	} else if v.ConversationType != "1" || v.SenderStaffId != m.c.ChatID {
+		chatID, kind, name = v.ConversationId, "group", v.ConversationTitle
+	} else if v.ConversationType != "1" || chatID == "" {
 		return channelMessage{}, false
 	}
-	return channelMessage{v.MsgId, strings.TrimSpace(v.Text.Content)}, true
+	return channelMessage{ID: v.MsgId, Text: strings.TrimSpace(v.Text.Content), ChatID: chatID, ChatType: kind, PeerName: name}, true
 }
 func (m *imAdapter) dingConnect(ctx context.Context, receive func(channelMessage) error, state func(string)) error {
 	data, err := m.request(ctx, "POST", "https://api.dingtalk.com/v1.0/gateway/connections/open", "", map[string]any{"clientId": m.c.AppID, "clientSecret": m.c.AppSecret, "userAgent": "remote-agent/1.0", "subscriptions": []any{map[string]string{"type": "CALLBACK", "topic": payload.BotMessageCallbackTopic}}})

@@ -50,8 +50,6 @@ func (s *Store) NewCodexToken(userID, name, agentID string) (info CodexToken, se
 	if name == "" || len([]rune(name)) > 80 || strings.IndexFunc(name, unicode.IsControl) >= 0 {
 		return info, "", ErrInvalid
 	}
-	secret = "ra_codex_" + Token()
-	info = CodexToken{ID: Token(), UserID: userID, Name: name, Prefix: secret[:17], CreatedAt: time.Now().Unix(), AgentID: agentID, Copyable: true}
 	err = s.db.Update(func(tx *bolt.Tx) error {
 		if !activeUser(tx, userID) {
 			return ErrDenied
@@ -64,16 +62,24 @@ func (s *Store) NewCodexToken(userID, name, agentID string) (info CodexToken, se
 			// Setup may fail before the new credential is written locally. Keep
 			// previous tokens usable until explicit token or device revocation.
 		}
-		if err := put(tx, "codex_tokens", info.ID, info); err != nil {
-			return err
-		}
-		if err := s.sealToken(tx, info.ID, secret); err != nil {
-			return err
-		}
-		return tx.Bucket([]byte("codex_verifiers")).Put([]byte(Hash(secret)), []byte(info.ID))
+		var err error
+		info, secret, err = s.newCodexToken(tx, userID, name, agentID)
+		return err
 	})
 	if err != nil {
 		secret = ""
+	}
+	return
+}
+
+func (s *Store) newCodexToken(tx *bolt.Tx, userID, name, agentID string) (info CodexToken, secret string, err error) {
+	secret = "ra_codex_" + Token()
+	info = CodexToken{ID: Token(), UserID: userID, Name: name, Prefix: secret[:17], CreatedAt: time.Now().Unix(), AgentID: agentID, Copyable: true}
+	if err = put(tx, "codex_tokens", info.ID, info); err == nil {
+		err = s.sealToken(tx, info.ID, secret)
+	}
+	if err == nil {
+		err = tx.Bucket([]byte("codex_verifiers")).Put([]byte(Hash(secret)), []byte(info.ID))
 	}
 	return
 }

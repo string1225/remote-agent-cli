@@ -72,7 +72,6 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("GET /api/tokens", s.tokens)
 	mux.HandleFunc("POST /api/tokens", s.createToken)
 	mux.HandleFunc("POST /api/tokens/{id}/reveal", s.revealToken)
-	mux.HandleFunc("POST /api/tokens/{id}/save", s.saveToken)
 	mux.HandleFunc("DELETE /api/tokens/{id}", s.revokeToken)
 	mux.HandleFunc("GET /api/admin/codex/accounts", s.codexAccounts)
 	mux.HandleFunc("POST /api/admin/codex/{action}", s.codexAccounts)
@@ -80,9 +79,12 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("DELETE /api/admin/tokens/{id}", s.adminRevokeToken)
 	mux.HandleFunc("GET /api/codex", s.codex)
 	mux.HandleFunc("POST /api/agent/codex", s.agentCodex)
+	mux.HandleFunc("GET /api/token/account", s.tokenAccount)
 	mux.HandleFunc("GET /api/agents", s.agents)
 	mux.HandleFunc("POST /api/agents", s.enroll)
 	mux.HandleFunc("POST /api/agents/{id}/repair", s.repairAgent)
+	mux.HandleFunc("POST /api/agents/{id}/rebind", s.rebindAgent)
+	mux.HandleFunc("PATCH /api/agents/{id}", s.renameAgent)
 	mux.HandleFunc("DELETE /api/agents/{id}", s.revoke)
 	mux.HandleFunc("POST /api/enroll", s.redeem)
 	mux.HandleFunc("POST /api/agent/channel", s.agentChannel)
@@ -345,9 +347,12 @@ func (s *Server) redeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Token string `json:"token"`
-		OS    string `json:"os"`
-		Arch  string `json:"arch"`
+		Token      string `json:"token"`
+		OS         string `json:"os"`
+		Arch       string `json:"arch"`
+		Rebind     bool   `json:"rebind"`
+		ExpectedID string `json:"expectedId"`
+		Credential string `json:"credential"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -356,12 +361,23 @@ func (s *Server) redeem(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "unsupported platform")
 		return
 	}
-	a, credential, err := s.Store.Redeem(in.Token, in.OS, in.Arch)
+	var a store.Agent
+	var credential string
+	var err error
+	if in.Rebind {
+		a, err = s.Store.RedeemRebind(in.Token, in.ExpectedID, in.OS, in.Arch, in.Credential)
+		credential = in.Credential
+	} else {
+		a, credential, err = s.Store.Redeem(in.Token, in.OS, in.Arch)
+	}
 	if err != nil {
 		fail(w, 401, "invalid, used, or expired enrollment token")
 		return
 	}
-	reply(w, 200, map[string]string{"id": a.ID, "name": a.Name, "credential": credential})
+	if in.Rebind {
+		s.hub.closeAgent(a.ID)
+	}
+	reply(w, 200, map[string]any{"id": a.ID, "name": a.Name, "credential": credential, "services": a.Services})
 }
 func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.require(w, r)

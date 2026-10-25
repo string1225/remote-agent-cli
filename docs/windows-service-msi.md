@@ -4,22 +4,23 @@ Windows 正式客户端由 MSI 安装到 `%ProgramFiles%\Remote Agent`，注册�
 
 ## 安装与原安装迁移
 
-先从网页“Codex 接入与帮助”下载 x64 或 ARM64 MSI，双击安装。MSI 安装自动 Windows Service，并将 `%ProgramFiles%\Remote Agent` 加到系统 PATH 首位，保留其他 PATH 项。完成页保持打开，显示可复制的 Token 配置与设备绑定命令，点击“完成”才关闭。无需 Windows 安装脚本；原 `windows.ps1`、`cli-windows.ps1`、`codex-windows.ps1` 返回 410 和迁移说明。
+先从网页“Codex 接入与帮助”下载 x64 或 ARM64 MSI，双击安装。MSI 安装自动 Windows Service，并将 `%ProgramFiles%\Remote Agent` 加到系统 PATH 首位，保留其他 PATH 项。完成页按“网页绑定 → Codex 配置”显示入口，点击“完成”才关闭。无需 Windows 安装脚本；原 `windows.ps1`、`cli-windows.ps1`、`codex-windows.ps1` 返回 410 和迁移说明。
 
 安装器通过 Windows Installer 的相关产品检测选择页面：首次显示“安装”，找到旧版显示“升级”，当前产品已安装时显示“修复”。升级/修复说明明确保留原绑定和业务数据；修复设置 `REINSTALL=ALL`。磁盘判断必须比较 `OutOfDiskSpace = 1`；属性值为字符串 `0` 时表示空间充足，不能仅检查属性是否存在。
 
-新开 PowerShell（Windows Terminal 请完全退出后重新打开），运行：
+新开 PowerShell（Windows Terminal 请完全退出后重新打开），先执行已登录网页中生成的设备绑定命令，再运行：
 
 ```powershell
 remote-agent version
-remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt
+remote-agent codex setup
+codex
 ```
 
-Token 在终端隐藏输入，不出现在命令历史或 MSI 属性中。网页创建 Token 后也可复制 `'<Token>' | remote-agent codex setup --server '<站点>' --token-stdin`；这条含秘密的命令不要分享。设备绑定独立进行：网页添加客户端后运行生成的 `remote-agent connect --server ... --token-stdin`，或用 `--token-prompt` 隐藏输入设备凭证。`connect` 捕获原用户环境后请求管理员授权配置服务，只有路径信息进入 UAC 参数。
+网页生成的一次性绑定命令确定平台账号。connect 自动幂等申请设备关联 Token、备份并更新 Codex 配置，终端显示所属账号；codex setup 使用同一绑定刷新，并补装缺少的 Codex CLI。手动 --token-prompt 仍兼容，账号由粘贴的 Token 决定，先验证并显示账号信息。网页不再把模型 Token 拼入命令行。connect 捕获原用户环境后请求管理员授权配置服务，只有路径信息进入 UAC 参数。
 
 MSI 按 Windows 系统语言设置 `HKLM\SOFTWARE\RemoteAgent\Language`：中文（含繁体）为 `zh`，其他语言为 `en`。CLI 的帮助、输入提示、配置结果和已知操作错误统一读取该设置，JSON/MCP 协议不翻译。`REMOTE_AGENT_LANGUAGE=zh/en` 可临时覆盖用于诊断；尚未安装语言设置时使用系统语言。MSI 界面的语言与 CLI 设置相互独立。
 
-已有设备旁的“修复”重新显示安装和绑定指引。待绑定设备可生成属于同一设备 ID 的新一次性凭证；已绑定设备在原电脑运行 `remote-agent connect --server ...`，复用原本地配置并重新配置后台服务，不更换凭证、不创建设备。配置文件丢失时先恢复备份，修复入口不承诺恢复丢失的本地凭证或业务数据。
+设备右键或更多菜单的“修复绑定”提供安装、更新和恢复指引。普通修复复用原本地配置；配置丢失时优先恢复备份，也可生成同设备 ID 的恢复命令（--rebind <ID>）。生成恢复凭证不影响旧连接，成功兑换才替换设备凭证。CLI 兑换前保存私有备份及 pending journal，响应丢失/写文件失败可重复运行继续恢复；原项目、历史和录音保留。全部配置备份都丢失时，IM Secret 等仅存本机的数据需重新填写。
 
 已有 `~/.remote-agent/config.json` 时，检查原服务器并复用设备绑定，既不重新兑换安装令牌，也不转移账号。服务继续使用原数据目录：
 
@@ -38,7 +39,7 @@ MSI 按 Windows 系统语言设置 `HKLM\SOFTWARE\RemoteAgent\Language`：中文
 
 ## 服务身份与访问权限
 
-服务使用 **LocalService + RemoteAgent 服务 SID**，不以 LocalSystem 执行项目任务。配置时为服务 SID 添加原 Agent 数据目录和 Codex/Qoder 配置目录的访问权限，并按原 `allowedRoots` / `allowWrite` 授予项目读取或修改权限。原文件属主、凭证及业务内容不改变；不同服务不能仅凭同样的 LocalService 身份使用这些 SID 授权。
+服务使用 **LocalService + RemoteAgent 服务 SID**，不以 LocalSystem 执行项目任务。配置时为服务 SID 添加原 Agent 数据目录、Codex/Qoder 配置目录及允许项目根目录的访问权限。当前所有会话为完整授权；旧安装若仅授 RX，升级后运行 connect 完成管理员 ACL 重配。原文件属主、凭证和业务内容不改变；不同服务不能仅凭同样的 LocalService 身份使用这些 SID 授权。刷新 config.toml 时仅继承原有 RemoteAgent SID 授权，避免 Token 更新后后台服务失去读取权限。
 
 PATH、用户目录、`CODEX_HOME`、已检测到的 Codex/Qoder 路径从原用户捕获，不依赖服务的默认 `systemprofile` 或临时终端环境。更换工具路径、项目根目录或本机权限后，重新执行 `service profile` 和 `service configure`。其他用户通过 Windows 凭证管理器/DPAPI 保存的登录凭证不等同于文件授权；依赖交互用户登录的工具仍需为服务身份单独准备认证。
 

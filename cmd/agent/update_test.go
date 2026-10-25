@@ -18,6 +18,7 @@ import (
 func TestUpdateCLI(t *testing.T) {
 	t.Setenv("REMOTE_AGENT_LANGUAGE", "en")
 	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", filepath.Join(dir, "codex"))
 	exe, release := filepath.Join(dir, "agent.exe"), filepath.Join(dir, "release.exe")
 	for path, version := range map[string]string{exe: "fixture-old", release: "fixture-new"} {
 		// Allow native tests on a cross-compiled target that has no Go toolchain.
@@ -47,6 +48,16 @@ func TestUpdateCLI(t *testing.T) {
 	var allowEnrollment atomic.Bool
 	var corrupt atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/agents/api/agent/codex" {
+			if r.Header.Get("Authorization") != "Bearer fixture-only" || r.URL.Query().Get("id") != "first-install" || r.Header.Get("Cookie") != "" {
+				t.Error("device setup did not use the enrolled device identity")
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"baseUrl": "http://" + r.Host + "/agents/codex/v1", "token": "ra_codex_fixture_only_not_a_real_token", "model": "gpt-6.1-sol", "accountId": "fixture-account", "accountUsername": "installer-fixture"})
+			return
+		}
 		if strings.Contains(r.URL.Path, "/api/enroll") {
 			enrollments.Add(1)
 			if allowEnrollment.Load() {
@@ -213,7 +224,7 @@ func TestUpdateCLI(t *testing.T) {
 				return err
 			}
 			cmd := exec.Command("/bin/bash", path)
-			cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+filepath.Join(root, "xdg"), "PATH="+filepath.Join(dir, "fake-systemd")+string(os.PathListSeparator)+os.Getenv("PATH"))
+			cmd.Env = append(os.Environ(), "CODEX_HOME="+filepath.Join(root, "codex"), "XDG_CONFIG_HOME="+filepath.Join(root, "xdg"), "PATH="+filepath.Join(dir, "fake-systemd")+string(os.PathListSeparator)+os.Getenv("PATH"))
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				return fmt.Errorf("%w: %s", err, out)
@@ -230,6 +241,10 @@ func TestUpdateCLI(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(fresh, "xdg", "systemd", "user", "remote-agent.service")); err != nil {
 			t.Fatal("no systemd user service:", err)
+		}
+		codexConfig, err := os.ReadFile(filepath.Join(fresh, "codex", "config.toml"))
+		if err != nil || !strings.Contains(string(codexConfig), "ra_codex_fixture_only_not_a_real_token") {
+			t.Fatalf("first installation did not configure the bound account token in temporary CODEX_HOME: %v", err)
 		}
 		corrupt.Store(true)
 		bad := t.TempDir()

@@ -18,7 +18,7 @@ func TestQueuedWebTasksKeepProjectHistoryAndContinueAfterCallerCloses(t *testing
 	release := make(chan struct{})
 	finished := make(chan error, 2)
 	a := &Agent{Config: Config{Path: filepath.Join(root, "config.json"), AllowedRoots: []string{root}, Services: []protocol.Service{{ID: "project", Name: "work", Provider: "codex", Workspace: root}}}, Providers: map[string]Provider{"codex": {Available: true}}, Execute: func(ctx context.Context, _ Provider, s protocol.Service, prompt string, write bool, send func(protocol.Event) error, id string) error {
-		if s.ID != "project" || write {
+		if s.ID != "project" || !write {
 			t.Error("project or local permissions changed")
 		}
 		started <- prompt

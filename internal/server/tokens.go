@@ -78,7 +78,7 @@ func (s *Server) revealToken(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := s.Store.RevealCodexToken(v.UserID, r.PathValue("id"))
 	if errors.Is(err, store.ErrTokenNotSaved) {
-		fail(w, 409, "旧 Token 未保存原文，请补存你已保存的原 Token 后再复制；原 Token 继续有效。")
+		fail(w, 409, "旧 Token 未保存原文，无法复制。可以创建新 Token；旧 Token 继续有效。")
 		return
 	}
 	if err != nil {
@@ -86,24 +86,6 @@ func (s *Server) revealToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, 200, map[string]string{"token": token})
-}
-
-func (s *Server) saveToken(w http.ResponseWriter, r *http.Request) {
-	v, ok := s.require(w, r)
-	if !ok {
-		return
-	}
-	var in struct {
-		Token string `json:"token"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	if err := s.Store.SaveCodexToken(v.UserID, r.PathValue("id"), strings.TrimSpace(in.Token)); err != nil {
-		fail(w, 404, "Token 不匹配或已失效，未修改原记录。")
-		return
-	}
-	reply(w, 200, map[string]bool{"ok": true})
 }
 
 func (s *Server) adminTokens(w http.ResponseWriter, r *http.Request) {
@@ -156,10 +138,31 @@ func (s *Server) agentCodex(w http.ResponseWriter, r *http.Request) {
 	if len(name) > 80 {
 		name = name[:80]
 	}
-	_, token, err := s.Store.NewCodexToken(a.UserID, string(name), a.ID)
+	_, token, err := s.Store.EnsureDeviceCodexToken(a.UserID, string(name), a.ID)
 	if err != nil {
 		fail(w, 403, "cannot issue device token")
 		return
 	}
-	reply(w, 200, map[string]string{"baseUrl": s.Config.PublicURL + "/codex/v1", "token": token, "model": s.Config.GatewayModel})
+	account, err := s.Store.UserByID(a.UserID)
+	if err != nil || account.Disabled {
+		fail(w, 403, "device account unavailable")
+		return
+	}
+	reply(w, 200, map[string]string{"baseUrl": s.Config.PublicURL + "/codex/v1", "token": token, "model": s.Config.GatewayModel, "accountId": account.ID, "accountUsername": account.Username})
+}
+
+// tokenAccount identifies the account authenticated by this token, independent
+// of browser cookies or a device binding; it never returns credential material.
+func (s *Server) tokenAccount(w http.ResponseWriter, r *http.Request) {
+	info, err := s.Store.AuthenticateCodexToken(bearer(r))
+	if err != nil {
+		fail(w, 401, "token credentials denied")
+		return
+	}
+	account, err := s.Store.UserByID(info.UserID)
+	if err != nil || account.Disabled {
+		fail(w, 401, "token account unavailable")
+		return
+	}
+	reply(w, 200, map[string]string{"accountId": account.ID, "accountUsername": account.Username, "baseUrl": s.Config.PublicURL + "/codex/v1", "model": s.Config.GatewayModel})
 }

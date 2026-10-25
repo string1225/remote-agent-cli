@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,7 @@ import (
 
 type ChannelConfig struct {
 	ServiceID string `json:"serviceId"`
+	Name      string `json:"name,omitempty"`
 	Provider  string `json:"provider"`
 	AppID     string `json:"appId"`
 	AppSecret string `json:"appSecret"`
@@ -31,22 +34,33 @@ func (c ChannelConfig) fingerprint() string {
 	return hex.EncodeToString(v[:])
 }
 
-type channelMessage struct{ ID, Text string }
+type channelMessage struct {
+	ID, Text                         string
+	ChatID, ChatType, Name, PeerName string
+	PeerID                           string
+}
 type channelAdapter interface {
 	Validate(context.Context) error
 	Connect(context.Context, func(channelMessage) error, func(string)) error
 	Send(context.Context, string, string) error
 }
 type channelRuntime struct {
-	a       *Agent
-	config  ChannelConfig
-	ctx     context.Context
-	cancel  context.CancelFunc
-	adapter channelAdapter
-	mu      sync.Mutex
-	state   string
-	done    chan struct{}
-	wake    chan struct{}
+	a                *Agent
+	config           ChannelConfig
+	ctx              context.Context
+	cancel           context.CancelFunc
+	adapter          channelAdapter
+	mu               sync.Mutex
+	state            string
+	lastError        string
+	operationErrors  map[string]string
+	reactionError    string
+	updatedAt        int64
+	reactions        map[string]string
+	reactionMu       sync.Mutex
+	clearedReactions map[string]bool
+	done             chan struct{}
+	wake             chan struct{}
 }
 
 func (a *Agent) initChannels(ctx context.Context) {
@@ -70,21 +84,77 @@ func (a *Agent) startChannel(ctx context.Context, c ChannelConfig) *channelRunti
 		factory = newChannelAdapter
 	}
 	r := &channelRuntime{a: a, config: c, ctx: ctx, cancel: cancel, adapter: factory(c), state: "connecting", wake: make(chan struct{}, 1), done: make(chan struct{})}
-	go r.connect()
-	go r.outbox()
+	go func() {
+		defer close(r.done)
+		r.recoverReactions()
+		var workers sync.WaitGroup
+		workers.Add(2)
+		go func() { defer workers.Done(); r.connect() }()
+		go func() { defer workers.Done(); r.outbox() }()
+		<-ctx.Done()
+		workers.Wait()
+		r.clearReactions()
+		r.setState("stopped")
+	}()
 	return r
 }
-func (r *channelRuntime) setState(state string) { r.mu.Lock(); r.state = state; r.mu.Unlock() }
+func (r *channelRuntime) setState(state string) {
+	r.mu.Lock()
+	changed := r.state != state
+	r.state, r.updatedAt = state, time.Now().UnixMilli()
+	if state == "connected" {
+		r.lastError = ""
+	}
+	if state == "error" && r.lastError == "" {
+		r.lastError = "机器人连接失败，请检查网络、应用发布状态及事件订阅权限"
+	}
+	r.mu.Unlock()
+	if changed {
+		log.Printf("IM channel %s state: %s", r.config.Provider, state)
+	}
+}
+func channelPublicError(err error) string {
+	message := "机器人连接或消息发送失败，请检查网络、应用权限和事件订阅"
+	var api *imAPIError
+	if errors.As(err, &api) {
+		message = api.Error()
+	}
+	return message
+}
+func (r *channelRuntime) setError(err error) {
+	r.mu.Lock()
+	r.lastError = channelPublicError(err)
+	r.mu.Unlock()
+	r.setState("error")
+}
+func (r *channelRuntime) setOperationError(key string, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.operationErrors == nil {
+		r.operationErrors = map[string]string{}
+	}
+	r.operationErrors[key] = channelPublicError(err)
+	r.updatedAt = time.Now().UnixMilli()
+}
+func (r *channelRuntime) clearOperationError(key string) {
+	r.mu.Lock()
+	delete(r.operationErrors, key)
+	r.updatedAt = time.Now().UnixMilli()
+	r.mu.Unlock()
+}
 func (r *channelRuntime) connect() {
-	defer close(r.done)
 	for r.ctx.Err() == nil {
 		r.setState("connecting")
-		_ = r.adapter.Connect(r.ctx, r.receive, r.setState)
+		err := r.adapter.Connect(r.ctx, r.receive, r.setState)
 		if r.ctx.Err() != nil {
 			r.setState("stopped")
 			return
 		}
-		r.setState("retrying")
+		if err != nil {
+			r.setError(err)
+		} else {
+			r.setState("retrying")
+		}
 		select {
 		case <-r.ctx.Done():
 			return
@@ -93,17 +163,72 @@ func (r *channelRuntime) connect() {
 	}
 }
 func (r *channelRuntime) receive(in channelMessage) error {
+	if r.ctx.Err() != nil {
+		return r.ctx.Err()
+	}
 	if in.ID == "" || len(in.ID) > 200 || strings.TrimSpace(in.Text) == "" || len(in.Text) > 32000 {
 		return nil
 	}
-	key := store.Hash(r.config.SessionID + "\x00" + in.ID)
-	fresh, err := r.a.historyStore().channelIncoming(r.config.SessionID, key, in.Text)
+	var project protocol.Service
+	r.a.mu.Lock()
+	for _, s := range r.a.Config.Services {
+		if s.ID == r.config.ServiceID {
+			project = s
+		}
+	}
+	r.a.mu.Unlock()
+	session, route, err := r.a.historyStore().channelSession(r.config, project, in)
+	if err != nil {
+		return err
+	}
+	key := store.Hash(session.ID + "\x00" + in.ID)
+	fresh, err := r.a.historyStore().channelIncoming(session.ID, key, in.Text)
 	if err != nil || !fresh {
 		return err
 	}
-	session, err := r.a.historyStore().get(r.config.SessionID)
-	if err != nil {
-		return err
+	reactionID := ""
+	if reactions, ok := r.adapter.(interface {
+		Thinking(context.Context, channelMessage) (string, error)
+	}); ok {
+		reactionCtx, cancel := context.WithTimeout(r.ctx, 10*time.Second)
+		reactionID, err = reactions.Thinking(reactionCtx, in)
+		cancel()
+		if err == nil && reactionID != "" {
+			if trackErr := r.a.historyStore().channelTrackReaction(r.config, in.ID, reactionID); trackErr != nil {
+				r.setOperationError("storage", trackErr)
+				if r.clearThinking(in.ID, reactionID) == nil {
+					reactionID = ""
+				}
+			}
+			r.mu.Lock()
+			if r.reactions == nil {
+				r.reactions = map[string]string{}
+			}
+			if reactionID != "" {
+				r.reactions[in.ID] = reactionID
+			}
+			r.mu.Unlock()
+		}
+		if err != nil {
+			r.mu.Lock()
+			r.reactionError = "无法添加思考表情，请检查机器人的消息表情权限"
+			r.mu.Unlock()
+		} else {
+			r.mu.Lock()
+			r.reactionError = ""
+			r.mu.Unlock()
+		}
+	}
+	if resolver, ok := r.adapter.(interface {
+		ResolveConversation(context.Context, channelMessage) channelMessage
+	}); ok {
+		ctx, cancel := context.WithTimeout(r.ctx, 5*time.Second)
+		resolved := resolver.ResolveConversation(ctx, in)
+		cancel()
+		in.Name, in.PeerName = resolved.Name, resolved.PeerName
+		if enriched, _, err := r.a.historyStore().channelSession(r.config, project, in); err == nil {
+			session = enriched
+		}
 	}
 	result := protocol.TaskStarted{Session: session, TaskID: key}
 	taskCtx, cancel := context.WithCancel(r.ctx)
@@ -111,7 +236,7 @@ func (r *channelRuntime) receive(in channelMessage) error {
 	r.a.taskCancels[key] = cancel
 	r.a.mu.Unlock()
 	finish := func(err error) {
-		text := r.a.historyStore().turnText(session.ID, key, 12000)
+		text := r.a.historyStore().turnText(session.ID, key, 1<<20)
 		if err != nil {
 			text = "渠道请求未完成，请稍后重试。"
 		} else if strings.TrimSpace(text) == "" {
@@ -119,13 +244,18 @@ func (r *channelRuntime) receive(in channelMessage) error {
 		}
 		id := key + "-reply"
 		if err == nil {
-			_ = r.a.historyStore().channelQueue(r.config, id, text, false)
+			if queueErr := r.a.historyStore().channelQueueReply(route, id, text, false, in.ID, reactionID); queueErr != nil {
+				r.clearThinking(in.ID, reactionID)
+				r.setOperationError("storage", queueErr)
+				return
+			}
 			select {
 			case r.wake <- struct{}{}:
 			default:
 			}
 		} else {
-			_, _ = r.notify(text)
+			r.clearThinking(in.ID, reactionID)
+			_, _ = r.notifyTo(route, text)
 		}
 	}
 	select {
@@ -133,19 +263,95 @@ func (r *channelRuntime) receive(in channelMessage) error {
 		return nil
 	default:
 		cancel()
+		r.clearThinking(in.ID, reactionID)
 		r.a.mu.Lock()
 		delete(r.a.taskCancels, key)
 		r.a.mu.Unlock()
-		_, _ = r.notify("客户端任务队列已满，本条消息已保存在渠道会话，请稍后重新发送。")
+		_, _ = r.notifyTo(route, "客户端任务队列已满，本条消息已保存在渠道会话，请稍后重新发送。")
 		return nil
 	}
 }
+func (r *channelRuntime) clearThinking(messageID, reactionID string) error {
+	if reactionID == "" {
+		return nil
+	}
+	r.reactionMu.Lock()
+	defer r.reactionMu.Unlock()
+	key := messageID + "\x00" + reactionID
+	if r.clearedReactions[key] {
+		err := r.a.historyStore().channelReactionCleared(r.config, messageID, reactionID)
+		if err == nil {
+			r.clearOperationError("reaction:" + messageID)
+		}
+		return err
+	}
+	if err := r.a.historyStore().channelRetireReaction(r.config, messageID); err != nil {
+		r.setOperationError("reaction:"+messageID, err)
+		return err
+	}
+	if reactions, ok := r.adapter.(interface {
+		ClearThinking(context.Context, string, string) error
+	}); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := reactions.ClearThinking(ctx, messageID, reactionID)
+		cancel()
+		if err != nil {
+			r.setOperationError("reaction:"+messageID, err)
+			return err
+		}
+	}
+	r.mu.Lock()
+	delete(r.reactions, messageID)
+	r.mu.Unlock()
+	if len(r.clearedReactions) >= 4096 {
+		r.clearedReactions = map[string]bool{}
+	}
+	if r.clearedReactions == nil {
+		r.clearedReactions = map[string]bool{}
+	}
+	r.clearedReactions[key] = true
+	err := r.a.historyStore().channelReactionCleared(r.config, messageID, reactionID)
+	if err == nil {
+		r.clearOperationError("reaction:" + messageID)
+	} else {
+		r.setOperationError("reaction:"+messageID, err)
+	}
+	return err
+}
+func (r *channelRuntime) recoverReactions() {
+	pending, err := r.a.historyStore().channelPendingReactions(r.config, true)
+	if err != nil {
+		r.setOperationError("storage", err)
+		return
+	}
+	for _, item := range pending {
+		r.clearThinking(item.MessageID, item.ReactionID)
+	}
+}
+func (r *channelRuntime) clearReactions() {
+	r.mu.Lock()
+	pending := map[string]string{}
+	for id, reaction := range r.reactions {
+		pending[id] = reaction
+	}
+	r.mu.Unlock()
+	for id, reaction := range pending {
+		r.clearThinking(id, reaction)
+	}
+}
 func (r *channelRuntime) notify(text string) (string, error) {
+	route, err := r.a.historyStore().channelTarget(r.config, "")
+	if err != nil {
+		return "", err
+	}
+	return r.notifyTo(route, text)
+}
+func (r *channelRuntime) notifyTo(route ChannelConfig, text string) (string, error) {
 	if strings.TrimSpace(text) == "" || len(text) > 16000 {
 		return "", errors.New("通知内容需为 1–16000 字节")
 	}
 	id := store.Token()
-	err := r.a.historyStore().channelNotification(r.config, id, text)
+	err := r.a.historyStore().channelNotification(route, id, text)
 	if err == nil {
 		select {
 		case r.wake <- struct{}{}:
@@ -156,19 +362,80 @@ func (r *channelRuntime) notify(text string) (string, error) {
 }
 func (r *channelRuntime) outbox() {
 	for r.ctx.Err() == nil {
-		items, err := r.a.historyStore().channelPending(r.config)
+		var cleanupErr error
+		if pending, err := r.a.historyStore().channelPendingReactions(r.config, false); err == nil {
+			for _, item := range pending {
+				if r.ctx.Err() != nil {
+					return
+				}
+				if err := r.clearThinking(item.MessageID, item.ReactionID); err != nil {
+					cleanupErr = err
+				}
+			}
+		} else {
+			cleanupErr = err
+			r.setOperationError("storage", err)
+		}
+		items, err := r.a.historyStore().channelPendingItems(r.config, true)
+		var retryErr error
+		blockedDestinations := map[string]bool{}
+		if err != nil {
+			r.setOperationError("storage", err)
+		}
 		if err == nil {
 			for _, item := range items {
 				if r.ctx.Err() != nil {
 					return
 				}
-				ctx, cancel := context.WithTimeout(r.ctx, 20*time.Second)
-				err = r.adapter.Send(ctx, item.ID, item.Text)
-				cancel()
-				if err != nil {
+				if blockedDestinations[item.Destination] {
+					continue
+				}
+				if !item.Delivered {
+					ctx, cancel := context.WithTimeout(r.ctx, 20*time.Second)
+					if sender, ok := r.adapter.(interface {
+						SendTo(context.Context, ChannelConfig, string, string) error
+					}); ok {
+						route := r.config
+						if item.ChatID != "" {
+							route.ChatID, route.ChatType, route.SessionID = item.ChatID, item.ChatType, item.SessionID
+						}
+						err = sender.SendTo(ctx, route, item.ID, item.Text)
+					} else {
+						err = r.adapter.Send(ctx, item.ID, item.Text)
+					}
+					cancel()
+					if err != nil {
+						r.clearThinking(item.MessageID, item.ReactionID)
+						r.setOperationError("send:"+item.ID, err)
+						retryErr = err
+						err = nil
+						blockedDestinations[item.Destination] = true
+						continue
+					}
+					if err = r.a.historyStore().channelSent(item.ID); err != nil {
+						r.setOperationError("storage", err)
+						break
+					}
+					r.clearOperationError("send:" + item.ID)
+				}
+				if err = r.clearThinking(item.MessageID, item.ReactionID); err != nil {
+					retryErr = err
+					err = nil
+					continue
+				}
+				if err = r.a.historyStore().channelDelivered(item.ID); err != nil {
+					r.setOperationError("storage", err)
 					break
 				}
-				_ = r.a.historyStore().channelDelivered(item.ID)
+			}
+		}
+		if err == nil {
+			if retryErr != nil {
+				err = retryErr
+			} else if cleanupErr != nil {
+				err = cleanupErr
+			} else {
+				r.clearOperationError("storage")
 			}
 		}
 		wait := 30 * time.Second
@@ -184,13 +451,20 @@ func (r *channelRuntime) outbox() {
 	}
 }
 func (a *Agent) notifyProject(serviceID, text string) (string, error) {
+	return a.notifyProjectSession(serviceID, "", text)
+}
+func (a *Agent) notifyProjectSession(serviceID, sessionID, text string) (string, error) {
 	a.channelMu.Lock()
 	r := a.channels[serviceID]
 	a.channelMu.Unlock()
 	if r == nil {
 		return "", errors.New("项目未绑定 IM 渠道")
 	}
-	return r.notify(text)
+	route, err := a.historyStore().channelTarget(r.config, sessionID)
+	if err != nil {
+		return "", err
+	}
+	return r.notifyTo(route, text)
 }
 func (a *Agent) channelView(serviceID string) any {
 	a.channelMu.Lock()
@@ -200,10 +474,36 @@ func (a *Agent) channelView(serviceID string) any {
 		return map[string]any{"configured": false}
 	}
 	r.mu.Lock()
-	state := r.state
+	state, lastError, reactionError, updatedAt := r.state, r.lastError, r.reactionError, r.updatedAt
+	if len(r.operationErrors) > 0 {
+		keys := make([]string, 0, len(r.operationErrors))
+		for key := range r.operationErrors {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		if lastError == "" {
+			lastError = r.operationErrors[keys[0]]
+		}
+		if state == "connected" {
+			state = "error"
+		}
+	}
 	r.mu.Unlock()
 	c := r.config
-	return map[string]any{"configured": true, "provider": c.Provider, "appId": c.AppID, "chatId": c.ChatID, "chatType": c.ChatType, "robotCode": c.RobotCode, "sessionId": c.SessionID, "state": state, "secretConfigured": c.AppSecret != ""}
+	stage := "starting"
+	if state == "connected" {
+		stage = "success"
+	} else if state == "error" {
+		stage = "error"
+	} else if state == "stopped" {
+		stage = "configured"
+	}
+	conversations := []map[string]string{}
+	all, _ := a.historyStore().channelConversations(c)
+	for _, s := range all {
+		conversations = append(conversations, map[string]string{"sessionId": s.ID, "chatType": s.ChannelChatType, "name": s.ChannelName, "peerName": s.ChannelPeerName})
+	}
+	return map[string]any{"configured": true, "provider": c.Provider, "name": c.Name, "accessPolicy": "everyone", "appId": c.AppID, "chatId": c.ChatID, "chatType": c.ChatType, "robotCode": c.RobotCode, "sessionId": c.SessionID, "state": state, "stateStage": stage, "error": lastError, "updatedAt": updatedAt, "conversations": conversations, "waitingForMessage": len(conversations) == 0, "thinkingReactionSupported": c.Provider == "feishu", "reactionError": reactionError, "secretConfigured": c.AppSecret != ""}
 }
 func (a *Agent) configureChannel(ctx context.Context, in ChannelConfig) error {
 	a.initTasks(ctx)
@@ -233,15 +533,21 @@ func (a *Agent) configureChannel(ctx context.Context, in ChannelConfig) error {
 			return errors.New("不支持的渠道")
 		}
 		in.AppID = strings.TrimSpace(in.AppID)
+		in.Name = strings.TrimSpace(in.Name)
 		in.ChatID = strings.TrimSpace(in.ChatID)
+		// Keep an existing notification destination for pre-upgrade durable
+		// deliveries. It is never used as an incoming-message allowlist.
+		if in.ChatID == "" && in.Provider == old.Provider && in.AppID == old.AppID {
+			in.ChatID, in.ChatType = old.ChatID, old.ChatType
+		}
 		if in.AppSecret == "" && in.Provider == old.Provider && in.AppID == old.AppID {
 			in.AppSecret = old.AppSecret
 		}
-		if in.AppID == "" || len(in.AppID) > 200 || in.AppSecret == "" || len(in.AppSecret) > 500 || in.ChatID == "" || len(in.ChatID) > 500 || len(in.RobotCode) > 200 {
-			return errors.New("请填写应用 ID、Secret 和允许接收消息的会话/用户 ID")
+		if in.AppID == "" || len(in.AppID) > 200 || in.AppSecret == "" || len(in.AppSecret) > 500 || len(in.ChatID) > 500 || len(in.RobotCode) > 200 || len([]rune(in.Name)) > 80 {
+			return errors.New("请填写应用 ID 和 Secret，渠道名称最多 80 字")
 		}
-		if in.ChatType != "group" && in.ChatType != "user" {
-			return errors.New("请选择群聊或单聊")
+		if in.ChatType != "" && in.ChatType != "group" && in.ChatType != "user" {
+			return errors.New("无效的旧渠道会话类型")
 		}
 		factory := a.channelFactory
 		if factory == nil {
@@ -285,8 +591,17 @@ func (a *Agent) configureChannel(ctx context.Context, in ChannelConfig) error {
 		defer cancel()
 		_, _ = ClientAPI(restore, oldConfig, "POST", "/api/agent/channel", map[string]any{"serviceId": in.ServiceID, "fingerprint": fp, "finalize": true})
 	}
+	if old.Provider != "" {
+		if err := a.historyStore().channelMigrateLegacy(old, project); err != nil {
+			rollback()
+			return errors.New("无法保留原渠道历史和待发通知，原配置已保留")
+		}
+	}
 	if in.Provider != "" {
 		in.SessionID = old.SessionID
+		if old.fingerprint() != in.fingerprint() || old.ChatID != in.ChatID || old.ChatType != in.ChatType {
+			in.SessionID = ""
+		}
 		if in.SessionID == "" {
 			session, err := a.historyStore().create(project, "IM · "+in.Provider)
 			if err != nil {
@@ -379,7 +694,7 @@ func (a *Agent) handleChannel(p *peer, req protocol.Request, send func(protocol.
 			fail(errors.New("invalid notification"))
 			return
 		}
-		id, err := a.notifyProject(in.ServiceID, in.Message)
+		id, err := a.notifyProjectSession(in.ServiceID, in.SessionID, in.Message)
 		if err != nil {
 			fail(err)
 			return
@@ -404,10 +719,14 @@ func (a *Agent) notifyTask(task queuedTask, err error) {
 	if project == "" {
 		project = task.start.ServiceID
 	}
+	notifySession := task.start.NotifySessionID
+	if notifySession == "" && task.start.ParentAgentID == target && task.start.Source == "im" {
+		notifySession = task.start.ParentSessionID
+	}
 	if target == a.Config.ID {
-		_, _ = a.notifyProject(project, text)
+		_, _ = a.notifyProjectSession(project, notifySession, text)
 	} else {
-		_ = a.queueRemoteNotification(remoteNotification{ID: task.result.TaskID + "-completion", AgentID: target, ServiceID: project, Text: text})
+		_ = a.queueRemoteNotification(remoteNotification{ID: task.result.TaskID + "-completion", AgentID: target, ServiceID: project, SessionID: notifySession, Text: text})
 	}
 }
 

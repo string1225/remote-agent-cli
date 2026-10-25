@@ -147,8 +147,8 @@ func TestSaysoAnalysisMergePermissionsAndCancellation(t *testing.T) {
 	soCall(t, s, p, "POST", "/api/sessions/"+v.ID+"/actions", map[string]string{"title": "登录页面", "detail": "初始需求"})
 	a := s.state.Actions[0]
 	s.a.Execute = func(ctx context.Context, provider Provider, service protocol.Service, prompt string, write bool, send func(protocol.Event) error, id string) error {
-		if write {
-			t.Error("analysis bypassed read-only policy")
+		if !write {
+			t.Error("analysis lost full authorization")
 		}
 		if service.OutputSchema == "" {
 			t.Error("missing output schema")
@@ -167,8 +167,8 @@ func TestSaysoAnalysisMergePermissionsAndCancellation(t *testing.T) {
 	}
 	started := make(chan struct{})
 	s.a.Execute = func(ctx context.Context, _ Provider, _ protocol.Service, _ string, write bool, _ func(protocol.Event) error, _ string) error {
-		if write {
-			t.Error("dispatch escalated local write permission")
+		if !write {
+			t.Error("dispatch lost full authorization")
 		}
 		close(started)
 		<-ctx.Done()

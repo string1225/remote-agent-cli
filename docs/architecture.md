@@ -1,6 +1,6 @@
 # 架构与协议
 
-当前协议基线：2026-10-24。目标见 [project-goals.md](project-goals.md)，关系和命名见 [session-model.md](session-model.md)，Windows 生命周期见 [windows-service-msi.md](windows-service-msi.md)，139 Codex 多账号见 [codex-account-management.md](codex-account-management.md)。开发直接在 `main`。
+当前协议基线：2026-10-25。目标见 [project-goals.md](project-goals.md)，关系和命名见 [session-model.md](session-model.md)，Windows 生命周期见 [windows-service-msi.md](windows-service-msi.md)，139 Codex 多账号见 [codex-account-management.md](codex-account-management.md)。开发直接在 `main`。
 
 ## 连接与执行
 
@@ -35,7 +35,7 @@ sequenceDiagram
 
 | 请求 | 行为 |
 | --- | --- |
-| `services.list/add/remove` | 本机项目、执行器、允许根目录和写入能力；移除有渠道的项目被拒绝 |
+| `services.list/add/remove` | 本机项目、执行器、允许根目录和完整授权；add 额外返回首个 Web session，重试幂等复用；移除有渠道的项目被拒绝 |
 | `directories.list/search` | 仅白名单内真实目录，规范化并检查符号链接 |
 | `sessions.list/create/get` | 本机历史分页、搜索和原生上下文恢复 |
 | `run/cancel` | 当前 Web 会话的 CLI 交互，固定进程参数、20 分钟超时 |
@@ -49,7 +49,7 @@ sequenceDiagram
 
 客户端配置保存设备身份、服务器、项目、允许目录、写入策略及渠道 Secret。`history.db` 保存 Web/IM 会话、原生 ID、聊天记录、任务来源和通知队列。SaySo `sayso/state.json` 原子保存讨论/Action，录音在 `sayso/recordings/`。升级保留全部目录；旧空 Kind 视作 Web，旧 SaySo 按相同工作目录绑定到原项目并保留原讨论/录音 ID，其他执行器项目独立创建绑定。
 
-所有模型调用共享设备级单任务互斥。Codex 默认只读；只有本机配置能允许编辑。Qoder 传固定 `--permission-mode`，不会从模型工具提升权限。MCP 注入仅当前进程生效，Windows npm `.cmd` 路径使用经过原生 PowerShell/shim 验证的参数编码。
+所有模型调用共享设备级单任务互斥。按当前产品要求，Web、IM、SaySo 均完整授权：Codex `danger-full-access` / `approval_policy=never`，Qoder `bypass_permissions`。旧 allowWrite=false 配置读取时内存迁移为 full，项目注册仍检查允许目录；旧 Windows 文件系统 RX 授权须通过 connect 的管理员服务配置更新。MCP 注入仅当前进程生效，Windows npm `.cmd` 路径使用经过原生 PowerShell/shim 验证的参数编码。
 
 SaySo 仅接受预定义的 state/settings/projects/sessions/actions/runs/audio 路径，禁止任意 URL/文件路径。录音仅用户主动在网页开始；按 16 KB 分片，经 139 转发至客户端，每段限 64 MiB。未完成上传在断连/重启后清理，页面提供备份；浏览器崩溃前尚未停止的录音不能保证恢复。Action 派发创建新 Web 会话，保留动作/讨论关联及取消入口。
 
@@ -57,7 +57,9 @@ SaySo 仅接受预定义的 state/settings/projects/sessions/actions/runs/audio 
 
 仅管理员创建平台账号，bcrypt 密码，30 天 HttpOnly 登录 Cookie，同源写请求。用户名 Unicode 归一比较并保持稳定账号 ID；改名/改密码撤销已有会话。账号停用阻止设备、绑定、模型与工具访问，不能移除最后一名有效管理员。
 
-个人模型 Token 使用 SHA-256 验证；新增及用户补存的 Token 另以 AES-GCM 加密保存，只有所属账号可通过同源 POST 再次读取/复制。普通及管理员列表仅返回元数据，管理员不能读取他人的 Token。旧记录只有哈希，不能还原；用户可补存手头的原 Token，校验匹配后原凭证继续有效。数据库旁的 `<数据库路径>.token-key` 为独立私有密钥，必须与数据库分别安全备份、成套恢复；密钥丢失且已有密文时拒绝自动生成替代密钥，恢复原文件后再启动。
+个人模型 Token 使用 SHA-256 验证；新 Token 另以 AES-GCM 加密保存，只有所属账号可通过同源 POST 再次读取/复制。普通及管理员列表仅返回元数据，管理员不能读取他人的 Token。旧哈希记录继续有效但无法复制，不提供补存入口。绑定时凭设备认证幂等申请设备关联 Token，默认 codex setup 使用该绑定并显示账号名/ID；手动粘贴的 Token 经 `/api/token/account` 验证账号。数据库旁的 `<数据库路径>.token-key` 必须与数据库成套备份恢复；密钥丢失且已有密文时拒绝生成替代密钥。
+
+设备修复复用本地绑定；owner-only `/api/agents/{id}/rebind` 另外生成 15 分钟恢复凭证，生成时不影响旧设备。兑换核对 expectedId 后事务替换同设备 credential，保留项目和 Token；客户端在兑换前私有保存候选凭证与原配置备份，HTTP 响应丢失或写配置失败可用 `.rebind-pending.json` 继续。设备凭证成功更新才关闭旧连接。原配置和全部备份均丢失时，服务端无法恢复只存本机的 IM Secret。
 
 `/codex/v1` 适配固定 loopback 网关，使用服务器私有服务凭证，允许 Responses/Compact/模型目录及 SSE，替换授权并剥离路由覆盖。全实例最多 20 个活动模型请求，与 loopback 连接池及 139 后端容量一致；32 MiB 请求体、30 分钟期限，等待上游响应头最多 3 分钟，以容纳后端凭证刷新及首次响应，SSE 及时 flush。账号停用取消活动请求；不存储模型正文。
 

@@ -60,7 +60,7 @@ func run() error {
 	server := flags.String("server", "", tr("HTTPS control server URL, optionally including a base path"))
 	stdin := flags.Bool("token-stdin", false, tr("read one-time enrollment token from stdin"))
 	roots := flags.String("roots", "", tr("allowed workspace roots separated by the OS path-list separator (default: home)"))
-	write := flags.Bool("allow-write", false, tr("allow Codex workspace writes / Qoder file edits (enroll only)"))
+	write := flags.Bool("allow-write", true, tr("compatibility option; all sessions use full authorization"))
 	logPath := flags.String("log", "", tr("write operational logs to this file"))
 	check := flags.Bool("check", false, tr("check the published build without downloading or restarting (update only)"))
 	installer := flags.Bool("installer", false, tr("upgrade the standard installation using this downloaded installer binary (update only)"))
@@ -103,6 +103,9 @@ func run() error {
 			return err
 		}
 		fmt.Printf(tr("Bound device %s (%s)\n"), c.Name, c.ID)
+		if err := configureBoundCodex(c); err != nil {
+			return fmt.Errorf(tr("Device binding retained; automatic Codex setup failed: %v. Retry remote-agent codex setup --config %s.\n"), err, path)
+		}
 		return nil
 	case "run":
 		c, err := agent.Load(path)

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -73,18 +72,11 @@ func runCodex(args []string) error {
 		if !strings.HasPrefix(token, "ra_codex_") || len(token) < 40 || strings.ContainsAny(token, "\r\n") {
 			return errors.New(tr("supply a personal token created in /agents"))
 		}
-		connection = codexsetup.Connection{BaseURL: server + "/codex/v1", Token: token, Model: "gpt-6.1-sol"}
-		req, _ := http.NewRequestWithContext(ctx, "GET", connection.BaseURL+"/models", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		res, err := client.Do(req)
+		connection, err = codexsetup.PersonalConnection(client, server, token)
 		if err != nil {
-			return errors.New(tr("could not verify personal token with gateway"))
+			return err
 		}
-		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
-		res.Body.Close()
-		if res.StatusCode != 200 {
-			return fmt.Errorf(tr("gateway verification returned HTTP %d; check token and server login"), res.StatusCode)
-		}
+		fmt.Printf(tr("Codex Token belongs to platform account %s (%s) at %s; source: supplied personal Token.\n"), connection.AccountUsername, connection.AccountID, server)
 	} else {
 		config, err := agent.Load(*configPath)
 		if err != nil {
@@ -98,6 +90,10 @@ func runCodex(args []string) error {
 		if err != nil {
 			return err
 		}
+		if connection.AccountID == "" || connection.AccountUsername == "" {
+			return errors.New(tr("server did not return the token account; update the server and retry"))
+		}
+		fmt.Printf(tr("Codex Token belongs to platform account %s (%s) at %s; source: device binding.\n"), connection.AccountUsername, connection.AccountID, server)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

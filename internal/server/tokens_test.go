@@ -33,7 +33,7 @@ func TestTokenAPIEnforcesOwnershipAndNeverListsSecrets(t *testing.T) {
 	}
 	f.request(bob, "POST", "/api/tokens/"+token.ID+"/reveal", map[string]string{}, 404)
 	f.request(admin, "POST", "/api/tokens/"+token.ID+"/reveal", map[string]string{}, 404)
-	f.request(alice, "POST", "/api/tokens/"+token.ID+"/save", map[string]string{"token": "wrong"}, 404)
+	f.request(alice, "POST", "/api/tokens/"+token.ID+"/save", map[string]string{"token": "wrong"}, 405)
 	if data := f.request(bob, "GET", "/api/tokens", nil, 200); string(bytes.TrimSpace(data)) != "[]" {
 		t.Fatal("cross-user token exposed", string(data))
 	}
@@ -84,8 +84,8 @@ func TestAgentSetupPreservesPriorTokenAndReturnsOnlyPersonalCredential(t *testin
 		return out.Token
 	}
 	first, second := issue(), issue()
-	if first == second {
-		t.Fatal("device token reused")
+	if first != second {
+		t.Fatal("retry created another device token")
 	}
 	if _, err := f.db.AuthenticateCodexToken(first); err != nil {
 		t.Fatal("setup issuance invalidated the working local configuration", err)

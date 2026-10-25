@@ -6,10 +6,15 @@
       name="viewport"
       content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"
     />
-    <meta name="theme-color" content="#192720" />
+    <meta name="theme-color" content="#f5f7fb" />
     <title>Remote Agent · 你的 AI 工作入口</title>
     <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./workspace.css" />
+    <script src="./vendor/marked.umd.js" defer></script>
+    <script src="./vendor/purify.min.js" defer></script>
+    <script src="./markdown.js" defer></script>
     <script src="./app.js" defer></script>
+    <script src="./device-settings.js" defer></script>
     <script src="./platform.js" defer></script>
     <script src="./channels.js" defer></script>
   </head>
@@ -25,17 +30,17 @@
             从 Codex 模型代理到远程项目与语音记录，<br />在同一个入口接入你的工作。
           </p>
           <div class="connection-art" aria-hidden="true">
-            <span>浏览器</span><i>↔</i><span class="central">139 站点中转</span
+            <span>你的想法</span><i>↔</i><span class="central">工作空间</span
             ><i>↔</i><span>你的电脑</span>
           </div>
         </div>
         <div class="auth-features">
           <div><strong>Codex 代理</strong><span>个人 Token · 本机配置 · CLI 管理</span></div>
           <div><strong>远程访问</strong><span>Codex / Qoder 项目 · 会话与实时输出</span></div>
-          <div><strong>IM 渠道</strong><span>飞书 / 钉钉长连接 · 固定会话与任务通知</span></div>
+          <div><strong>IM 渠道</strong><span>飞书 / 钉钉 · 随时沟通与任务通知</span></div>
           <div><strong>个人助理</strong><span>SaySo 语音记录与行动整理 · 持续扩展</span></div>
         </div>
-        <p class="auth-foot">站点中转 · 本地执行 · 实时回传</p>
+        <p class="auth-foot">你的设备，你的项目，你的工作节奏。</p>
       </div>
       <div class="auth-card">
         <p class="eyebrow">REMOTE AGENT / CONSOLE</p>
@@ -189,15 +194,6 @@
           </div>
           <span id="connection-status" class="status neutral">未连接</span>
           <button
-            id="disconnect"
-            class="icon-button desktop-only"
-            title="断开设备"
-            aria-label="断开设备"
-            hidden
-          >
-            ⏻
-          </button>
-          <button
             id="open-conversations"
             class="icon-button mobile-only"
             aria-label="切换会话"
@@ -213,6 +209,7 @@
           <span>Codex 和 Qoder 均为可选能力</span>
         </div>
         <section id="session-body" class="chat-body" hidden>
+          <div id="chat-scroll" class="chat-scroll" tabindex="0" aria-label="会话消息">
           <div
             id="messages"
             class="messages"
@@ -222,6 +219,7 @@
           <p id="chat-hint" class="chat-hint">
             新会话已就绪。输入你的第一个请求。
           </p>
+          </div>
           <form id="run-form" class="composer" hidden>
             <label class="sr-only" for="prompt">发送消息</label
             ><textarea
@@ -246,12 +244,20 @@
               </button>
             </div>
             <p class="composer-note">
-              Ctrl / ⌘ + Enter 发送 · 历史保存在目标电脑
+              Enter 发送 · Shift + Enter 换行
             </p>
           </form>
         </section>
       </main>
     </div>
+    <div id="device-menu" class="context-menu" role="menu" aria-label="设备操作" hidden>
+      <button id="device-menu-settings" role="menuitem" type="button">设置</button>
+      <button id="device-menu-repair" role="menuitem" type="button">修复绑定</button>
+    </div>
+    <dialog id="device-settings-dialog">
+      <div class="dialog-head"><div><h2>设备设置</h2><p id="device-settings-subtitle" class="muted"></p></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
+      <form id="device-settings-form"><label>设备名称<input name="name" required maxlength="80" autocomplete="off"></label><button class="primary full" type="submit">保存名称</button></form>
+    </dialog>
     <dialog id="enroll-dialog">
       <div class="dialog-head">
         <div>
@@ -270,6 +276,10 @@
         ><button class="primary full" type="submit">生成设备绑定命令 ↗</button>
       </form>
       <div id="install-result" hidden>
+        <div id="repair-steps" class="repair-steps" hidden>
+          <ol><li>在这台设备安装或更新客户端。Windows 下载下方 MSI；macOS / Linux 的命令包含安装步骤。</li><li>执行下方绑定修复命令。现有本机配置存在时，会保留设备身份、项目、会话和录音。</li><li>运行 <code>remote-agent status</code> 检查设备状态。需要刷新模型配置时，运行 <code>remote-agent codex setup</code>。</li></ol>
+          <details><summary>本机绑定配置丢失，或需要重新绑定</summary><p>优先从备份恢复 <code>~/.remote-agent/config.json</code> 及原数据目录。也可以生成这台设备的恢复命令，保留网页设备身份。成功恢复后，旧设备凭证失效；请仅在原设备执行，并保留命令生成的本机备份。若配置和所有备份都已丢失，机器人 Secret 等仅存本机的配置需要重新填写；现有会话和录音文件会保留。</p><button id="repair-rebind" type="button" class="secondary">生成这台设备的重新绑定命令</button></details>
+        </div>
         <p class="muted">
           Windows：先下载安装 MSI，再在新的 PowerShell 中运行绑定命令。macOS / Linux：使用下方命令安装并绑定。
         </p>
@@ -304,7 +314,7 @@
         <p class="small muted">
           Windows 使用 MSI + Windows Service，开机自动启动，退出登录后保持在线，不依赖计划任务。macOS 需要保持登录。Linux 使用 systemd
           用户服务；启用 linger 后可在退出登录后继续运行并开机启动。
-          如只需要 Codex 代理，请安装 MSI 后使用「Codex 接入与帮助」里的 Token 配置命令。
+          绑定成功后，会自动申请当前账号的设备 Token 并配置 Codex。以后运行 remote-agent codex setup 可再次刷新。
           Windows 绑定命令末尾加 --no-start，macOS / Linux 改用 bash -s -- --no-start，可只绑定而不启动远程服务。
         </p>
       </div>
@@ -314,13 +324,13 @@
       <nav class="platform-tabs" aria-label="服务中心"><button data-platform="setup">接入与帮助</button><button data-platform="tokens">我的 Token</button><button data-platform="account">账号设置</button><button data-platform="admin" id="admin-tab" hidden>账号管理</button></nav>
       <section id="platform-setup" class="platform-panel">
         <h3>安装客户端，接入你的工作设备</h3>
-        <p class="muted">远程客户端通过长连接 WebSocket 接入当前站点。网页任务、会话和 SaySo 数据均由站点中转，任务在你的电脑执行。</p>
+        <p class="muted">先安装客户端，再把电脑绑定到当前账号。项目任务在你的电脑执行，会话和录音保存在设备上。</p>
         <p id="gateway-state" class="platform-note" role="status"></p>
         <label>操作系统<select id="setup-platform"><option value="windows">Windows · PowerShell</option><option value="macos">macOS · Terminal</option><option value="linux">Linux · Bash</option></select></label>
         <div class="platform-note"><strong>远程客户端安装与升级</strong><p id="remote-install-help"></p><div id="msi-downloads"></div><button class="primary" id="setup-add-device">添加设备并生成绑定命令 ↗</button><p class="small muted">Windows 升级直接安装新版 MSI。安装器清理旧程序及匹配的启动项，保留设备绑定、配置、项目、会话和 SaySo 录音。</p></div>
-        <h3>仅使用 Codex 代理</h3><p class="small muted" id="setup-install-description">Windows 先安装 MSI，再运行 Token 配置命令；无需绑定设备。</p>
-        <label id="local-command-label">安装 MSI 后，设置或刷新本机 Token<textarea id="local-cli-command" rows="3" readonly></textarea></label><button class="secondary" id="copy-local-cli">复制 Token 配置命令</button>
-        <ol class="setup-steps"><li>Windows 下载并安装 MSI，然后打开新的 PowerShell。macOS / Linux 运行安装命令后打开新终端。</li><li>在「我的 Token」创建代理 Token，运行配置命令后粘贴 Token，或复制页面生成的一键配置命令。</li><li>配置命令会补装缺少的 Codex CLI，备份并更新 TOML。重启 Codex App，新建本地会话即可使用。</li><li>需要远程任务时，在工作台添加设备、运行绑定命令，再选择客户端项目。</li></ol>
+        <h3>绑定后，启动 Codex</h3><p class="small muted" id="setup-install-description">设备绑定会自动申请当前账号的 Token。再次刷新时，使用本机绑定识别所属账号。</p>
+        <label id="local-command-label">刷新已绑定设备的 Codex 配置<textarea id="local-cli-command" rows="2" readonly></textarea></label><button class="secondary" id="copy-local-cli">复制配置命令</button>
+        <ol class="setup-steps"><li>安装客户端。Windows 下载 MSI；macOS / Linux 使用设备绑定页上的安装命令。</li><li>在当前账号下添加设备，将绑定命令复制到这台电脑执行。设备会自动申请所属账号的 Token，并备份和更新配置。</li><li>终端会显示 Token 所属的平台账号。运行 remote-agent codex setup 可刷新配置并补装缺少的 Codex CLI，再运行 codex，或重启 Codex App 并新建本地会话。</li><li>在左侧客户端添加项目，会自动打开一个新的 Web 会话。</li></ol>
         <h3>本地 CLI 命令</h3>
         <p class="small muted">Windows 程序安装到 %ProgramFiles%\Remote Agent，由 MSI 加入系统 PATH；用户数据继续保存在原目录。macOS / Linux 程序位于 ~/.remote-agent/bin。</p>
         <div id="cli-help" class="cli-help"></div>
@@ -330,9 +340,9 @@
         <details><summary>客户端、项目与三类会话如何协作</summary><p>客户端是一台设备；项目是工作目录与 Codex / Qoder 执行器。每个项目固定置顶一个 SaySo 入口，并可绑定一个飞书/钉钉渠道会话，其余为 Web 会话。SaySo Action 和渠道助理可以创建新的 Web 会话来执行工作；Web 会话可通过客户端工具查询同账号其他客户端/项目、发起跨设备任务，并通知项目的 IM 渠道。</p></details>
       </section>
       <section id="platform-tokens" class="platform-panel" hidden>
-        <h3>我的代理 Token</h3><p class="muted">每个 Token 可用于一台或多台自己的设备。可随时复制自己的有效 Token，撤销后新的模型请求立即失效。</p>
+        <h3>我的代理 Token</h3><p class="muted">绑定设备时自动创建，也可以手动创建。Token 属于申请它的平台账号；复制后请妥善保管。</p>
         <form id="token-form" class="inline-form"><label>名称<input name="name" required maxlength="80" placeholder="例如：我的笔记本"></label><button class="primary" type="submit">创建 Token</button></form>
-        <div id="token-secret-box" class="token-secret" hidden><strong>请勿分享；关闭后可从列表再次复制</strong><label>Token<input id="token-secret" readonly autocomplete="off"></label><button id="copy-token-secret" class="secondary">复制 Token</button><label>安装客户端后，更新本机 Codex 配置<textarea id="token-config-command" readonly rows="4"></textarea></label><button id="copy-token-command" class="primary">复制一键配置命令</button><p class="small muted">命令包含你的 Token，请只在自己的电脑执行，不要转发。操作系统在「接入与帮助」中选择。</p></div>
+        <div id="token-secret-box" class="token-secret" hidden><strong>请勿分享；关闭后可从列表再次复制</strong><label>Token<input id="token-secret" readonly autocomplete="off"></label><button id="copy-token-secret" class="secondary">复制 Token</button><label>手动使用此 Token（运行命令后粘贴）<textarea id="token-config-command" readonly rows="2"></textarea></label><button id="copy-token-command" class="primary">复制配置命令</button><p class="small muted">已绑定的设备直接运行 remote-agent codex setup 即可。手动粘贴时使用此 Token 所属账号，终端会显示账号名称。</p></div>
         <div id="token-list" class="platform-list"></div>
       </section>
       <section id="platform-account" class="platform-panel" hidden>
@@ -354,19 +364,25 @@
     </dialog>
     <dialog id="channel-dialog">
       <div class="dialog-head"><div><p class="eyebrow">PROJECT / IM CHANNEL</p><h2 id="channel-title">项目渠道</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
-      <p class="muted">一个项目绑定一个机器人和一个接收目标；机器人仅能绑定一个项目。客户端直接连接飞书/钉钉的长连接服务，凭据经当前站点传送后只在客户端保存。</p>
+      <p class="muted">每个项目绑定一个机器人。私聊或群聊会自动识别，每个会话独立保留上下文。应用凭据只保存在客户端。</p>
       <p id="channel-state" class="platform-note" role="status"></p>
       <form id="channel-form">
         <label>渠道<select name="provider"><option value="feishu">飞书 · 应用机器人</option><option value="dingtalk">钉钉 · Stream 机器人</option></select></label>
+        <label>渠道名称<input name="name" maxlength="80" placeholder="例如：研发助理" autocomplete="off"></label>
         <label>应用 ID / Client ID<input name="appId" required maxlength="200" autocomplete="off"></label>
         <label>应用 Secret<input name="appSecret" type="password" maxlength="500" autocomplete="new-password"></label>
-        <label>接收目标类型<select name="chatType"><option value="group">群聊</option><option value="user">单聊</option></select></label>
-        <label>允许的会话 / 用户 ID<input name="chatId" required maxlength="500" autocomplete="off"></label>
         <label id="channel-robot-code">机器人 Code（钉钉，可选，默认应用 ID）<input name="robotCode" maxlength="200" autocomplete="off"></label>
-        <p class="small muted">飞书：启用长连接、消息接收事件和机器人发消息权限，填写 chat_id；群聊需要 @ 机器人。钉钉：启用 Stream，群聊填写 openConversationId，单聊填写用户的 staffId；群聊需要 @ 机器人。仅处理这里指定的接收目标。</p>
+        <div class="channel-access"><strong>所有人都可以聊</strong>无需填写用户或群聊 ID。私聊直接发送消息，群聊 @ 机器人。<span id="channel-reaction-help">收到消息后显示思考中，回复完成后撤下。</span></div>
+        <p class="small muted">飞书：发布应用，启用消息接收事件与机器人收发权限；思考表情需要消息表情权限。钉钉：启用 Stream 模式与消息发送权限。</p>
         <button class="primary full" type="submit">保存并连接渠道</button>
       </form>
       <button class="secondary" id="channel-unbind" hidden>解绑渠道，保留会话历史</button>
+    </dialog>
+    <dialog id="channel-progress-dialog" class="connection-progress">
+      <div class="dialog-head"><h2 id="channel-progress-title">正在连接渠道</h2><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
+      <ol class="progress-steps"><li id="channel-progress-config" class="current">验证应用并保存配置</li><li id="channel-progress-start">正在配置长连接</li><li id="channel-progress-ready">长连接启动成功</li></ol>
+      <p id="channel-progress-message" class="progress-message" role="status">正在验证应用凭据，请稍候。</p>
+      <button id="channel-progress-close" class="primary full" type="button">关闭</button>
     </dialog>
     <dialog id="service-dialog">
       <div class="dialog-head">

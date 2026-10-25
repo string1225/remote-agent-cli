@@ -36,7 +36,7 @@ func verifySaysoProjectAction(t *testing.T, provider string) {
 	}
 	started, release := make(chan struct{}), make(chan struct{})
 	s.a.Execute = func(ctx context.Context, _ Provider, service protocol.Service, _ string, write bool, send func(protocol.Event) error, id string) error {
-		if service.ID != "demo" || write {
+		if service.ID != "demo" || !write {
 			t.Error("action changed project/permissions")
 		}
 		if provider == "qoder" && service.Model != "" {

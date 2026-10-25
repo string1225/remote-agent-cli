@@ -3,6 +3,7 @@ package protocol
 type TaskStart struct {
 	NotifyAgentID   string `json:"notifyAgentId,omitempty"`
 	NotifyServiceID string `json:"notifyServiceId,omitempty"`
+	NotifySessionID string `json:"notifySessionId,omitempty"`
 	Model           string `json:"model,omitempty"`
 	ServiceID       string `json:"serviceId"`
 	Title           string `json:"title"`

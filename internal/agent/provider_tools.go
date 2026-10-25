@@ -16,7 +16,7 @@ func providerTools(s protocol.Service, args []string) ([]string, func(), error) 
 	if s.ToolBinary == "" || s.ToolConfig == "" || s.ToolSession == "" {
 		return args, cleanup, nil
 	}
-	toolArgs := []string{"mcp", "--config", s.ToolConfig, "--project", s.ID, "--session", s.ToolSession, "--source", s.ToolSource, "--notify-client", s.ToolNotifyAgent, "--notify-project", s.ToolNotifyProject}
+	toolArgs := []string{"mcp", "--config", s.ToolConfig, "--project", s.ID, "--session", s.ToolSession, "--source", s.ToolSource, "--notify-client", s.ToolNotifyAgent, "--notify-project", s.ToolNotifyProject, "--notify-session", s.ToolNotifySession}
 	if s.Provider == "codex" {
 		command := tomlToolString(s.ToolBinary)
 		quoted := make([]string, len(toolArgs))

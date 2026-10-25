@@ -19,8 +19,9 @@ func runConnect(args []string) error {
 	stdin := flags.Bool("token-stdin", false, tr("read the one-time device token from stdin"))
 	prompt := flags.Bool("token-prompt", false, tr("prompt for a one-time device token without echo"))
 	roots := flags.String("roots", "", tr("allowed project roots separated by the OS path separator"))
-	write := flags.Bool("allow-write", false, tr("allow project edits (default: read-only)"))
+	write := flags.Bool("allow-write", true, tr("compatibility option; all sessions use full authorization"))
 	noStart := flags.Bool("no-start", false, tr("bind the device without starting remote access"))
+	rebind := flags.String("rebind", "", tr("recover this exact device ID using an owner-issued recovery token"))
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -42,6 +43,9 @@ func runConnect(args []string) error {
 			return fmt.Errorf(tr("Install Remote Agent MSI first: %w"), err)
 		}
 	}
+	if *rebind != "" {
+		return runRebindConnect(*server, *rebind, path, *roots, *prompt, *stdin, *noStart)
+	}
 	if _, err = os.Stat(path); err == nil {
 		existing, loadErr := agent.Load(path)
 		if loadErr != nil {
@@ -50,17 +54,26 @@ func runConnect(args []string) error {
 		if strings.TrimSuffix(*server, "/") != existing.Server {
 			return errors.New(tr("Existing device binding belongs to another server; nothing was changed"))
 		}
+		tokenErr := configureBoundCodex(existing)
+		if tokenErr != nil {
+			fmt.Fprintf(os.Stderr, tr("Device binding retained; automatic Codex setup failed: %v. Retry remote-agent codex setup --config %s.\n"), tokenErr, path)
+		}
 		fmt.Println(tr("Keeping existing device binding, projects and sessions; configuring the background service."))
 		if runtime.GOOS == "windows" {
 			fmt.Println(tr("Granting directory access may take several minutes. Keep this window open until setup finishes."))
 		}
 		if runtime.GOOS == "windows" {
-			return agent.SetupWindowsService(path, *noStart)
+			if err := agent.SetupWindowsService(path, *noStart); err != nil {
+				return err
+			}
+			return tokenErr
 		}
 		if !*noStart {
-			return agent.Autostart("install", path)
+			if err := agent.Autostart("install", path); err != nil {
+				return err
+			}
 		}
-		return nil
+		return tokenErr
 	} else if !os.IsNotExist(err) {
 		return err
 	}
@@ -77,6 +90,10 @@ func runConnect(args []string) error {
 		return err
 	}
 	fmt.Printf(tr("Bound client %s.\n"), c.Name)
+	tokenErr := configureBoundCodex(c)
+	if tokenErr != nil {
+		fmt.Fprintf(os.Stderr, tr("Device binding retained; automatic Codex setup failed: %v. Retry remote-agent codex setup --config %s.\n"), tokenErr, path)
+	}
 	if runtime.GOOS == "windows" {
 		fmt.Println(tr("Granting directory access may take several minutes. Keep this window open until setup finishes."))
 		if err = agent.SetupWindowsService(path, *noStart); err != nil {
@@ -88,6 +105,6 @@ func runConnect(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(tr("Client configured; use remote-agent status to check. Configure the Codex proxy token separately with remote-agent codex setup."))
-	return nil
+	fmt.Println(tr("Client configured with full session authorization; use remote-agent status to check."))
+	return tokenErr
 }

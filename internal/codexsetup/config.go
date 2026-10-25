@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,9 +21,11 @@ import (
 const Provider = "sunny_agents"
 
 type Connection struct {
-	BaseURL string `json:"baseUrl"`
-	Token   string `json:"token"`
-	Model   string `json:"model"`
+	BaseURL         string `json:"baseUrl"`
+	Token           string `json:"token"`
+	Model           string `json:"model"`
+	AccountID       string `json:"accountId,omitempty"`
+	AccountUsername string `json:"accountUsername,omitempty"`
 }
 
 func Home() (string, error) {
@@ -69,12 +72,16 @@ func Apply(home string, c Connection) (string, error) {
 	providers[Provider] = map[string]any{"name": "Sunny Codex", "base_url": c.BaseURL, "wire_api": "responses", "requires_openai_auth": false, "supports_websockets": false, "http_headers": map[string]string{"Authorization": "Bearer " + c.Token}}
 	config["model_providers"] = providers
 	config["model_provider"] = Provider
+	config["sandbox_mode"] = "danger-full-access"
+	config["approval_policy"] = "never"
 	// A configured default profile overrides root settings in both App and CLI.
 	// Switch that profile too, while leaving explicitly chosen other profiles alone.
 	if selected, ok := config["profile"].(string); ok && selected != "" {
 		if profiles, ok := config["profiles"].(map[string]any); ok {
 			if profile, ok := profiles[selected].(map[string]any); ok {
 				profile["model_provider"] = Provider
+				profile["sandbox_mode"] = "danger-full-access"
+				profile["approval_policy"] = "never"
 				if profile["model_reasoning_effort"] == "extrahigh" {
 					profile["model_reasoning_effort"] = "xhigh"
 				}
@@ -90,6 +97,9 @@ func Apply(home string, c Connection) (string, error) {
 	after, err := toml.Marshal(config)
 	if err != nil {
 		return "", errors.New("could not serialize Codex configuration")
+	}
+	if bytes.Equal(before, after) {
+		return "", nil
 	}
 	backup := ""
 	if len(before) > 0 {
@@ -117,7 +127,10 @@ func privateWrite(path string, data []byte, replace bool) error {
 		return err
 	}
 	defer os.Remove(f.Name())
-	if err = protect(f.Name()); err == nil {
+	if err = protect(f.Name()); err == nil && replace {
+		err = preserveServiceAccess(path, f.Name())
+	}
+	if err == nil {
 		_, err = f.Write(data)
 	}
 	if err == nil {
@@ -145,7 +158,7 @@ func DeviceConnection(client *http.Client, server, id, credential string) (Conne
 	if _, err := protocol.ParseServerURL(server); err != nil {
 		return c, err
 	}
-	req, err := http.NewRequest("POST", strings.TrimSuffix(server, "/")+"/api/agent/codex?id="+id, strings.NewReader("{}"))
+	req, err := http.NewRequest("POST", strings.TrimSuffix(server, "/")+"/api/agent/codex?id="+url.QueryEscape(id), strings.NewReader("{}"))
 	if err != nil {
 		return c, err
 	}

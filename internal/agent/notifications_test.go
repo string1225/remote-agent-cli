@@ -29,10 +29,11 @@ func TestRemoteTaskCompletionReturnsToOriginChannelAndRetriesDurably(t *testing.
 			Type    string `json:"type"`
 			Body    struct {
 				ServiceID string `json:"serviceId"`
+				SessionID string `json:"sessionId"`
 				Message   string `json:"message"`
 			} `json:"body"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.AgentID != "origin-client" || in.Type != "channels.notify" || in.Body.ServiceID != "origin-project" {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.AgentID != "origin-client" || in.Type != "channels.notify" || in.Body.ServiceID != "origin-project" || in.Body.SessionID != "origin-im-session" {
 			t.Error("completion not routed to original project channel")
 		}
 		if !strings.Contains(in.Body.Message, "client=worker-client&project=work-project&session=web-work") {
@@ -60,7 +61,7 @@ func TestRemoteTaskCompletionReturnsToOriginChannelAndRetriesDurably(t *testing.
 			}
 		}
 	})
-	a.notifyTask(queuedTask{start: protocol.TaskStart{ServiceID: "work-project", Notify: true, NotifyAgentID: "origin-client", NotifyServiceID: "origin-project"}, result: protocol.TaskStarted{TaskID: "task", Session: protocol.Conversation{ID: "web-work", Title: "Work"}}}, nil)
+	a.notifyTask(queuedTask{start: protocol.TaskStart{ServiceID: "work-project", Notify: true, NotifyAgentID: "origin-client", NotifyServiceID: "origin-project", NotifySessionID: "origin-im-session", ParentAgentID: "intermediate-client", ParentSessionID: "intermediate-web", Source: "web"}, result: protocol.TaskStarted{TaskID: "task", Session: protocol.Conversation{ID: "web-work", Title: "Work"}}}, nil)
 	select {
 	case <-attempts:
 	case <-time.After(3 * time.Second):

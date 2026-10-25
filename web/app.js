@@ -55,6 +55,7 @@ function node(tag, text, className) {
 }
 function signedOut() {
   window.platformSignedOut?.();
+  state.user = null;
   disconnect();
   if (closeSayso) {
     closeSayso();
@@ -118,27 +119,21 @@ function renderDevices() {
       else state.expanded.delete(a.id);
     };
     const row = node("summary", undefined, "device-row");
-    const os = ({windows:["⊞","Windows"],darwin:["⌘","macOS"],linux:["🐧","Linux"]})[a.os] || ["▣","客户端"];
-    const icon = node("span", os[0], "device-icon"); icon.title = os[1]; icon.setAttribute("aria-label", os[1]);
+    const os = ({windows:["windows","Windows"],darwin:["macos","macOS"],linux:["linux","Linux"]})[a.os] || ["windows","客户端"];
+    const icon = node("img", undefined, "device-icon"); icon.src = `${basePath}/icons/${os[0]}.svg`; icon.alt = os[1]; icon.title = os[1];
     row.append(icon, node("span", a.name, "device-name"));
     const add = node("button", "＋", "device-add");
     add.title = "新增项目"; add.setAttribute("aria-label", `在 ${a.name} 新增项目`); add.disabled = !a.online;
     add.onclick = async e => { e.preventDefault(); e.stopPropagation(); try { await connectDevice(a); showService(); } catch (e) { notice(e.message); } };
-    const dot = node("span", undefined, "live-dot" + (a.online ? "" : " offline"));
-    dot.title = a.online ? "在线" : "离线"; dot.setAttribute("aria-label", dot.title);
-    const repair = node("button", "修复", "device-add device-repair");
-    repair.title = "重新显示安装与绑定命令，保留现有数据";
-    repair.setAttribute("aria-label", `修复 ${a.name} 的绑定`);
-    repair.onclick = async e => {
-      e.preventDefault(); e.stopPropagation(); repair.disabled = true;
-      const account = state.user?.id;
-      try {
-        const result = await api(`/api/agents/${a.id}/repair`, "POST", {});
-        if (!state.user || state.user.id !== account) return;
-        showEnroll(); showInstallCommands(result);
-      } catch (error) { notice(error.message); } finally { repair.disabled = false; }
-    };
-    row.append(repair, add, dot); card.append(row);
+    const status = node("span", undefined, "device-status" + (a.online ? "" : " offline"));
+    status.title = a.online ? "在线" : "离线";
+    status.append(node("span", undefined, "live-dot" + (a.online ? "" : " offline")), document.createTextNode(status.title));
+    const menu = node("button", "⋯", "device-menu-button"); menu.title = "设备设置与修复";
+    menu.setAttribute("aria-label", `${a.name} 的设备操作`); menu.setAttribute("aria-haspopup", "menu");
+    menu.onclick = e => window.openDeviceMenu(e, a, menu);
+    row.oncontextmenu = e => window.openDeviceMenu(e, a, menu);
+    row.onkeydown = e => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") window.openDeviceMenu(e, a, menu); };
+    row.append(status, add, menu); card.append(row);
     const children = node("div", undefined, "device-children");
     const services = selected ? state.services : a.services || [];
     for (const project of services) {
@@ -211,7 +206,6 @@ function disconnect(reason) {
   state.runSession = null;
   resetWorkspace();
   setRunning(null);
-  $("disconnect").hidden = true;
   connectionStatus(reason || "未连接");
   renderDevices();
 }
@@ -334,18 +328,18 @@ async function connectDevice(agent) {
   state.selected = agent;
   state.expanded.add(agent.id);
   renderDevices();
-  connectionStatus("正在通过站点连接…");
+  connectionStatus("正在连接设备…");
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${basePath}/api/agents/${agent.id}/connect`);
   const peer = { ws, lastPong: Date.now() };
   peer.ready = new Promise((resolve, reject) => { peer.resolve = resolve; peer.reject = reject; });
   state.peer = peer;
   const fail = (msg) => { if (state.peer === peer) { notice(msg); disconnect(msg); } };
   peer.timeout = setTimeout(() => fail("连接超时，请检查客户端是否在线并已更新"), 20000);
-  ws.onclose = () => fail("站点与设备的连接已断开，请重新连接");
-  ws.onerror = () => fail("无法连接站点，请刷新设备状态");
+  ws.onclose = () => fail("设备连接已断开，请重新连接");
+  ws.onerror = () => fail("连接暂时不可用，请刷新设备状态");
   ws.onopen = () => {
     peer.ping = setInterval(() => {
-      if (Date.now() - peer.lastPong > 65000) { fail("站点连接超时，请重新连接"); return; }
+      if (Date.now() - peer.lastPong > 65000) { fail("设备连接超时，请重新连接"); return; }
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
     }, 20000);
   };
@@ -359,9 +353,8 @@ async function connectDevice(agent) {
         if (state.peer !== peer) return;
         clearTimeout(peer.timeout);
         refreshServices(data);
-        $("disconnect").hidden = false;
         $("selected-name").textContent = agent.name;
-        connectionStatus("站点中转 · WebSocket", true);
+        connectionStatus("已连接", true);
         peer.resolve(data);
         peer.reject = null;
       } else if (msg.type === "event" && msg.event) receiveEvent(msg.event);
@@ -414,7 +407,7 @@ async function refreshSessions(more = false, quiet = false) {
 }
 let sessionSignature;
 function renderSessions() {
-  $("conversation-count").textContent = state.sessions.filter(s => s.kind !== "im").length + (service() ? 1 : 0) + (service()?.channel ? 1 : 0);
+  $("conversation-count").textContent = state.sessions.length + (service() ? 1 : 0);
   $("more-sessions").hidden = !state.listCursor;
   $("conversation-empty").hidden = state.sessions.length > 0;
   $("conversation-empty").textContent = state.serviceId
@@ -432,20 +425,20 @@ function renderSessions() {
     sayso.onclick = () => openSayso().catch(e => notice(e.message)); fragment.append(sayso);
   }
   const channel = service()?.channel;
-  if (channel) {
+  if (channel && !state.sessions.some(s => s.kind === "im")) {
     const im = node("button", undefined, "conversation-card pinned" + (state.session?.id === channel.sessionId && state.mode !== "sayso" ? " active" : ""));
-    im.append(node("strong", channel.provider === "feishu" ? "飞书 · 渠道会话" : "钉钉 · 渠道会话"), node("p", "置顶 · 消息与任务通知"));
+    im.append(node("strong", channel.provider === "feishu" ? "飞书 · 渠道" : "钉钉 · 渠道"), node("p", "等待第一条消息"));
     im.onclick = () => loadSession({id:channel.sessionId,title:"渠道会话",kind:"im"}).then(closeDrawers).catch(e => notice(e.message)); fragment.append(im);
   }
   for (const s of state.sessions) {
-    if (s.kind === "im") continue;
     const b = node(
       "button",
       undefined,
-      "conversation-card" + (state.session?.id === s.id ? " active" : ""),
+      "conversation-card" + (s.kind === "im" ? " im-session" : "") + (state.session?.id === s.id ? " active" : ""),
     );
-    b.title = s.title;
-    b.append(node("strong", s.title));
+    const title = sessionTitle(s);
+    b.title = title;
+    b.append(node("strong", title));
     const meta = node("p");
     meta.append(
       node(
@@ -457,7 +450,7 @@ function renderSessions() {
           minute: "2-digit",
         }),
       ),
-      node("span", s.id === state.runSession ? "生成中…" : ({queued:"排队中",running:"执行中",failed:"执行失败",cancelled:"已取消"})[s.taskStatus] || "Web 会话"),
+      node("span", s.id === state.runSession ? "生成中…" : ({queued:"排队中",running:"执行中",failed:"执行失败",cancelled:"已取消"})[s.taskStatus] || (s.kind === "im" ? s.channelChatType === "group" ? "群聊" : s.channelChatId ? "私聊" : "渠道历史" : "Web 会话")),
     );
     b.append(meta);
     b.onclick = () =>
@@ -478,6 +471,7 @@ async function loadSession(session) {
   state.entries = [];
   renderSessions();
   renderChat();
+  $("chat-scroll").scrollTop = 0;
   setRunning(state.running);
   let cursor = 0,
     entries = [];
@@ -494,6 +488,12 @@ async function loadSession(session) {
   entries.push(...state.entries.filter((e) => e.seq > 0 && !seq.has(e.seq)));
   state.entries = entries.sort((a, b) => a.seq - b.seq);
   renderChat();
+  $("chat-scroll").scrollTop = $("chat-scroll").scrollHeight;
+}
+function sessionTitle(session) {
+  if (session?.kind !== "im") return session?.title || "新会话";
+  const channel = ({feishu:"飞书",dingtalk:"钉钉"})[session.channelName] || session.channelName || (session.channelProvider === "dingtalk" ? "钉钉" : "飞书");
+  return session.channelPeerName ? `${channel} · ${session.channelPeerName}` : session.title || `${channel} · 渠道历史`;
 }
 function mergeEntries(entries, live = false) {
   const seq = new Set(state.entries.map((e) => e.seq));
@@ -512,14 +512,12 @@ function renderChat(live = false) {
   $("session-body").hidden = !state.session;
   $("run-form").hidden = !state.session;
   $("chat-title").textContent =
-    state.session?.title || (service() ? service().name : "开始你的下一件事");
-  $("policy").textContent = state.allowWrite
-    ? "已授权工作区写入"
-    : "只读 / 规划模式";
+    state.session ? sessionTitle(state.session) : (service() ? service().name : "开始你的下一件事");
+  $("policy").textContent = state.session?.kind === "im" ? "发送到此渠道会话" : "完整授权 · 在你的电脑执行";
   $("chat-hint").hidden = state.entries.length > 0;
-  const container = $("messages"),
+  const container = $("messages"), scroll = $("chat-scroll"),
     atBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
+      scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <
       90;
   if (!state.session) {
     container.replaceChildren();
@@ -565,50 +563,23 @@ function renderChat(live = false) {
       container.append(el);
     }
     const text = el.querySelector(".message-text");
-    text.targetText = g.text;
-    if (
-      !live ||
-      g.role !== "assistant" ||
-      matchMedia("(prefers-reduced-motion: reduce)").matches
-    )
-      text.textContent = g.text;
+    if (g.role === "assistant") renderMarkdown(text, g.text);
+    else text.textContent = g.text;
     el.classList.toggle(
       "typing",
       g.role === "assistant" && g.turnId === state.running,
     );
   }
   for (const [key, el] of existing) if (!keep.has(key)) el.remove();
-  if (atBottom) container.scrollTop = container.scrollHeight;
+  if (atBottom) scroll.scrollTop = scroll.scrollHeight;
 }
-setInterval(() => {
-  const container = $("messages"),
-    atBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
-      90;
-  for (const el of container.querySelectorAll(
-    ".message.assistant .message-text",
-  )) {
-    const target = el.targetText || "",
-      current = el.textContent;
-    if (current === target) continue;
-    if (!target.startsWith(current)) {
-      el.textContent = target;
-      continue;
-    }
-    const chars = Array.from(target.slice(current.length));
-    el.textContent += chars
-      .slice(0, Math.max(2, Math.ceil(chars.length / 15)))
-      .join("");
-  }
-  if (atBottom) container.scrollTop = container.scrollHeight;
-}, 25);
 
 function initPaneResizers() {
   const app = $("app"),
     panes = [$("devices-pane"), $("conversations-pane"), $("chat-pane")],
     resizers = [$("devices-resizer"), $("conversations-resizer")],
     properties = ["--devices-width", "--conversations-width", "--chat-width"],
-    defaults = [0.25, 0.25, 0.5],
+    defaults = [0.21, 0.23, 0.56],
     storageKey = `remote-agent:column-widths:${basePath || "/"}`;
   let ratios = [...defaults],
     drag = null;
@@ -887,6 +858,7 @@ function showEnroll() {
   $("enroll-form").reset();
   $("enroll-form").hidden = false;
   $("install-result").hidden = true;
+  $("repair-steps").hidden = true;
   $("install-windows").value = "";
   $("install-macos").value = "";
   $("install-linux").value = "";
@@ -896,12 +868,16 @@ $("new-agent").onclick = showEnroll;
 $("empty-add").onclick = showEnroll;
 function showInstallCommands(result) {
   if (result.repair) $("enroll-title").textContent = "修复设备绑定";
+  $("repair-steps").hidden = !result.repair;
   $("install-windows").value = result.windows;
-  $("enroll-msi-x64").href = result.windowsMsi;
-  $("enroll-msi-arm64").href = result.windowsArm64Msi;
+  const downloadStamp = Date.now();
+  $("enroll-msi-x64").href = result.windowsMsi + "?v=" + downloadStamp;
+  $("enroll-msi-arm64").href = result.windowsArm64Msi + "?v=" + downloadStamp;
   $("install-macos").value = result.macos;
   $("install-linux").value = result.linux;
-  $("enroll-command-note").textContent = result.existingBinding
+  $("enroll-command-note").textContent = result.rebind || result.recovery
+    ? "恢复凭证 · 15 分钟有效 · 在这台设备执行，保留数据与设备身份；成功后旧凭证失效。"
+    : result.existingBinding
     ? "在原设备执行，复用本地绑定并修复后台服务；保留项目、会话和录音。若本地配置丢失，请先恢复备份，勿创建重复设备。"
     : "一次性设备绑定凭证 · 15 分钟有效 · 请勿分享";
   $("enroll-form").hidden = true;
@@ -943,10 +919,6 @@ for (const button of document.querySelectorAll(".copy"))
     }
   };
 
-$("disconnect").onclick = () => {
-  if (!state.running || confirm("断开连接会停止当前任务，继续吗？"))
-    disconnect();
-};
 $("service-form").onsubmit = async (e) => {
   e.preventDefault();
   const button = $("service-submit");
@@ -959,7 +931,9 @@ $("service-form").onsubmit = async (e) => {
     $("service-dialog").close();
     e.target.reset();
     await selectProject(s.id);
-    notice("项目已添加");
+    if (s.session) await loadSession(s.session);
+    else if (state.sessions.length) await loadSession(state.sessions[0]);
+    notice("项目已就绪，开始新会话吧");
   } catch (err) {
     notice(err.message);
   } finally {
@@ -968,7 +942,7 @@ $("service-form").onsubmit = async (e) => {
 };
 $("run-form").onsubmit = async (e) => {
   e.preventDefault();
-  if (state.running) return;
+  if (state.running || $("send-run").disabled) return;
   const prompt = $("prompt").value.trim();
   if (!prompt || !state.session || !service()) return;
   if (!state.peer || state.peer.ws.readyState !== WebSocket.OPEN) {
@@ -977,7 +951,7 @@ $("run-form").onsubmit = async (e) => {
   }
   if (state.session.kind === "im") {
     const button = $("send-run"); button.disabled = true;
-    try { await rpc("channels.notify", {body:{serviceId:state.serviceId,message:prompt}}); $("prompt").value = ""; await loadSession(state.session); }
+    try { await rpc("channels.notify", {body:{serviceId:state.serviceId,sessionId:state.session.id,message:prompt}}); $("prompt").value = ""; await loadSession(state.session); }
     catch (e) { notice(e.message); } finally { button.disabled = false; }
     return;
   }
@@ -1014,7 +988,7 @@ $("run-form").onsubmit = async (e) => {
   }
 };
 $("prompt").onkeydown = (e) => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
     e.preventDefault();
     $("run-form").requestSubmit();
   }
@@ -1070,7 +1044,7 @@ async function openSayso() {
     return rpc("sayso.call", {method,path,body,serviceId:project.id});
   }, () => {
     dispose(); if (state.peer !== peer) return; host.hidden = true; state.mode = "web"; closeSayso = null; renderSessions(); renderChat();
-  }, `${project.name} · ${state.allowWrite ? "允许工作区写入" : "只读 / 规划模式"}`, {
+  }, `${project.name} · 完整授权`, {
     projectId:binding.id, sessionId:binding.pinnedSessionId,
     onTaskCreated:async id => {
       if (state.peer !== peer) return;

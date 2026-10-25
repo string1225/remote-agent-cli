@@ -22,22 +22,22 @@
 
 - 仅管理员创建账号，公开注册始终关闭；bcrypt 密码哈希、30 天 HttpOnly Cookie 登录态、账号停用和最后一名有效管理员保护。
 - 用户确认当前密码后可修改用户名或密码；用户名支持 1–64 个 Unicode 字符，去首尾空白并按 Unicode 大小写折叠保持唯一。修改后退出所有浏览器登录，账号 ID、设备归属和会话数据保持不变。
-- 用户自行创建、查看和撤销个人模型 Token；管理员可管理所有账号和 Token。Token 只在创建时显示一次，服务器仅保存 SHA-256 验证值。
+- 用户创建、复制和撤销自己的 Token，复制/撤销按钮右侧并列；管理员仅管理元数据和撤销。新 Token 加密保存，旧哈希 Token 继续有效但无法复制，不提供补存入口。设备绑定自动幂等申请账号关联 Token，并明确显示账号归属。
 - 可选的 `/agents/codex/v1` 模型入口接入现有网关，支持 Responses / Compact / 模型目录、SSE 和账号停用取消；保留既有 `/openai/` 接口、旧 Token 及 OAuth 状态。
 - 持久本地 CLI 可独立安装，无需绑定设备或启用远程服务；支持官方 Codex CLI 安装/更新、本机 TOML 配置，以及可选的 `start` / `stop`。Windows App 命令打开商店页面，由用户完成安装/更新。
 - 创建设备并生成 Windows PowerShell / macOS Shell / Linux Bash 安装命令；一次性令牌 15 分钟过期，事务保证只能绑定一次。
 - 下载独立 CLI、SHA-256 校验、设备凭证落盘、跨平台自启动。
-- `remote-agent update` 从绑定服务器更新当前平台的 CLI，保留绑定和会话记录；支持检查更新、版本查看、程序备份及失败回滚。
+- 非 MSI 安装的 `remote-agent update` 从服务器更新 CLI，保留绑定和会话；Windows MSI 仍通过安装新版 MSI 升级。宿主/业务核心分离的更新框架目前仅有设计，见 docs/superpowers/specs/2026-10-25-client-update-framework.md。
 - Windows MSI / Windows Service，开机自动运行、退出登录后在线、失败恢复与原目录数据保留；macOS LaunchAgent / Linux systemd 用户服务；心跳、掉线重连、在线状态、撤销设备。旧 Windows 用户安装可迁移。
 - 在网页通过站点中转注册 Codex / Qoder 服务及项目目录；配置保存在目标电脑。
 - 添加项目时可按目录名搜索、输入部分路径自动补全，或逐层浏览；支持键盘和手机触摸，目录候选经站点从目标电脑读取。
 - 网页与客户端统一通过 139 站点的 WebSocket 中转，客户端持续心跳与断线重连，保留账号和会话归属校验。
 - 桌面三栏工作台：客户端 → 项目、可搜索会话列表、右侧工作区；系统图标及灰/绿在线点，客户端 + 添加项目，项目图标区分 Codex/Qoder；分隔线可拖动并保存列宽，手机使用左右抽屉。
-- 每项目置顶 SaySo，配置飞书/钉钉后置顶固定 IM 会话。Action 派发、IM 或其他 Web 会话可创建新的 Web 工作会话，关闭网页后后台任务继续；完成通知可经 139 回到来源项目渠道。机器人 Secret 只持久存本机，绑定全局唯一。
+- 每项目置顶 SaySo，飞书/钉钉默认所有人可聊，按来信自动隔离私聊/群聊会话并显示对方名称。支持 Markdown 和飞书 THINKING 表情。Action/IM/Web 派生任务关闭网页后继续，完成通知回到原渠道会话；Secret 只持久存本机，绑定全局唯一。
 - 每次 Codex/Qoder 工作进程注入客户端 MCP：`list_clients_projects`、`start_web_session`、`notify_im_session`；支持同账号跨设备协作，遵守目标客户端允许目录和文件权限。
 - 会话历史保存在目标电脑 `~/.remote-agent/history.db`，通过站点分页读取；支持新建、搜索、刷新后查看，以及按 Codex / Qoder 原生会话 ID 继续对话。
-- 流式输出与打字效果、停止任务、断线取消、设备级单任务互斥、20 分钟任务超时、30 分钟连接上限。
-- 工作目录白名单、默认只读策略、本机手动开启文件编辑权限。
+- 流式 Markdown、固定底部输入框和长消息滚动；Enter 发送，Shift+Enter 换行，兼容中文输入法；停止任务、断线取消、设备单任务互斥、20 分钟任务超时、30 分钟连接上限。
+- 项目目录白名单；所有会话完整授权（Codex danger-full-access/never，Qoder bypass_permissions），旧配置读取时迁移。设备右键支持重命名、安装/更新指引及同 ID 重新绑定恢复。
 
 ## Windows 安装与 Token 配置
 
@@ -47,10 +47,11 @@
 
 ```powershell
 remote-agent version
-remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt
+remote-agent codex setup
+codex
 ```
 
-需要远程访问时，在网页添加客户端后运行生成的 `remote-agent connect` 绑定命令。代理 Token 与设备绑定分开设置，秘密不进入 MSI 属性。
+先在已登录网页添加客户端，运行生成的 `remote-agent connect` 绑定命令。绑定会自动申请所属账号的设备 Token 并备份更新 Codex 配置；再运行上面的 setup 补装缺少的 Codex CLI 或刷新配置。手动 --token-prompt 仍可使用，但账号由粘贴的 Token 决定，终端会显示身份。秘密不进入 MSI 属性。
 
 ## 本地启动
 

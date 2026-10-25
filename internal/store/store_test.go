@@ -81,7 +81,7 @@ func TestExpiredCredentialsDenied(t *testing.T) {
 	}
 	err = db.db.Update(func(tx *bolt.Tx) error {
 		past := time.Now().Add(-time.Minute).Unix()
-		if err := put(tx, "enrollments", Hash(invite), enrollment{a.ID, past}); err != nil {
+		if err := put(tx, "enrollments", Hash(invite), enrollment{AgentID: a.ID, ExpiresAt: past}); err != nil {
 			return err
 		}
 		return put(tx, "sessions", Hash(session), Session{"alice", past})

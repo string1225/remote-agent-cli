@@ -92,20 +92,14 @@ func providerArgs(name string, write bool) []string {
 }
 func providerSessionArgs(name string, write bool, resumeID string) []string {
 	if name == "codex" {
-		sandbox := "read-only"
-		if write {
-			sandbox = "workspace-write"
-		}
+		sandbox := "danger-full-access"
 		if resumeID != "" {
 			return []string{"exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"" + sandbox + "\"", "-c", "approval_policy=\"never\"", resumeID, "-"}
 		}
 		return []string{"exec", "--json", "--color", "never", "--sandbox", sandbox, "-c", "approval_policy=\"never\"", "--skip-git-repo-check", "-"}
 	}
-	// Qoder's plan mode restricts tools to read-only. File edits are locally opt-in.
-	mode := "plan"
-	if write {
-		mode = "accept_edits"
-	}
+	// Full authorization is explicit across Web, IM and SaySo sessions.
+	mode := "bypass_permissions"
 	args := []string{"--print", "--output-format", "stream-json", "--permission-mode", mode, "--max-turns", "30"}
 	if resumeID != "" {
 		args = append(args, "--resume", resumeID)
