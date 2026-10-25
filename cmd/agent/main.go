@@ -28,7 +28,12 @@ func main() {
 }
 func run() error {
 	if len(os.Args) == 3 && os.Args[1] == "internal-worker" {
-		return agent.RunWorker(context.Background(), os.Args[2], os.Stdin, os.Stdout)
+		input, output, closePipes, err := agent.WorkerControlPipes()
+		if err != nil {
+			return err
+		}
+		defer closePipes()
+		return agent.RunWorker(context.Background(), os.Args[2], input, output)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "update" {
 		if handled, err := frameworkUpdate(context.Background(), os.Args[2:], i18n.Writer(os.Stdout)); handled {

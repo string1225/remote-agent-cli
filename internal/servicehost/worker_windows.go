@@ -3,13 +3,17 @@ package servicehost
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/string1225/remote-agent-cli/internal/workerproto"
+	"golang.org/x/sys/windows"
 )
 
 type worker struct {
@@ -25,31 +29,52 @@ func launchWorker(exe string, stderr io.Writer) (*worker, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(exe, "internal-worker", filepath.Join(root, "service.json"))
+	return launchWorkerAt(exe, filepath.Join(root, "service.json"), stderr)
+}
+
+func launchWorkerAt(exe, profile string, stderr io.Writer) (*worker, error) {
+	cmd := exec.Command(exe, "internal-worker", profile)
 	cmd.Dir = filepath.Dir(exe)
 	cmd.Stderr = stderr
-	in, err := cmd.StdinPipe()
+	cmd.Stdout = stderr // SDK/CLI diagnostics can never corrupt the control stream.
+	childIn, in, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	out, err := cmd.StdoutPipe()
+	defer childIn.Close()
+	out, childOut, err := os.Pipe()
 	if err != nil {
 		in.Close()
 		return nil, err
 	}
+	defer childOut.Close()
+	for _, file := range []*os.File{childIn, childOut} {
+		if err = windows.SetHandleInformation(windows.Handle(file.Fd()), windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT); err != nil {
+			in.Close()
+			out.Close()
+			return nil, err
+		}
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{AdditionalInheritedHandles: []syscall.Handle{syscall.Handle(childIn.Fd()), syscall.Handle(childOut.Fd())}}
+	cmd.Env = append(os.Environ(), "RA_WORKER_READ_HANDLE="+strconv.FormatUint(uint64(childIn.Fd()), 10), "RA_WORKER_WRITE_HANDLE="+strconv.FormatUint(uint64(childOut.Fd()), 10))
 	if err = cmd.Start(); err != nil {
 		in.Close()
 		out.Close()
 		return nil, err
 	}
 	w := &worker{cmd: cmd, in: in, replies: make(chan workerproto.Message, 1), done: make(chan error, 1)}
+	childIn.Close()
+	childOut.Close()
 	go func() {
-		defer close(w.replies)
-		defer func() { w.done <- cmd.Wait() }()
+		defer func() { close(w.replies); w.done <- cmd.Wait() }()
 		d := json.NewDecoder(out)
 		for {
 			var m workerproto.Message
-			if d.Decode(&m) != nil {
+			if err := d.Decode(&m); err != nil {
+				if err != io.EOF {
+					fmt.Fprintf(stderr, "worker control decoding failed (%T)\n", err)
+				}
+				out.Close()
 				return
 			}
 			w.replies <- m

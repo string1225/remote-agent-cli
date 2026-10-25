@@ -128,6 +128,11 @@ func TestRebindMissingConfigRecoversSameProjectIDsFromHistory(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "config.json")
 	project := protocol.Service{ID: "project", Name: "Retained", Provider: "codex", Workspace: t.TempDir()}
+	canonical, err := canonicalDir(project.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project.Workspace = canonical
 	history := historyStore{filepath.Join(root, "history.db")}
 	session, err := history.create(project, "history")
 	if err != nil {

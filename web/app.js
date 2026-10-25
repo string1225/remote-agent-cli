@@ -938,7 +938,7 @@ function showInstallCommands(result) {
   $("enroll-os-badge").textContent=name+" · 系统类型已固定";
   $("install-command").value=({windows:result.windows,darwin:result.macos,linux:result.linux})[os];
   $("install-command-label").firstChild.textContent=({windows:"在新 PowerShell 中执行",darwin:"在这台 Mac 的终端执行",linux:"在这台 Linux 的终端执行"})[os];
-  $("install-guide").textContent=({windows:"下载适合这台电脑架构的 MSI 并安装。更新会保留原设备绑定和本机数据。",darwin:"下方命令会安装或更新客户端，并配置登录后自动启动。",linux:"下方命令会安装或更新客户端，并配置 systemd 用户服务。"})[os];
+  $("install-guide").textContent=({windows:"首次安装对应架构的 MSI。安装自更新框架后，运行 remote-agent update 更新业务程序，无需重复 MSI 安装或管理员授权；绑定和本机数据保留。",darwin:"下方命令会安装或更新客户端，并配置登录后自动启动。",linux:"下方命令会安装或更新客户端，并配置 systemd 用户服务。"})[os];
   $("enroll-msi-downloads").hidden=os!=="windows";
   $("binding-step-title").textContent=result.repair?"2. 修复本机绑定与服务":"2. 绑定这台设备";
   $("repair-log-path").textContent=os==="windows"?"运行日志：%USERPROFILE%\\.remote-agent\\agent.log；管理员配置日志：同目录 service-setup.log。":"运行日志：~/.remote-agent/agent.log。";

@@ -239,6 +239,16 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) (resultErr error) {
 	if err := p.Validate(); err != nil {
 		return err
 	}
+	stage = "serialize service configuration with runtime updates"
+	root, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
+	if err != nil {
+		return err
+	}
+	unlock, err := lockFile(filepath.Join(root, "RemoteAgent", "runtime", "update.lock"))
+	if err != nil {
+		return fmt.Errorf("runtime update is active; retry service configuration after it finishes: %w", err)
+	}
+	defer unlock()
 	c, err := Load(p.Config)
 	if err != nil {
 		return err

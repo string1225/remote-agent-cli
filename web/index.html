@@ -297,7 +297,7 @@
         <p class="muted">先安装客户端，再把电脑绑定到当前账号。项目任务在你的电脑执行，会话和录音保存在设备上。</p>
         <p id="gateway-state" class="platform-note" role="status"></p>
         <label>操作系统<select id="setup-platform"><option value="windows">Windows · PowerShell</option><option value="macos">macOS · Terminal</option><option value="linux">Linux · Bash</option></select></label>
-        <div class="platform-note"><strong>远程客户端安装与升级</strong><p id="remote-install-help"></p><div id="msi-downloads"></div><button class="primary" id="setup-add-device">添加设备并生成绑定命令 ↗</button><p class="small muted">Windows 升级直接安装新版 MSI。安装器清理旧程序及匹配的启动项，保留设备绑定、配置、项目、会话和 SaySo 录音。</p></div>
+        <div class="platform-note"><strong>远程客户端安装与升级</strong><p id="remote-install-help"></p><div id="msi-downloads"></div><button class="primary" id="setup-add-device">添加设备并生成绑定命令 ↗</button><p class="small muted">Windows 首次安装 MSI 并配置服务；日常执行 remote-agent update 更新业务程序，无需重复安装或授权。原设备绑定、项目、会话和录音保留。</p></div>
         <h3>绑定后，启动 Codex</h3><p class="small muted" id="setup-install-description">设备绑定会自动申请当前账号的 Token。再次刷新时，使用本机绑定识别所属账号。</p>
         <label id="local-command-label">刷新已绑定设备的 Codex 配置<textarea id="local-cli-command" rows="2" readonly></textarea></label><button class="secondary" id="copy-local-cli">复制配置命令</button>
         <ol class="setup-steps"><li>安装客户端。Windows 下载 MSI；macOS / Linux 使用设备绑定页上的安装命令。</li><li>在当前账号下添加设备，将绑定命令复制到这台电脑执行。设备会自动申请所属账号的 Token，并备份和更新配置。</li><li>终端会显示 Token 所属的平台账号。运行 remote-agent codex setup 可刷新配置并补装缺少的 Codex CLI，再运行 codex，或重启 Codex App 并新建本地会话。</li><li>在左侧客户端添加项目，会自动打开一个新的 Web 会话。</li></ol>

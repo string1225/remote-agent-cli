@@ -170,7 +170,11 @@ func runtimeAcceptance(t *testing.T, exe string, retained func()) {
 
 func acceptanceNormalToken(t *testing.T) windows.Token {
 	t.Helper()
-	current := windows.GetCurrentProcessToken()
+	var current windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE|windows.TOKEN_ASSIGN_PRIMARY, &current); err != nil {
+		t.Fatal(err)
+	}
+	defer current.Close()
 	if linked, err := current.GetLinkedToken(); err == nil {
 		return linked
 	}
@@ -185,7 +189,15 @@ func acceptanceNormalToken(t *testing.T) windows.Token {
 	if ok == 0 {
 		t.Fatal("create fixture ordinary-user token", callErr)
 	}
-	member, err := token.IsMember(admin)
+	groups, err := token.GetTokenGroups()
+	member := false
+	if err == nil {
+		for _, group := range groups.AllGroups() {
+			if group.Sid.Equals(admin) && group.Attributes&windows.SE_GROUP_ENABLED != 0 && group.Attributes&windows.SE_GROUP_USE_FOR_DENY_ONLY == 0 {
+				member = true
+			}
+		}
+	}
 	if err != nil || member {
 		token.Close()
 		t.Fatal(fmt.Sprintf("fixture token still has administrative group: %v", err))
