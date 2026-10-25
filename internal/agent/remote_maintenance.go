@@ -74,7 +74,26 @@ func (m *maintenanceState) saveLocked() error {
 	if e != nil {
 		return e
 	}
-	return writeRecoveryFile(m.path, raw)
+	// Progress has no credentials. Keep the directory's inherited owner and
+	// service grants, so service-written state stays accessible after uninstall.
+	return writeMaintenanceFile(m.path, raw)
+}
+
+func writeMaintenanceFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".maintenance-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	err = errors.Join(err, f.Close())
+	if err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
 func (m *maintenanceState) get(id string) (MaintenanceOperation, error) {
 	m.mu.Lock()
