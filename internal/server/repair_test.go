@@ -28,8 +28,8 @@ func TestRepairPreservesDeviceAndPendingEnrollment(t *testing.T) {
 	if err := json.Unmarshal(data, &commands); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(commands.Windows, "--token") || !strings.Contains(commands.Windows, "remote-agent connect") {
-		t.Fatal("repair rotated enrolled credential")
+	if !strings.Contains(commands.Windows, "--token-stdin") || !strings.Contains(commands.Windows, "--client-id '"+a.ID+"'") {
+		t.Fatal("repair must carry the selected client ID and scoped recovery capability")
 	}
 	list := f.request(alice, "GET", "/api/agents", nil, 200)
 	if strings.Count(string(list), `"id":`) != 1 || !strings.Contains(string(list), a.ID) {

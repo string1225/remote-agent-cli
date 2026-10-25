@@ -12,6 +12,7 @@
   window.openProjectMenu=(event,nextDevice,nextProject,anchor)=>{project=nextProject;openMenu(event,nextDevice,anchor)};
   function openMenu(event,nextDevice,anchor) {
     event.preventDefault(); event.stopPropagation(); device = nextDevice; opener = anchor;
+    window.prepareMaintenanceMenu?.(device,project);
     $("device-menu-settings").hidden=!!project;
     $("device-menu-channel").hidden=!project;$("device-menu-channel").disabled=!device.online;
     $("device-menu-delete").textContent=project?"删除项目":"删除客户端";

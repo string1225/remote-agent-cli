@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/string1225/remote-agent-cli/internal/clientupdate"
@@ -23,7 +25,7 @@ import (
 )
 
 // Called only by the existing explicit disposable-machine MSI acceptance test.
-func runtimeAcceptance(t *testing.T, exe string, retained func()) {
+func runtimeAcceptance(t *testing.T, exe string, retained func(), setUpdateHandler func(http.Handler), remoteCall func(context.Context, string, any) (MaintenanceOperation, error)) {
 	t.Helper()
 	seedHex, err := os.ReadFile(os.Getenv("REMOTE_AGENT_UPDATE_TEST_KEY"))
 	if err != nil {
@@ -45,7 +47,7 @@ func runtimeAcceptance(t *testing.T, exe string, retained func()) {
 	}
 	release := makeRelease(1, "acceptance-runtime")
 	corrupt := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	updates := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
 			t.Error("download leaked credentials")
 		}
@@ -61,7 +63,10 @@ func runtimeAcceptance(t *testing.T, exe string, retained func()) {
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})
+	setUpdateHandler(updates)
+	defer setUpdateHandler(nil)
+	server := httptest.NewServer(updates)
 	defer server.Close()
 	configuration := func() any {
 		s, err := openWindowsService(windows.SERVICE_QUERY_CONFIG)
@@ -158,14 +163,27 @@ func runtimeAcceptance(t *testing.T, exe string, retained func()) {
 	// upgrade/repair checks. They must preserve this runtime, not select seed.
 	body = core
 	release = makeRelease(4, "acceptance-runtime")
-	if out, err := run("update", "--server", server.URL); err != nil {
-		t.Fatal("restore good runtime", err, out)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	op, err := remoteCall(ctx, "maintenance.start", maintenanceInput{Kind: "client", RequestID: "acceptance-remote-update"})
+	if err != nil || op.ID == "" {
+		t.Fatal("LocalService remote update could not start", err, op)
+	}
+	for ctx.Err() == nil && (op.Status == "queued" || op.Status == "running") {
+		time.Sleep(500 * time.Millisecond)
+		next, e := remoteCall(ctx, "maintenance.status", maintenanceInput{OperationID: op.ID})
+		if e == nil && next.ID == op.ID {
+			op = next
+		}
+	}
+	if op.Status != "succeeded" || op.AfterVersion != "acceptance-runtime" {
+		t.Fatal("service SID update/restart/durable result failed", ctx.Err(), op)
 	}
 	if !reflect.DeepEqual(beforeConfig, configuration()) || !reflect.DeepEqual(beforeProduct, product()) {
 		t.Fatal("recovery changed registration")
 	}
 	retained()
-	t.Log("ordinary-user update/check/rollback, signed invalid startup rollback, corrupt download rejection and unchanged MSI/SCM passed")
+	t.Log("ordinary-user update/check/rollback, LocalService SID remote update/restart/result, signed invalid startup rollback, corrupt download rejection and unchanged MSI/SCM passed")
 }
 
 func acceptanceNormalToken(t *testing.T) windows.Token {

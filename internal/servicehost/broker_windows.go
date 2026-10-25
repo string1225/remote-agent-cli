@@ -86,47 +86,59 @@ func (b *broker) execute(ctx context.Context, request Request, output io.Writer)
 	}, request.Force)
 }
 
-func authorizedClient(conn net.Conn) error {
+func authorizedClient(conn net.Conn) (bool, error) {
 	fd, ok := conn.(interface{ Fd() uintptr })
 	if !ok {
-		return errors.New("unsupported local pipe")
+		return false, errors.New("unsupported local pipe")
 	}
 	var pid uint32
 	if err := windows.GetNamedPipeClientProcessId(windows.Handle(fd.Fd()), &pid); err != nil || pid == 0 {
-		return errors.New("remote pipe clients are denied")
+		return false, errors.New("remote pipe clients are denied")
 	}
 	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer windows.CloseHandle(process)
 	var token windows.Token
 	if err = windows.OpenProcessToken(process, windows.TOKEN_QUERY, &token); err != nil {
-		return err
+		return false, err
 	}
 	defer token.Close()
 	user, err := token.GetTokenUser()
 	if err != nil {
-		return err
+		return false, err
 	}
 	p, err := readProfile()
 	if os.IsNotExist(err) {
-		return nil
+		return false, nil
 	} // Fresh, unbound installation has no user work to interrupt.
 	if err != nil {
-		return err
+		return false, err
 	}
 	if user.User.Sid.String() == p.OwnerSID || token.IsElevated() {
-		return nil
+		return false, nil
 	}
-	return errors.New("only the configured device user or an administrator may update this installation")
+	if user.User.Sid.String() == "S-1-5-19" {
+		serviceSID, _, _, e := windows.LookupSID("", `NT SERVICE\`+ServiceName)
+		groups, e2 := token.GetTokenGroups()
+		if e == nil && e2 == nil {
+			for _, group := range groups.AllGroups() {
+				if group.Sid.Equals(serviceSID) && group.Attributes&windows.SE_GROUP_ENABLED != 0 && group.Attributes&windows.SE_GROUP_USE_FOR_DENY_ONLY == 0 {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, errors.New("only the configured device user or an administrator may update this installation")
 }
 
 func (b *broker) serve(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Minute))
 	e := json.NewEncoder(conn)
-	if err := authorizedClient(conn); err != nil {
+	serviceCaller, err := authorizedClient(conn)
+	if err != nil {
 		_ = e.Encode(Event{Done: true, Error: err.Error()})
 		return
 	}
@@ -137,9 +149,15 @@ func (b *broker) serve(ctx context.Context, conn net.Conn) {
 		_ = e.Encode(Event{Done: true, Error: "invalid update request"})
 		return
 	}
+	// Service-initiated remote updates use the protected enrolled source and
+	// never force-cancel work or request rollback/system maintenance.
+	if serviceCaller && (req.Action != "apply" || req.Server != "" || req.Force) {
+		_ = e.Encode(Event{Done: true, Error: "remote service may only update from its protected enrolled source without force"})
+		return
+	}
 	// Completing or rolling back the transaction is independent of the CLI
 	// connection; closing a terminal cannot leave an uncommitted service switch.
-	err := b.execute(ctx, req, eventWriter{e: e, log: b.log})
+	err = b.execute(ctx, req, eventWriter{e: e, log: b.log})
 	result := Event{Done: true}
 	if err != nil {
 		result.Error = err.Error()

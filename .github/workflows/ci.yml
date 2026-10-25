@@ -33,6 +33,7 @@ jobs:
       - run: node --check web/app.js
       - run: node --check web/platform.js
       - run: node --check web/channels.js
+      - run: node --check web/device-maintenance.js
       - if: runner.os == 'Linux'
         run: go test -race ./...
   build:

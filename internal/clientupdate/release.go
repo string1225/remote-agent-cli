@@ -19,7 +19,7 @@ import (
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 )
 
-const HostVersion = 1
+const HostVersion = 2
 const WorkerProtocol = 1
 const DataVersion = 1
 const MaxSize = 128 << 20

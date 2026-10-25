@@ -17,6 +17,7 @@ import (
 )
 
 type Config struct {
+	ManagedCodex   bool               `json:"managedCodex,omitempty"`
 	Channels       []ChannelConfig    `json:"channels,omitempty"`
 	Server         string             `json:"server"`
 	ID             string             `json:"id"`
@@ -61,6 +62,17 @@ func ValidateServer(raw string) error {
 func (c Config) Save() error {
 	if err := os.MkdirAll(filepath.Dir(c.Path), 0700); err != nil {
 		return err
+	}
+	unlock, err := lockFile(c.Path + ".write.lock")
+	if err != nil {
+		return errors.New("device configuration is being updated; retry shortly")
+	}
+	defer unlock()
+	if raw, e := os.ReadFile(c.Path); e == nil {
+		var previous Config
+		if json.Unmarshal(raw, &previous) == nil && previous.ID != "" && (previous.ID != c.ID || previous.Server != c.Server || previous.Credential != c.Credential) {
+			return errors.New("device binding changed; stale configuration was not saved")
+		}
 	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {

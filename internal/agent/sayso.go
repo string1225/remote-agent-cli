@@ -47,7 +47,7 @@ func (s *saysoStore) load() error {
 	data, err := os.ReadFile(filepath.Join(s.dir, "state.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		provider := "local"
-		if s.a.Providers["codex"].Available {
+		if s.a.providerAvailable("codex") {
 			provider = "codex"
 		}
 		s.state = soState{Projects: []*soProject{}, Sessions: []*soSession{}, Actions: []*soAction{}, Runs: []*soRun{}, Settings: soSettings{provider, "default", 2, "codex", "default"}}
@@ -244,7 +244,7 @@ func (s *saysoStore) call(p *peer, method, path string, raw json.RawMessage) ([]
 		if settings.Executor != "codex" || !soModelPattern.MatchString(settings.AnalysisModel) || !soModelPattern.MatchString(settings.ExecutionModel) {
 			return nil, errors.New("无效模型或执行器")
 		}
-		if settings.AnalysisProvider == "codex" && !s.a.Providers["codex"].Available {
+		if settings.AnalysisProvider == "codex" && !s.a.providerAvailable("codex") {
 			return nil, errors.New("目标电脑未安装 Codex，可选择本地规则")
 		}
 		settings.AnalysisIntervalMinutes = 2

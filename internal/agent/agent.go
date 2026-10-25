@@ -17,11 +17,15 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/string1225/remote-agent-cli/internal/buildinfo"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
+	"github.com/string1225/remote-agent-cli/internal/servicehost"
 	"github.com/string1225/remote-agent-cli/internal/store"
 )
 
 type Runner func(context.Context, Provider, protocol.Service, string, bool, func(protocol.Event) error, string) error
 type Agent struct {
+	remoteOnce        sync.Once
+	remote            *maintenanceState
+	toolInstalling    bool
 	maintenance       bool
 	recordingActivity int
 	operations        int
@@ -50,7 +54,7 @@ type Agent struct {
 
 func New(c Config) *Agent {
 	c.PermissionMode, c.AllowWrite = "full", true
-	return &Agent{Config: c, Providers: Detect(), Execute: runProcess}
+	return &Agent{Config: c, Providers: detectConfigured(c), Execute: runProcess}
 }
 func (a *Agent) services() []protocol.Service {
 	a.mu.Lock()
@@ -81,6 +85,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}()
 	a.initTasks(ctx)
+	a.initRemoteMaintenance(ctx)
 	a.initChannels(ctx)
 	backoff := time.Second
 	for {
@@ -130,7 +135,12 @@ func (a *Agent) connect(ctx context.Context) error {
 	q.Set("transport", protocol.RelayTransport)
 	u.RawQuery = q.Encode()
 	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second}
-	conn, res, err := dialer.DialContext(ctx, u.String(), http.Header{"Authorization": []string{"Bearer " + a.Config.Credential}})
+	machineID, err := MachineIdentity(a.Config.Path)
+	if err != nil {
+		return err
+	}
+	hostname, _ := os.Hostname()
+	conn, res, err := dialer.DialContext(ctx, u.String(), http.Header{"Authorization": []string{"Bearer " + a.Config.Credential}, "X-Remote-Agent-Machine": []string{machineID}})
 	if err != nil {
 		if res != nil {
 			res.Body.Close()
@@ -157,7 +167,7 @@ func (a *Agent) connect(ctx context.Context) error {
 		ticker := time.NewTicker(20 * time.Second)
 		defer ticker.Stop()
 		for {
-			if c.send(protocol.Signal{Type: "heartbeat", Services: a.catalogServices()}) != nil {
+			if c.send(protocol.Signal{Type: "heartbeat", Services: a.catalogServices(), MachineID: machineID, Hostname: hostname}) != nil {
 				conn.Close()
 				return
 			}
@@ -290,6 +300,21 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 	return p, nil
 }
 func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) error) {
+	if req.Type == "maintenance.start" || req.Type == "maintenance.status" {
+		a.handleMaintenance(req, send)
+		return
+	}
+	if req.Type == "authenticate" || req.Type == "services.list" {
+		a.mu.Lock()
+		providers := make(map[string]Provider, len(a.Providers))
+		for name, provider := range a.Providers {
+			providers[name] = provider
+		}
+		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "attachments": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": servicehost.RemoteUpdateSupported()}
+		a.mu.Unlock()
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
+		return
+	}
 	fail := func(err error) { _ = send(protocol.Event{ID: req.ID, Type: "error", Error: err.Error()}) }
 	if err := a.beginOperation(); err != nil {
 		fail(err)
@@ -357,11 +382,6 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			return
 		}
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: conversation})
-	case "authenticate", "services.list":
-		a.mu.Lock()
-		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": a.Providers, "allowedRoots": a.Config.AllowedRoots, "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "attachments": true, "clientVersion": buildinfo.Current()}
-		a.mu.Unlock()
-		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 	case "services.add":
 		result, err := a.registerProject(req.Service)
 		if err != nil {

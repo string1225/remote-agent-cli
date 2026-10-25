@@ -34,16 +34,19 @@ type Session struct {
 	ExpiresAt int64  `json:"expiresAt"`
 }
 type Agent struct {
-	ID        string             `json:"id"`
-	UserID    string             `json:"userId"`
-	Name      string             `json:"name"`
-	OS        string             `json:"os"`
-	Arch      string             `json:"arch"`
-	TokenHash string             `json:"tokenHash,omitempty"`
-	Revoked   bool               `json:"revoked"`
-	Enrolled  bool               `json:"enrolled"`
-	LastSeen  int64              `json:"lastSeen"`
-	Services  []protocol.Service `json:"services"`
+	MachineID      string             `json:"machineId,omitempty"`
+	Hostname       string             `json:"hostname,omitempty"`
+	RepairSourceID string             `json:"repairSourceId,omitempty"`
+	ID             string             `json:"id"`
+	UserID         string             `json:"userId"`
+	Name           string             `json:"name"`
+	OS             string             `json:"os"`
+	Arch           string             `json:"arch"`
+	TokenHash      string             `json:"tokenHash,omitempty"`
+	Revoked        bool               `json:"revoked"`
+	Enrolled       bool               `json:"enrolled"`
+	LastSeen       int64              `json:"lastSeen"`
+	Services       []protocol.Service `json:"services"`
 }
 type enrollment struct {
 	AgentID   string `json:"agentId"`
@@ -260,6 +263,13 @@ func (s *Store) Heartbeat(id string, msg protocol.Signal) error {
 			return ErrDenied
 		}
 		a.LastSeen = time.Now().Unix()
+		if msg.MachineID != "" {
+			if !validMachineID(msg.MachineID) || a.MachineID != "" && a.MachineID != msg.MachineID {
+				return ErrDenied
+			}
+			a.MachineID = msg.MachineID
+			a.Hostname = cleanHostname(msg.Hostname)
+		}
 		a.Services = msg.Services
 		return put(tx, "agents", id, a)
 	})

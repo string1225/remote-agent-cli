@@ -166,8 +166,17 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	var connections atomic.Int32
 	var offline atomic.Bool
 	var mu sync.Mutex
-	active := map[*websocket.Conn]bool{}
+	active := map[*websocket.Conn]*sync.Mutex{}
+	var fixtureUpdates http.Handler
+	responses := make(chan protocol.Signal, 64)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		updates := fixtureUpdates
+		mu.Unlock()
+		if updates != nil && (strings.HasPrefix(r.URL.Path, "/updates/") || strings.HasPrefix(r.URL.Path, "/downloads/")) {
+			updates.ServeHTTP(w, r)
+			return
+		}
 		if offline.Load() {
 			w.WriteHeader(503)
 			return
@@ -181,7 +190,8 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 			return
 		}
 		mu.Lock()
-		active[conn] = true
+		writer := &sync.Mutex{}
+		active[conn] = writer
 		mu.Unlock()
 		defer func() { conn.Close(); mu.Lock(); delete(active, conn); mu.Unlock() }()
 		first := true
@@ -195,8 +205,17 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 					connections.Add(1)
 					first = false
 				}
-				if conn.WriteJSON(protocol.Signal{Type: "pong"}) != nil {
+				writer.Lock()
+				e := conn.WriteJSON(protocol.Signal{Type: "pong"})
+				writer.Unlock()
+				if e != nil {
 					return
+				}
+			}
+			if signal.Type == "event" {
+				select {
+				case responses <- signal:
+				default:
 				}
 			}
 		}
@@ -360,7 +379,56 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	assertRetained()
 
 	before = connections.Load()
-	runtimeAcceptance(t, exe, assertRetained)
+	remoteCall := func(ctx context.Context, method string, body any) (MaintenanceOperation, error) {
+		mu.Lock()
+		var conn *websocket.Conn
+		var writer *sync.Mutex
+		for c, w := range active {
+			conn, writer = c, w
+		}
+		mu.Unlock()
+		if conn == nil {
+			return MaintenanceOperation{}, errors.New("fixture worker reconnecting")
+		}
+		id := fmt.Sprintf("maintenance-%d", time.Now().UnixNano())
+		raw, _ := json.Marshal(body)
+		writer.Lock()
+		e := conn.WriteJSON(protocol.Signal{Type: "open", PeerID: id, LeaseSeconds: 30, Transport: protocol.RelayTransport})
+		if e == nil {
+			e = conn.WriteJSON(protocol.Signal{Type: "request", PeerID: id, Request: &protocol.Request{ID: id, Type: method, Body: raw}})
+		}
+		writer.Unlock()
+		if e != nil {
+			return MaintenanceOperation{}, e
+		}
+		defer func() {
+			writer.Lock()
+			defer writer.Unlock()
+			_ = conn.WriteJSON(protocol.Signal{Type: "close", PeerID: id})
+		}()
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case signal := <-responses:
+				if signal.PeerID != id || signal.Event == nil {
+					continue
+				}
+				if signal.Event.Type == "error" {
+					return MaintenanceOperation{}, errors.New(signal.Event.Error)
+				}
+				raw, _ := json.Marshal(signal.Event.Data)
+				var op MaintenanceOperation
+				e := json.Unmarshal(raw, &op)
+				return op, e
+			case <-ctx.Done():
+				return MaintenanceOperation{}, ctx.Err()
+			case <-timer.C:
+				return MaintenanceOperation{}, errors.New("fixture relay timeout")
+			}
+		}
+	}
+	runtimeAcceptance(t, exe, assertRetained, func(handler http.Handler) { mu.Lock(); fixtureUpdates = handler; mu.Unlock() }, remoteCall)
 	before = connections.Load()
 	msi("/i", goodMSI, false)
 	assertCommandPath(true)

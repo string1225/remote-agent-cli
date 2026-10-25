@@ -22,6 +22,8 @@ func runConnect(args []string) error {
 	write := flags.Bool("allow-write", true, tr("compatibility option; all sessions use full authorization"))
 	noStart := flags.Bool("no-start", false, tr("bind the device without starting remote access"))
 	rebind := flags.String("rebind", "", tr("recover this exact device ID using an owner-issued recovery token"))
+	clientID := flags.String("client-id", "", tr("target client ID from the repair dialog"))
+	forceRebind := flags.Bool("force-rebind", false, tr("explicitly confirm replacing a mismatched local binding"))
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -30,6 +32,9 @@ func runConnect(args []string) error {
 	}
 	if flags.NArg() != 0 {
 		return errors.New(tr("unexpected connection arguments"))
+	}
+	if *forceRebind && *clientID == "" || *clientID != "" && *rebind != "" {
+		return errors.New("--force-rebind requires --client-id; do not combine --client-id with --rebind")
 	}
 	if err := agent.ValidateServer(*server); err != nil {
 		return err
@@ -45,6 +50,9 @@ func runConnect(args []string) error {
 	}
 	if *rebind != "" {
 		return runRebindConnect(*server, *rebind, path, *roots, *prompt, *stdin, *noStart)
+	}
+	if *clientID != "" {
+		return runTargetRepair(*server, *clientID, path, *prompt, *stdin, *forceRebind, *noStart)
 	}
 	if _, err = os.Stat(path); err == nil {
 		existing, loadErr := agent.Load(path)

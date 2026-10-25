@@ -47,6 +47,7 @@
           </Directory>
           <Component Id="InstallationRegistry" Guid="C9443878-4C38-4F10-BE23-D8EBD7E5C6D3" Win64="yes">
             <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="HostProtocol" Type="integer" Value="1" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="HostVersion" Type="integer" Value="2" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="InstallDir" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="Language" Type="string" Value="[CLI_LANGUAGE]" />
             <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\RemoteAgent" Name="EventMessageFile" Type="expandable" Value="[System64Folder]EventCreate.exe" />

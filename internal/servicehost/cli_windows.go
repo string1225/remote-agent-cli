@@ -108,6 +108,10 @@ func ClientUpdate(ctx context.Context, args []string, output io.Writer) error {
 		}
 		return nil
 	}
+	return requestUpdate(ctx, request, output)
+}
+
+func requestUpdate(ctx context.Context, request Request, output io.Writer) error {
 	conn, err := winio.DialPipeContext(ctx, PipeName)
 	if err != nil {
 		return errors.New("the fixed update service is unavailable; install the new host MSI once and check RemoteAgentUpdater")

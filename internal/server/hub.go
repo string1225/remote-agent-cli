@@ -109,6 +109,10 @@ func (s *Server) agentSocket(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "agent credentials denied")
 		return
 	}
+	if machine := r.Header.Get("X-Remote-Agent-Machine"); machine != "" && a.MachineID != "" && a.MachineID != machine {
+		fail(w, 409, "machine identity differs; use the selected client's repair command to confirm replacement")
+		return
+	}
 	if r.URL.Query().Get("transport") != protocol.RelayTransport {
 		fail(w, http.StatusUpgradeRequired, "update the client to the WebSocket relay release")
 		return
