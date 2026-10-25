@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -277,7 +278,7 @@ func SetGitHubProxy(configPath, address string) (string, error) {
 	backup := ""
 	if len(before) > 0 {
 		backup = path + ".backup-" + time.Now().UTC().Format("20060102T150405.000000000")
-		if err := writeRecoveryFile(backup, before); err != nil {
+		if err := writeGitHubProxyFile(backup, before); err != nil {
 			return "", err
 		}
 	}
@@ -288,8 +289,28 @@ func SetGitHubProxy(configPath, address string) (string, error) {
 	if !bytes.Equal(before, latest) {
 		return backup, errors.New("proxy configuration changed; setting was not saved")
 	}
-	if err := writeRecoveryFile(path, after); err != nil {
+	if err := writeGitHubProxyFile(path, after); err != nil {
 		return backup, err
 	}
 	return backup, nil
+}
+
+// These settings contain no secrets. Inherit the config directory's access so
+// the Windows Service can read user-written toggles; credential-file protection
+// deliberately removes that inherited service grant and must not be used here.
+func writeGitHubProxyFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".github-proxy-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	err = errors.Join(err, f.Close())
+	if err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
