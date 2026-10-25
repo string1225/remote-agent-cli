@@ -7,7 +7,6 @@ import (
 	"github.com/string1225/remote-agent-cli/internal/buildinfo"
 	"github.com/string1225/remote-agent-cli/internal/codexsetup"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
-	"github.com/string1225/remote-agent-cli/internal/servicehost"
 	"github.com/string1225/remote-agent-cli/internal/store"
 	"io"
 	"net/http"
@@ -181,7 +180,7 @@ func (a *Agent) recoverRemoteUpdate(ctx context.Context, op MaintenanceOperation
 	m := a.maintenanceState()
 	until := time.Now().Add(2 * time.Minute)
 	for time.Now().Before(until) {
-		version, pending, err := servicehost.RemoteRuntimeState()
+		version, pending, err := remoteRuntimeState(a.Config.Path)
 		if err == nil && !pending {
 			_ = m.change(op.ID, func(v *MaintenanceOperation) {
 				v.AfterVersion = buildinfo.Current()
@@ -230,8 +229,12 @@ func (a *Agent) handleMaintenance(req protocol.Request, send func(protocol.Event
 		}
 		return
 	}
-	if in.Kind == "client" && !servicehost.RemoteUpdateSupported() {
-		fail(errors.New("需要先在这台电脑安装支持远程维护的新版 MSI；完成一次宿主升级后，后续业务更新无需本机授权"))
+	if in.Kind == "client" && !remoteClientUpdateSupported() {
+		message := "请先在目标电脑更新客户端并以 remote-agent run 启动，之后可远程更新，无需重新绑定"
+		if runtime.GOOS == "windows" {
+			message = "需要先在这台电脑安装支持远程维护的新版 MSI；完成一次宿主升级后，后续业务更新无需本机授权"
+		}
+		fail(errors.New(message))
 		return
 	}
 	op, start, err := m.start(in)
@@ -269,7 +272,7 @@ func (a *Agent) runMaintenance(parent context.Context, op MaintenanceOperation) 
 		a.mu.Lock()
 		server := a.Config.Server
 		a.mu.Unlock()
-		release, e := servicehost.RuntimeRelease(ctx, server)
+		release, e := remoteClientRelease(ctx, server)
 		err = e
 		if err == nil {
 			err = m.change(op.ID, func(v *MaintenanceOperation) {
@@ -279,7 +282,7 @@ func (a *Agent) runMaintenance(parent context.Context, op MaintenanceOperation) 
 				v.Message = "正在下载并验证客户端更新"
 			})
 			if err == nil {
-				err = servicehost.RemoteUpdate(ctx, &maintenanceWriter{set: set})
+				err = a.applyRemoteClientUpdate(ctx, op, release)
 			}
 		}
 		if parent.Err() != nil {

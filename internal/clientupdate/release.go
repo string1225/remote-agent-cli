@@ -20,6 +20,7 @@ import (
 )
 
 const HostVersion = 2
+const UnixUpdateProtocol = 1
 const WorkerProtocol = 1
 const DataVersion = 1
 const MaxSize = 128 << 20
@@ -48,11 +49,20 @@ type Release struct {
 	Signature string `json:"signature"`
 }
 
-func (p Payload) Artifact() string { return "remote-agent-core-" + p.OS + "-" + p.Arch + ".exe" }
+func (p Payload) Artifact() string {
+	if p.OS == "windows" {
+		return "remote-agent-core-windows-" + p.Arch + ".exe"
+	}
+	return "remote-agent-" + p.OS + "-" + p.Arch
+}
+
+func supportedPlatform(platform, arch string) bool {
+	return (platform == "windows" || platform == "darwin" || platform == "linux") && (arch == "amd64" || arch == "arm64")
+}
 
 func (r Release) Verify(keys map[string]ed25519.PublicKey, platform, arch string) error {
 	p := r.Payload
-	if p.SchemaVersion != 1 || p.Sequence == 0 || !versionRE.MatchString(p.Version) || p.OS != platform || p.Arch != arch || p.OS != "windows" || (p.Arch != "amd64" && p.Arch != "arm64") || !digestRE.MatchString(p.SHA256) || p.Size < 1 || p.Size > MaxSize || p.MinHostVersion < 1 || p.WorkerProtocol < 1 || p.DataVersion != DataVersion || p.MinRollbackDataVersion != DataVersion {
+	if p.SchemaVersion != 1 || p.Sequence == 0 || !versionRE.MatchString(p.Version) || p.OS != platform || p.Arch != arch || !supportedPlatform(p.OS, p.Arch) || !digestRE.MatchString(p.SHA256) || p.Size < 1 || p.Size > MaxSize || p.MinHostVersion < 1 || p.WorkerProtocol < 1 || p.DataVersion != DataVersion || p.MinRollbackDataVersion != DataVersion {
 		return errors.New("invalid or incompatible runtime release")
 	}
 	key, ok := keys[r.KeyID]
@@ -71,6 +81,12 @@ func Sign(p Payload, id string, key ed25519.PrivateKey) Release {
 }
 
 func Compatible(r Release) error {
+	if r.OS == "darwin" || r.OS == "linux" {
+		if r.MinHostVersion > UnixUpdateProtocol || r.WorkerProtocol != WorkerProtocol {
+			return errors.New("this release requires a newer Unix client update protocol; upgrade the client once from its original installer")
+		}
+		return nil
+	}
 	if r.MinHostVersion > HostVersion || r.WorkerProtocol != WorkerProtocol {
 		return fmt.Errorf("this release requires a newer host MSI (minimum host %d, worker protocol %d); routine runtime updates do not require MSI", r.MinHostVersion, r.WorkerProtocol)
 	}
@@ -104,7 +120,7 @@ func Fetch(ctx context.Context, client *http.Client, server, platform, arch stri
 	if err != nil {
 		return release, err
 	}
-	if platform != "windows" || (arch != "amd64" && arch != "arm64") {
+	if !supportedPlatform(platform, arch) {
 		return release, errors.New("unsupported runtime platform")
 	}
 	res, err := get(ctx, client, u.String()+"/updates/v1/"+platform+"/"+arch+".json")

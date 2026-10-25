@@ -191,7 +191,7 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) runtimeRelease(w http.ResponseWriter, r *http.Request) {
 	platform, arch := r.PathValue("os"), r.PathValue("arch")
-	if platform != "windows" || (arch != "amd64.json" && arch != "arm64.json") {
+	if (platform != "windows" && platform != "darwin" && platform != "linux") || (arch != "amd64.json" && arch != "arm64.json") {
 		http.NotFound(w, r)
 		return
 	}

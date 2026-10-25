@@ -17,7 +17,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/string1225/remote-agent-cli/internal/buildinfo"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
-	"github.com/string1225/remote-agent-cli/internal/servicehost"
 	"github.com/string1225/remote-agent-cli/internal/store"
 )
 
@@ -85,6 +84,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}()
 	a.initTasks(ctx)
+	if err := a.commitRemoteRuntime(); err != nil {
+		return err
+	}
 	a.initRemoteMaintenance(ctx)
 	a.initChannels(ctx)
 	backoff := time.Second
@@ -310,7 +312,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		for name, provider := range a.Providers {
 			providers[name] = provider
 		}
-		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "attachments": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": servicehost.RemoteUpdateSupported()}
+		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "attachments": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 		return

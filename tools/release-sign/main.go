@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/string1225/remote-agent-cli/internal/clientupdate"
 )
@@ -23,6 +24,7 @@ func main() {
 	version := flag.String("version", "", "business version")
 	sequence := flag.Uint64("sequence", 0, "monotonic release sequence")
 	dir := flag.String("dist", "dist", "artifacts directory")
+	platforms := flag.String("platforms", "windows,darwin,linux", "comma-separated release platforms")
 	flag.Parse()
 	if *keygen != "" {
 		pub, key, err := ed25519.GenerateKey(rand.Reader)
@@ -56,26 +58,35 @@ func main() {
 		log.Fatal("invalid private signing seed")
 	}
 	key := ed25519.NewKeyFromSeed(seed)
-	for _, arch := range []string{"amd64", "arm64"} {
-		path := filepath.Join(*dir, "remote-agent-core-windows-"+arch+".exe")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			log.Fatal(err)
+	for _, platform := range strings.Split(*platforms, ",") {
+		if platform != "windows" && platform != "darwin" && platform != "linux" {
+			log.Fatal("unsupported release platform")
 		}
-		sum := sha256.Sum256(data)
-		p := clientupdate.Payload{SchemaVersion: 1, Sequence: *sequence, Version: *version, OS: "windows", Arch: arch, MinHostVersion: clientupdate.HostVersion, WorkerProtocol: clientupdate.WorkerProtocol, DataVersion: clientupdate.DataVersion, MinRollbackDataVersion: clientupdate.DataVersion, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}
-		release := clientupdate.Sign(p, *id, key)
-		if err = release.Verify(map[string]ed25519.PublicKey{*id: key.Public().(ed25519.PublicKey)}, "windows", arch); err != nil {
-			log.Fatal(err)
+		for _, arch := range []string{"amd64", "arm64"} {
+			p := clientupdate.Payload{SchemaVersion: 1, Sequence: *sequence, Version: *version, OS: platform, Arch: arch, MinHostVersion: 1, WorkerProtocol: clientupdate.WorkerProtocol, DataVersion: clientupdate.DataVersion, MinRollbackDataVersion: clientupdate.DataVersion}
+			if platform == "windows" {
+				p.MinHostVersion = clientupdate.HostVersion
+			}
+			path := filepath.Join(*dir, p.Artifact())
+			data, err := os.ReadFile(path)
+			if err != nil {
+				log.Fatal(err)
+			}
+			sum := sha256.Sum256(data)
+			p.Size, p.SHA256 = int64(len(data)), hex.EncodeToString(sum[:])
+			release := clientupdate.Sign(p, *id, key)
+			if err = release.Verify(map[string]ed25519.PublicKey{*id: key.Public().(ed25519.PublicKey)}, platform, arch); err != nil {
+				log.Fatal(err)
+			}
+			encoded, _ := json.MarshalIndent(release, "", "  ")
+			out := filepath.Join(*dir, "updates", "v1", platform)
+			if err = os.MkdirAll(out, 0755); err != nil {
+				log.Fatal(err)
+			}
+			if err = os.WriteFile(filepath.Join(out, arch+".json"), append(encoded, '\n'), 0644); err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println("Signed", platform, arch, *version, *sequence)
 		}
-		encoded, _ := json.MarshalIndent(release, "", "  ")
-		out := filepath.Join(*dir, "updates", "v1", "windows")
-		if err = os.MkdirAll(out, 0755); err != nil {
-			log.Fatal(err)
-		}
-		if err = os.WriteFile(filepath.Join(out, arch+".json"), append(encoded, '\n'), 0644); err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println("Signed", arch, *version, *sequence)
 	}
 }

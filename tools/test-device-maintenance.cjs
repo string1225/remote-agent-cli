@@ -57,7 +57,17 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     assert.equal(await page.locator('#device-menu-maintenance').isDisabled(), true);
     await page.evaluate(d => prepareMaintenanceMenu(d, { id: 'project' }), device);
     assert.equal(await page.locator('#device-menu-maintenance').isHidden(), true);
-    await page.evaluate(d => prepareMaintenanceMenu(d), device);
+    for (const os of ['darwin', 'linux']) {
+      await page.evaluate(d => { prepareMaintenanceMenu(d); document.getElementById("device-menu").hidden=false; }, { ...device, os, id: os + '-client' });
+      await page.locator('#device-menu-maintenance').click();
+      const update = page.getByRole('menuitem', { name: '更新客户端', exact: true });
+      assert.equal(await update.isEnabled(), true, os + ' update is disabled');
+      await update.click();
+      await page.waitForFunction(() => !$('maintenance-start').disabled);
+      assert.match(await page.locator('#maintenance-target').innerText(), new RegExp(os));
+      await page.locator('#maintenance-close').click();
+    }
+    await page.evaluate(d => { prepareMaintenanceMenu(d); document.getElementById("device-menu").hidden=false; }, device);
     await page.locator('#device-menu-maintenance').click();
     assert.equal(await page.getByRole('menu', { name: '客户端更新与工具' }).isVisible(), true);
     await page.getByRole('menuitem', { name: '安装／更新 Codex CLI' }).click();

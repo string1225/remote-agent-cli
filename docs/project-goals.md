@@ -20,6 +20,7 @@
 | Web 代理与 Codex 技能 | 默认关闭的 web-proxy，GitHub/ChatGPT 经 139，其他 HTTP/HTTPS 直接放行；安装/更新/setup 自动安装 remote-agent skill | 同版 139/客户端部署、真实 Git/LFS、ChatGPT、直连与 Windows Service 开关验收，见 [使用说明](web-proxy.md) |
 | Windows 安装 | x64/ARM64 MSI、自动 Windows Service、失败恢复、旧任务迁移、保留数据升级/回滚；不新建计划任务 | 发布者签名、原生 ARM64、真实整机冷启动/退出桌面验收 |
 | Windows 业务更新 | MSI 1.1 固定宿主 + SYSTEM 更新服务，签名 core、普通用户命令/后台检查、事务切换/上一稳定版回退，日常无需 MSI/UAC；不做旧客户端兼容 | 一次性管理员 runner 的真实 MSI/SCM 验收，原生 ARM64、断电与冷启动/退出桌面验收 |
+| macOS/Linux 远程更新 | 客户端菜单发起签名更新，空闲检查、原子替换、保留 PID 重新加载、启动中断回退及进度持久化，不改写服务注册；旧客户端需先命令行升级一次 | 原生进程测试及回退测试；真实 LaunchAgent/systemd 的开机、退出登录与原生 ARM64 环境单独验收，见 [客户端维护](client-maintenance.md) |
 | 本机任务 | Codex danger-full-access/never、Qoder bypass_permissions；Web/IM/SaySo 统一完整授权，旧配置内存迁移；输出/取消/超时、设备单任务互斥 | 独立通用命令 API 仍待实现；旧 Windows RX 项目目录需运行 connect 重新配置服务 ACL |
 | 工具和安装 | Codex/Qoder CLI 检测，区分 Qoder 编辑器启动器；本机 Codex 安装更新与平台代理配置；Windows App 打开商店页 | 完整 App 版本检测、网页通用代理配置/安装操作及服务到用户桌面协作仍待补齐 |
 | 项目与会话 | 保留原 Service ID，统一工作台/IM/SaySo 映射，保留原生上下文与旧数据；各会话可列出同账号项目、派生 Web 任务 | 真实目标设备的各 CLI/MCP 版本需验收 |

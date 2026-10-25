@@ -27,6 +27,9 @@ func main() {
 	}
 }
 func run() error {
+	if len(os.Args) == 3 && os.Args[1] == "internal-update-probe" {
+		return agent.ProbeRemoteUpdate(os.Args[2], os.Stdout)
+	}
 	if len(os.Args) == 3 && os.Args[1] == "internal-worker" {
 		input, output, closePipes, err := agent.WorkerControlPipes()
 		if err != nil {
@@ -125,10 +128,6 @@ func run() error {
 		}
 		return nil
 	case "run":
-		c, err := agent.Load(path)
-		if err != nil {
-			return err
-		}
 		unlock, err := agent.LockRun(path)
 		if errors.Is(err, agent.ErrAgentRunning) {
 			fmt.Fprintln(os.Stdout, tr("Agent already running; keeping the existing process."))
@@ -138,31 +137,37 @@ func run() error {
 			return err
 		}
 		defer unlock()
-		if *logPath != "" {
-			if st, err := os.Stat(*logPath); err == nil && st.Size() > 10*1024*1024 {
-				_ = os.Rename(*logPath, *logPath+".old")
-			}
-			f, err := os.OpenFile(*logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		return agent.RunWithRemoteUpdateRecovery(path, func() error {
+			c, err := agent.Load(path)
 			if err != nil {
 				return err
 			}
-			previous := log.Writer()
-			defer func() { log.SetOutput(previous); f.Close() }()
-			log.SetOutput(f)
-		}
-		log.Printf("agent starting (version %s, pid %d)", buildinfo.Current(), os.Getpid())
-		if err := agent.RepairAutostart(path); err != nil {
-			log.Printf("cannot repair autostart recovery policy: %v", err)
-		}
-		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer cancel()
-		err = agent.New(c).Run(ctx)
-		if err != nil {
-			log.Printf("agent stopped: %v", err)
-		} else {
-			log.Print("agent stopped after shutdown signal")
-		}
-		return err
+			if *logPath != "" {
+				if st, err := os.Stat(*logPath); err == nil && st.Size() > 10*1024*1024 {
+					_ = os.Rename(*logPath, *logPath+".old")
+				}
+				f, err := os.OpenFile(*logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+				if err != nil {
+					return err
+				}
+				previous := log.Writer()
+				defer func() { log.SetOutput(previous); f.Close() }()
+				log.SetOutput(f)
+			}
+			log.Printf("agent starting (version %s, pid %d)", buildinfo.Current(), os.Getpid())
+			if err := agent.RepairAutostart(path); err != nil {
+				log.Printf("cannot repair autostart recovery policy: %v", err)
+			}
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+			err = agent.New(c).Run(ctx)
+			if err != nil {
+				log.Printf("agent stopped: %v", err)
+			} else {
+				log.Print("agent stopped after shutdown signal")
+			}
+			return err
+		})
 	case "status":
 		c, err := agent.Load(path)
 		if err != nil {

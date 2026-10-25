@@ -222,6 +222,9 @@ func Update(ctx context.Context, configPath string, options UpdateOptions, outpu
 			return err
 		}
 		defer unlock()
+		if err := checkRemoteUpdateTransaction(exe, configPath); err != nil {
+			return err
+		}
 	}
 	expected, err := updateChecksum(ctx, client, base, name)
 	if err != nil {

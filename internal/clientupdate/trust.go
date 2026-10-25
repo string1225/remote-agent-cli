@@ -5,7 +5,8 @@ import (
 	"encoding/hex"
 )
 
-// Trust anchors can change only in a new host MSI, never in a release manifest.
+// Trust anchors are compiled into the Windows host or Unix client, never
+// supplied or replaced by a release manifest.
 
 // ReleasePublicKey can be replaced at build time for isolated acceptance hosts.
 // Production builds use this repository's fixed public key.
