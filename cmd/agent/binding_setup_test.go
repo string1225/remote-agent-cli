@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -60,11 +61,20 @@ func TestDefaultCodexSetupUsesBoundAccount(t *testing.T) {
 	helper := filepath.Join(root, "codex")
 	content := "#!/bin/sh\necho exec\n"
 	if runtime.GOOS == "windows" {
-		helper += ".cmd"
-		content = "@echo exec\r\n"
-	}
-	if err := os.WriteFile(helper, []byte(content), 0700); err != nil {
-		t.Fatal(err)
+		helper += ".exe"
+		// A PowerShell-backed .cmd probe can exceed the detector's timeout on
+		// loaded CI runners. Keep account setup independent of shell startup.
+		source := filepath.Join(root, "fixture.go")
+		if err := os.WriteFile(source, []byte("package main\nimport \"fmt\"\nfunc main(){fmt.Println(\"exec\")}\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command("go", "build", "-o", helper, source).CombinedOutput(); err != nil {
+			t.Fatal("build native CLI fixture", err, string(out))
+		}
+	} else {
+		if err := os.WriteFile(helper, []byte(content), 0700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("RA_CODEX_PATH", helper)
 	t.Setenv("RA_QODER_PATH", filepath.Join(root, "missing"))
