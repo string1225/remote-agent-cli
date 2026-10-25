@@ -166,6 +166,12 @@ func runtimeAcceptance(t *testing.T, exe string, retained func(), setUpdateHandl
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	op, err := remoteCall(ctx, "maintenance.start", maintenanceInput{Kind: "client", RequestID: "acceptance-remote-update"})
+	// CLI rollback waits for local worker readiness, independently of the
+	// network connection. Wait for its relay using the same idempotency key.
+	for ctx.Err() == nil && (err != nil || op.ID == "") {
+		time.Sleep(500 * time.Millisecond)
+		op, err = remoteCall(ctx, "maintenance.start", maintenanceInput{Kind: "client", RequestID: "acceptance-remote-update"})
+	}
 	if err != nil || op.ID == "" {
 		t.Fatal("LocalService remote update could not start", err, op)
 	}
