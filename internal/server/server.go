@@ -150,7 +150,7 @@ func (s *Server) protect(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self' blob:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		if strings.HasPrefix(s.Config.PublicURL, "https:") {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
@@ -308,11 +308,16 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Name string `json:"name"`
+		OS   string `json:"os"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	in.Name = strings.TrimSpace(in.Name)
+	if !store.ValidDeviceOS(in.OS) {
+		fail(w, 400, "请选择客户端操作系统：Windows、macOS 或 Linux")
+		return
+	}
 	if len(in.Name) == 0 || len(in.Name) > 80 {
 		fail(w, 400, "device name must be 1–80 bytes")
 		return
@@ -326,7 +331,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "100 device limit; revoke unused devices first")
 		return
 	}
-	a, token, err := s.Store.Enroll(v.UserID, in.Name)
+	a, token, err := s.Store.EnrollForOS(v.UserID, in.Name, in.OS)
 	if err != nil {
 		fail(w, 500, "cannot create enrollment")
 		return

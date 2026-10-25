@@ -1,4 +1,4 @@
-/* History is stored on the Agent, never in browser storage or the control server. */
+/* Client history is authoritative; the browser keeps account-scoped drafts and a bounded cache. */
 const $ = (id) => document.getElementById(id);
 const basePath = new URL(".", location.href).pathname.replace(/\/$/, "");
 const state = {
@@ -11,11 +11,12 @@ const state = {
   providers: {},
   roots: [],
   allowWrite: false,
+  permissionMode: "",
+  attachments: false,
   serviceId: null,
   sessions: [],
   session: null,
   entries: [],
-  drafts: new Map(),
   running: null,
   runSession: null,
   pending: new Map(),
@@ -26,12 +27,39 @@ const state = {
   listExtended: false,
 };
 let noticeTimer, searchTimer, drawerOpener, closeSayso;
+function draftContext(sessionID=state.session?.id) { return [state.user?.id,state.selected?.id,state.serviceId,sessionID]; }
+function saveCurrentDraft() {
+  if(!state.session || !state.user || !state.selected || !state.serviceId)return;
+  WorkspaceCache.write("draft",draftContext(),{text:$("prompt").value,attachments:window.chatAttachments?.snapshot() || []});
+}
+function restoreCurrentDraft() {
+  const context=draftContext(), saved=WorkspaceCache.read("draft",context), pending=WorkspaceCache.read("pending",context);
+  const draft=saved?.text || saved?.attachments?.length ? saved : pending || saved;
+  $("prompt").value=draft?.text || "";
+  window.chatAttachments?.restore(draft?.attachments || []);
+}
+function cacheCurrentSession() {if(state.session && state.user && state.selected)WorkspaceCache.history(draftContext(),state.session,state.entries)}
+function reconcilePendingDraft() {
+  const pending=WorkspaceCache.read("pending",draftContext());
+  if(pending && state.entries.some(e=>e.role==="user" && e.turnId===pending.turnId)){
+    WorkspaceCache.remove("pending",draftContext());
+    const draft=WorkspaceCache.read("draft",draftContext());
+    if(!draft?.text && !draft?.attachments?.length && $("prompt").value===pending.text){$("prompt").value="";window.chatAttachments?.restore([])}
+  }
+}
+function updateSessionContext() {
+  const project=service();if(!project)return;
+  const target=$("selected-name");target.replaceChildren(document.createTextNode(`${state.selected?.name || "客户端"} · ${project.provider} · ${folderName(project.workspace)}`));
+  if(state.session){const sessionID=state.session.id,id=node("code","Session "+sessionID,"session-id");id.title="会话 ID（点击复制）："+sessionID;id.tabIndex=0;id.setAttribute("role","button");id.onclick=async()=>{try{await navigator.clipboard.writeText(sessionID);notice("Session ID 已复制")}catch{notice(sessionID)}};id.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();id.click()}};target.append(id)}
+  if(state.historyLocal)target.append(node("span","本地缓存","cache-label"));
+}
 function notice(message) {
   $("notice").textContent = message;
   $("notice").hidden = false;
   clearTimeout(noticeTimer);
   noticeTimer = setTimeout(() => ($("notice").hidden = true), 8000);
 }
+window.onWorkspaceCacheError=()=>notice("浏览器存储暂不可用，草稿当前保留在本页；刷新前请复制保存。");
 async function api(path, method = "GET", body) {
   const res = await fetch(basePath + path, {
     method,
@@ -54,6 +82,7 @@ function node(tag, text, className) {
   return el;
 }
 function signedOut() {
+  saveCurrentDraft();
   window.platformSignedOut?.();
   state.user = null;
   disconnect();
@@ -75,6 +104,10 @@ async function signedIn() {
   $("app").hidden = false;
   await refresh();
   await openLinkedSession();
+  if(!location.hash.startsWith("#client=")){
+    const saved=WorkspaceCache.read("selection",[state.user.id]),client=state.agents.find(a=>a.id===saved?.client);
+    if(client){try{await connectDevice(client);await selectProject(saved.project);if(saved.session)await loadSession({id:saved.session})}catch(error){notice(error.message)}}
+  }
 }
 async function refresh() {
   if ($("app").hidden) return;
@@ -145,8 +178,9 @@ function renderDevices() {
       button.onclick = async () => { try { await connectDevice(a); await selectProject(project.id); closeDrawers(); } catch (e) { notice(e.message); } };
       const projectRow = node("div", undefined, "project-row");
       const settings = node("button", "⚙", "project-settings");
-      settings.title = "配置 IM 渠道"; settings.setAttribute("aria-label", `配置 ${project.name} 的 IM 渠道`); settings.disabled = !a.online;
-      settings.onclick = () => window.openChannelSetup(a, project).catch(e => notice(e.message));
+      settings.title = "项目操作"; settings.setAttribute("aria-label", `${project.name} 的项目操作`);
+      settings.onclick=e=>window.openProjectMenu(e,a,project,settings);
+      projectRow.oncontextmenu=e=>window.openProjectMenu(e,a,project,settings);
       projectRow.append(button, settings);
       children.append(projectRow);
     }
@@ -163,16 +197,17 @@ function setRunning(id) {
   state.running = id;
   const background = ["queued","running"].includes(state.session?.taskStatus);
   $("cancel-run").hidden = !id && !(background && state.session?.taskId);
-  $("send-run").disabled = !!id || background || !state.session || !service();
-  $("new-session").disabled = !!id || !service();
+  $("send-run").disabled = !!id || background || !state.session || !service() || !state.peer || state.permissionMode!=="full";
+  $("new-session").disabled = !!id || !service() || !state.peer || state.permissionMode!=="full";
 }
 function resetWorkspace() {
+  saveCurrentDraft();
+  state.historyLocal=false;
   state.mode = "web";
   state.serviceId = null;
   state.sessions = [];
   state.session = null;
   state.entries = [];
-  state.drafts.clear();
   $("prompt").value = "";
   state.listRevision++;
   state.readRevision++;
@@ -184,6 +219,7 @@ function resetWorkspace() {
     state.selected?.name || "连接设备，打开一个项目";
 }
 function disconnect(reason) {
+  saveCurrentDraft();
   closeDirectoryPicker();
   window.dispatchEvent(new Event("remote-agent-disconnected"));
   const peer = state.peer;
@@ -202,6 +238,7 @@ function disconnect(reason) {
   state.selected = null;
   state.services = [];
   state.providers = {};
+  state.permissionMode="";state.clientVersion="";state.attachments=false;
   state.roots = [];
   state.runSession = null;
   resetWorkspace();
@@ -238,6 +275,10 @@ function refreshServices(data) {
   state.providers = data.providers || {};
   state.roots = data.allowedRoots || [];
   state.allowWrite = !!data.allowWrite;
+  state.permissionMode=data.permissionMode || "";
+  state.clientVersion=data.clientVersion || "";
+  state.attachments=!!data.attachments;
+  if(state.user && state.selected && state.peer)WorkspaceCache.write("client",[state.user.id,state.selected.id],data);
   renderDevices();
 }
 function sendRequest(peer, request) {
@@ -291,6 +332,7 @@ function receiveEvent(msg) {
             return;
           }
           if (msg.id !== state.running) return;
+          if(msg.type==="started" && state.runContext)WorkspaceCache.remove("pending",state.runContext);
           if (msg.type === "output") {
             if (state.session?.id === state.runSession) {
               if (msg.data?.entries) mergeEntries(msg.data.entries, true);
@@ -320,7 +362,13 @@ function receiveEvent(msg) {
 }
 async function connectDevice(agent) {
   if (state.selected?.id === agent.id && state.peer) return state.peer.ready;
-  if (!agent.online) throw Error("客户端离线，请检查后台服务或等待网络恢复");
+  if (!agent.online) {
+    const cached=WorkspaceCache.read("client",[state.user?.id,agent.id]);
+    if(!cached)throw Error("客户端离线，尚无本地会话缓存");
+    if(state.running)throw Error("请先停止当前任务再打开离线缓存");
+    if(closeSayso && !(await closeSayso()))throw Error("请先保存录音");
+    disconnect();state.selected=agent;state.expanded.add(agent.id);refreshServices(cached);connectionStatus("离线 · 本地缓存");return cached;
+  }
   if (state.running && !confirm("切换设备会停止当前任务，继续吗？"))
     return Promise.reject(Error("已取消切换"));
   if (closeSayso && !(await closeSayso())) throw Error("请先保存 SaySo 录音");
@@ -370,6 +418,7 @@ async function selectProject(id) {
   if (!state.services.some((s) => s.id === id))
     throw Error("项目已被移除，请刷新设备");
   if (id === state.serviceId) return;
+  saveCurrentDraft();
   if (closeSayso && !(await closeSayso())) throw Error("请先保存 SaySo 录音");
   state.mode = "web";
   state.serviceId = id;
@@ -389,6 +438,9 @@ async function selectProject(id) {
 }
 async function refreshSessions(more = false, quiet = false) {
   if (!state.serviceId) return;
+  const cacheScope=[state.user?.id,state.selected?.id,state.serviceId];
+  if (!more && !quiet && !state.sessions.length) {const cached=WorkspaceCache.read("sessions",cacheScope);if(cached){state.sessions=cached;renderSessions();}}
+  if(!state.peer)return;
   const revision = ++state.listRevision;
   const sid = state.serviceId;
   const page = await rpc("sessions.list", {
@@ -400,6 +452,7 @@ async function refreshSessions(more = false, quiet = false) {
   const oldCursor = state.listCursor;
   const rows = more ? [...state.sessions,...page.sessions] : quiet ? [...page.sessions,...state.sessions.filter(s => !page.sessions.some(n => n.id === s.id))] : page.sessions;
   state.sessions = [...new Map(rows.map(s => [s.id,s])).values()];
+  WorkspaceCache.write("sessions",cacheScope,state.sessions);
   if (more) state.listExtended = true;
   else if (!quiet) state.listExtended = false;
   state.listCursor = quiet && state.listExtended ? oldCursor : page.nextCursor || 0;
@@ -430,7 +483,7 @@ function renderSessions() {
     im.append(node("strong", channel.provider === "feishu" ? "飞书 · 渠道" : "钉钉 · 渠道"), node("p", "等待第一条消息"));
     im.onclick = () => loadSession({id:channel.sessionId,title:"渠道会话",kind:"im"}).then(closeDrawers).catch(e => notice(e.message)); fragment.append(im);
   }
-  for (const s of state.sessions) {
+  for (const s of [...state.sessions].sort((a,b)=>(b.kind==="im")-(a.kind==="im"))) {
     const b = node(
       "button",
       undefined,
@@ -465,14 +518,18 @@ async function loadSession(session) {
   if (closeSayso && !(await closeSayso())) return;
   state.mode = "web";
   const revision = ++state.readRevision;
-  if (state.session) state.drafts.set(state.session.id, $("prompt").value);
-  state.session = session;
-  $("prompt").value = state.drafts.get(session.id) || "";
-  state.entries = [];
+  saveCurrentDraft();
+  const context=draftContext(session.id), cached=WorkspaceCache.read("history",context);
+  state.historyLocal=!!cached;
+  state.session = cached?.session?.serviceId===state.serviceId ? cached.session : session;
+  state.entries = cached?.entries || [];
+  WorkspaceCache.write("selection",[state.user?.id],{client:state.selected?.id,project:state.serviceId,session:session.id});
+  restoreCurrentDraft();
   renderSessions();
   renderChat();
   $("chat-scroll").scrollTop = 0;
   setRunning(state.running);
+  if(!state.peer)return;
   let cursor = 0,
     entries = [];
   do {
@@ -485,8 +542,10 @@ async function loadSession(session) {
   } while (cursor);
   if (revision !== state.readRevision) return;
   const seq = new Set(entries.map((e) => e.seq));
-  entries.push(...state.entries.filter((e) => e.seq > 0 && !seq.has(e.seq)));
+  entries.push(...state.entries.filter((e) => e.turnId===state.running && e.seq > 0 && !seq.has(e.seq)));
   state.entries = entries.sort((a, b) => a.seq - b.seq);
+  state.historyLocal=false;
+  reconcilePendingDraft(); cacheCurrentSession();
   renderChat();
   $("chat-scroll").scrollTop = $("chat-scroll").scrollHeight;
 }
@@ -499,9 +558,11 @@ function mergeEntries(entries, live = false) {
   const seq = new Set(state.entries.map((e) => e.seq));
   state.entries.push(...entries.filter((e) => !seq.has(e.seq)));
   state.entries.sort((a, b) => a.seq - b.seq);
+  if(live)reconcilePendingDraft(); cacheCurrentSession();
   renderChat(live);
 }
 function renderChat(live = false) {
+  updateSessionContext();
   $("send-run").textContent = state.session?.kind === "im" ? "发送到渠道 ↗" : "发送 ↗";
   $("prompt").placeholder = state.session?.kind === "im" ? "向这个项目的 IM 渠道发送消息…" : "输入你的想法，交给项目的执行器…";
   $("sayso-root").hidden = state.mode !== "sayso";
@@ -513,7 +574,10 @@ function renderChat(live = false) {
   $("run-form").hidden = !state.session;
   $("chat-title").textContent =
     state.session ? sessionTitle(state.session) : (service() ? service().name : "开始你的下一件事");
-  $("policy").textContent = state.session?.kind === "im" ? "发送到此渠道会话" : "完整授权 · 在你的电脑执行";
+  $("policy").textContent = !state.peer ? "离线草稿 · 连接后可发送" : state.permissionMode!=="full" ? "客户端待更新，尚未确认完整授权" : state.session?.kind === "im" ? "发送到此渠道会话" : "完整授权 · 在你的电脑执行";
+  $("policy").title = "客户端版本："+(state.clientVersion||"旧客户端未上报");
+  $("fix-client").hidden = state.permissionMode==="full";
+  $("add-attachment").disabled = !state.peer || !state.attachments || state.session?.kind==="im";
   $("chat-hint").hidden = state.entries.length > 0;
   const container = $("messages"), scroll = $("chat-scroll"),
     atBottom =
@@ -565,6 +629,7 @@ function renderChat(live = false) {
     const text = el.querySelector(".message-text");
     if (g.role === "assistant") renderMarkdown(text, g.text);
     else text.textContent = g.text;
+    window.chatAttachments?.renderHistory(el, state.entries.filter(e=>e.turnId===g.turnId && e.role===g.role).flatMap(e=>e.attachments || []));
     el.classList.toggle(
       "typing",
       g.role === "assistant" && g.turnId === state.running,
@@ -859,9 +924,8 @@ function showEnroll() {
   $("enroll-form").hidden = false;
   $("install-result").hidden = true;
   $("repair-steps").hidden = true;
-  $("install-windows").value = "";
-  $("install-macos").value = "";
-  $("install-linux").value = "";
+  $("install-command").value = "";
+  $("repair-project-info").hidden=true;
   $("enroll-dialog").showModal();
 }
 $("new-agent").onclick = showEnroll;
@@ -869,12 +933,20 @@ $("empty-add").onclick = showEnroll;
 function showInstallCommands(result) {
   if (result.repair) $("enroll-title").textContent = "修复设备绑定";
   $("repair-steps").hidden = !result.repair;
-  $("install-windows").value = result.windows;
+  const os=result.agent?.os, name=({windows:"Windows",darwin:"macOS",linux:"Linux"})[os];
+  if(!name)throw Error("这台客户端尚未选择操作系统，请先在设置中选择");
+  $("enroll-os-badge").textContent=name+" · 系统类型已固定";
+  $("install-command").value=({windows:result.windows,darwin:result.macos,linux:result.linux})[os];
+  $("install-command-label").firstChild.textContent=({windows:"在新 PowerShell 中执行",darwin:"在这台 Mac 的终端执行",linux:"在这台 Linux 的终端执行"})[os];
+  $("install-guide").textContent=({windows:"下载适合这台电脑架构的 MSI 并安装。更新会保留原设备绑定和本机数据。",darwin:"下方命令会安装或更新客户端，并配置登录后自动启动。",linux:"下方命令会安装或更新客户端，并配置 systemd 用户服务。"})[os];
+  $("enroll-msi-downloads").hidden=os!=="windows";
+  $("binding-step-title").textContent=result.repair?"2. 修复本机绑定与服务":"2. 绑定这台设备";
+  $("repair-log-path").textContent=os==="windows"?"运行日志：%USERPROFILE%\\.remote-agent\\agent.log；管理员配置日志：同目录 service-setup.log。":"运行日志：~/.remote-agent/agent.log。";
+  $("repair-permission-note").hidden=os!=="windows";
+  $("repair-recovery").hidden=!result.existingBinding;
   const downloadStamp = Date.now();
   $("enroll-msi-x64").href = result.windowsMsi + "?v=" + downloadStamp;
   $("enroll-msi-arm64").href = result.windowsArm64Msi + "?v=" + downloadStamp;
-  $("install-macos").value = result.macos;
-  $("install-linux").value = result.linux;
   $("enroll-command-note").textContent = result.rebind || result.recovery
     ? "恢复凭证 · 15 分钟有效 · 在这台设备执行，保留数据与设备身份；成功后旧凭证失效。"
     : result.existingBinding
@@ -904,9 +976,7 @@ $("enroll-form").onsubmit = async (e) => {
 for (const button of document.querySelectorAll(".close-dialog"))
   button.onclick = () => button.closest("dialog").close();
 $("enroll-dialog").addEventListener("close", () => {
-  $("install-windows").value = "";
-  $("install-macos").value = "";
-  $("install-linux").value = "";
+  $("install-command").value = "";
 });
 for (const button of document.querySelectorAll(".copy"))
   button.onclick = async () => {
@@ -943,19 +1013,25 @@ $("service-form").onsubmit = async (e) => {
 $("run-form").onsubmit = async (e) => {
   e.preventDefault();
   if (state.running || $("send-run").disabled) return;
-  const prompt = $("prompt").value.trim();
+  const files=window.chatAttachments?.snapshot() || [];
+  const prompt = $("prompt").value.trim() || (files.length ? "请查看附件。" : "");
   if (!prompt || !state.session || !service()) return;
+  if(window.chatAttachments?.busy()){notice("附件正在上传，请稍候");return}
   if (!state.peer || state.peer.ws.readyState !== WebSocket.OPEN) {
     notice("请先连接设备");
     return;
   }
   if (state.session.kind === "im") {
+    const context=draftContext(), session=state.session, text=$("prompt").value, peer=state.peer;
     const button = $("send-run"); button.disabled = true;
-    try { await rpc("channels.notify", {body:{serviceId:state.serviceId,sessionId:state.session.id,message:prompt}}); $("prompt").value = ""; await loadSession(state.session); }
+    try { await rpc("channels.notify", {body:{serviceId:state.serviceId,sessionId:session.id,message:prompt}}); WorkspaceCache.remove("draft",context); if(state.peer===peer && state.session?.id===session.id && $("prompt").value===text){$("prompt").value="";await loadSession(session)} }
     catch (e) { notice(e.message); } finally { button.disabled = false; }
     return;
   }
   const id = crypto.randomUUID();
+  const context=draftContext();
+  state.runContext=context;
+  WorkspaceCache.write("pending",context,{text:$("prompt").value,attachments:files,turnId:id});
   state.runSession = state.session.id;
   setRunning(id);
   mergeEntries(
@@ -966,6 +1042,7 @@ $("run-form").onsubmit = async (e) => {
         role: "user",
         text: prompt,
         kind: "message",
+        attachments:files,
       },
     ],
     false,
@@ -977,9 +1054,11 @@ $("run-form").onsubmit = async (e) => {
         serviceId: state.serviceId,
         sessionId: state.session.id,
         prompt,
+        attachments:files.map(f=>f.id),
     });
     $("prompt").value = "";
-    state.drafts.delete(state.session.id);
+    window.chatAttachments?.restore([]);
+    WorkspaceCache.remove("draft",context);
     renderSessions();
   } catch (err) {
     setRunning(null);
@@ -993,6 +1072,9 @@ $("prompt").onkeydown = (e) => {
     $("run-form").requestSubmit();
   }
 };
+$("prompt").addEventListener("input",saveCurrentDraft);
+document.addEventListener("visibilitychange",()=>{if(document.hidden)saveCurrentDraft()});
+$("fix-client").onclick=()=>window.openDeviceRepair?.(state.selected).catch(e=>notice(e.message));
 $("cancel-run").onclick = async () => {
   try {
     if (state.running) await rpc("cancel", {runId:state.running});
@@ -1002,6 +1084,7 @@ $("cancel-run").onclick = async () => {
   }
 };
 window.addEventListener("beforeunload", () => {
+  saveCurrentDraft();
   state.peer?.ws.close();
 });
 setInterval(refresh, 10000);
@@ -1030,6 +1113,7 @@ function decodeChunks(pending) {
   return JSON.parse(new TextDecoder().decode(data));
 }
 async function openSayso() {
+  saveCurrentDraft();
   if (state.mode === "sayso") { closeDrawers(); return; }
   if (!state.sayso || !state.peer || !service()) throw Error("请先选择项目并连接已更新的客户端");
   if (state.running) throw Error("请先等待当前任务结束，再打开 SaySo");

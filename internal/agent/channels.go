@@ -122,6 +122,7 @@ func channelPublicError(err error) string {
 	return message
 }
 func (r *channelRuntime) setError(err error) {
+	log.Printf("IM channel %s error: %s", r.config.Provider, channelPublicError(err))
 	r.mu.Lock()
 	r.lastError = channelPublicError(err)
 	r.mu.Unlock()
@@ -133,7 +134,11 @@ func (r *channelRuntime) setOperationError(key string, err error) {
 	if r.operationErrors == nil {
 		r.operationErrors = map[string]string{}
 	}
-	r.operationErrors[key] = channelPublicError(err)
+	message := channelPublicError(err)
+	if r.operationErrors[key] != message {
+		log.Printf("IM channel %s operation failed: %s", r.config.Provider, message)
+	}
+	r.operationErrors[key] = message
 	r.updatedAt = time.Now().UnixMilli()
 }
 func (r *channelRuntime) clearOperationError(key string) {
@@ -171,6 +176,10 @@ func (r *channelRuntime) receive(in channelMessage) error {
 	}
 	var project protocol.Service
 	r.a.mu.Lock()
+	if r.a.removingProjects[r.config.ServiceID] {
+		r.a.mu.Unlock()
+		return errors.New("项目正在删除")
+	}
 	for _, s := range r.a.Config.Services {
 		if s.ID == r.config.ServiceID {
 			project = s
@@ -186,6 +195,7 @@ func (r *channelRuntime) receive(in channelMessage) error {
 	if err != nil || !fresh {
 		return err
 	}
+	log.Printf("IM message accepted provider=%s session=%s", r.config.Provider, session.ID)
 	reactionID := ""
 	if reactions, ok := r.adapter.(interface {
 		Thinking(context.Context, channelMessage) (string, error)

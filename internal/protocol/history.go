@@ -28,12 +28,13 @@ type Conversation struct {
 }
 
 type ChatEntry struct {
-	Seq       uint64 `json:"seq"`
-	TurnID    string `json:"turnId"`
-	Role      string `json:"role"`
-	Text      string `json:"text"`
-	Kind      string `json:"kind"`
-	CreatedAt int64  `json:"createdAt"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	Seq         uint64       `json:"seq"`
+	TurnID      string       `json:"turnId"`
+	Role        string       `json:"role"`
+	Text        string       `json:"text"`
+	Kind        string       `json:"kind"`
+	CreatedAt   int64        `json:"createdAt"`
 }
 
 type ConversationPage struct {

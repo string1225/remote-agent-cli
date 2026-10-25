@@ -43,7 +43,7 @@ func TestSubpathMountAndInstallers(t *testing.T) {
 		t.Fatal("session cookie escaped its application path")
 	}
 	_, token := f.enroll(owner)
-	commands := f.request(owner, "POST", "/api/agents", map[string]string{"name": "Linux server"}, 201)
+	commands := f.request(owner, "POST", "/api/agents", map[string]string{"name": "Linux server", "os": "linux"}, 201)
 	var linuxCommand struct {
 		Linux string `json:"linux"`
 	}

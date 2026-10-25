@@ -40,6 +40,9 @@ func (s *Store) RedeemRebind(token, expectedID, osName, arch, credential string)
 		if get(tx, "agents", expectedID, &a) != nil || a.Revoked || !a.Enrolled || !activeUser(tx, a.UserID) {
 			return ErrDenied
 		}
+		if a.OS != "" && a.OS != osName {
+			return ErrDenied
+		}
 		a.TokenHash = Hash(credential)
 		a.OS, a.Arch = osName, arch
 		if err := put(tx, "agents", a.ID, a); err != nil {

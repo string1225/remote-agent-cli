@@ -102,6 +102,9 @@ func (h historyStore) list(serviceID, search string, offset uint64) (page protoc
 			return err
 		}
 		sort.Slice(all, func(i, j int) bool {
+			if (all[i].Kind == "im") != (all[j].Kind == "im") {
+				return all[i].Kind == "im"
+			}
 			if all[i].UpdatedAt == all[j].UpdatedAt {
 				return all[i].ID < all[j].ID
 			}

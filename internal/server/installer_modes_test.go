@@ -37,7 +37,7 @@ func TestWindowsUsesMSIDownloadsAndNativeTokenCommands(t *testing.T) {
 		}
 	}
 	owner := f.user("owner")
-	body := f.request(owner, "POST", "/api/agents", map[string]string{"name": "Windows"}, 201)
+	body := f.request(owner, "POST", "/api/agents", map[string]string{"name": "Windows", "os": "windows"}, 201)
 	var got struct{ Windows, WindowsMsi, WindowsArm64Msi string }
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatal(err)

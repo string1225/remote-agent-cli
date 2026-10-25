@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -92,9 +93,13 @@ func (f *fixture) user(name string) *http.Client {
 	f.request(c, "POST", "/api/login", map[string]string{"username": name, "password": "a-long-test-password"}, 200)
 	return c
 }
-func (f *fixture) enroll(c *http.Client) (store.Agent, string) {
+func (f *fixture) enroll(c *http.Client, selectedOS ...string) (store.Agent, string) {
 	f.t.Helper()
-	data := f.request(c, "POST", "/api/agents", map[string]string{"name": "test workstation"}, 201)
+	osName := "windows"
+	if len(selectedOS) > 0 {
+		osName = selectedOS[0]
+	}
+	data := f.request(c, "POST", "/api/agents", map[string]string{"name": "test workstation", "os": osName}, 201)
 	var result struct {
 		Agent store.Agent `json:"agent"`
 		MacOS string      `json:"macos"`
@@ -221,7 +226,7 @@ func TestWebSocketRelayRPCAndRevocation(t *testing.T) {
 			revocation := scenario.revocation
 			f := setupAt(t, scenario.basePath)
 			owner := f.user("alice")
-			row, token := f.enroll(owner)
+			row, token := f.enroll(owner, runtime.GOOS)
 			root := t.TempDir()
 			cfg, err := agent.Enroll(f.url, token, filepath.Join(root, "config.json"), []string{root}, false)
 			if err != nil {

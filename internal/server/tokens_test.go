@@ -54,7 +54,7 @@ func TestTokenAPIEnforcesOwnershipAndNeverListsSecrets(t *testing.T) {
 func TestAgentSetupPreservesPriorTokenAndReturnsOnlyPersonalCredential(t *testing.T) {
 	f, _ := gatewayFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{}`) }))
 	owner := f.user("alice")
-	a, invite := f.enroll(owner)
+	a, invite := f.enroll(owner, "linux")
 	enrollment := f.request(&http.Client{}, "POST", "/api/enroll", map[string]string{"token": invite, "os": "linux", "arch": "amd64"}, 200)
 	var e struct {
 		Credential string `json:"credential"`

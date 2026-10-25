@@ -176,8 +176,11 @@ func (s *Store) Session(token string) (v Session, err error) {
 func (s *Store) Logout(token string) error {
 	return s.db.Update(func(tx *bolt.Tx) error { return tx.Bucket([]byte("sessions")).Delete([]byte(Hash(token))) })
 }
-func (s *Store) Enroll(userID, name string) (a Agent, token string, err error) {
+func (s *Store) Enroll(userID, name string, selectedOS ...string) (a Agent, token string, err error) {
 	a = Agent{ID: Token(), UserID: userID, Name: name, Services: []protocol.Service{}}
+	if len(selectedOS) > 0 {
+		a.OS = selectedOS[0]
+	}
 	token = Token()
 	err = s.db.Update(func(tx *bolt.Tx) error {
 		if !activeUser(tx, userID) {
@@ -204,6 +207,9 @@ func (s *Store) Redeem(token, osName, arch string) (a Agent, credential string, 
 			return ErrDenied
 		}
 		if !activeUser(tx, a.UserID) {
+			return ErrDenied
+		}
+		if a.OS != "" && a.OS != osName {
 			return ErrDenied
 		}
 		a.Enrolled = true

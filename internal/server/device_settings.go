@@ -14,11 +14,12 @@ func (s *Server) renameAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Name string `json:"name"`
+		OS   string `json:"os"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	if err := s.Store.RenameAgent(v.UserID, r.PathValue("id"), in.Name); err != nil {
+	if err := s.Store.UpdateAgentSettings(v.UserID, r.PathValue("id"), in.Name, in.OS); err != nil {
 		if errors.Is(err, store.ErrInvalid) {
 			fail(w, 400, "设备名称应为 1–80 个字符，不能包含控制字符")
 		} else {

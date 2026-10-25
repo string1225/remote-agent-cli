@@ -1,0 +1,13 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const values=new Map();let blocked=false;
+const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>{if(blocked)throw Error('quota');values.set(k,v)},removeItem:k=>values.delete(k)};
+const sandbox={window:{},localStorage:storage,location:{href:'https://example.test/agents/'},URL,Map,Date,JSON,Object};
+vm.runInNewContext(fs.readFileSync('web/session-cache.js','utf8'),sandbox);
+const cache=sandbox.window.WorkspaceCache,scope=['alice','client-a','project-a','session-a'];
+cache.write('draft',scope,{text:'未发送的草稿',attachments:[]});
+assert.equal(cache.read('draft',scope).text,'未发送的草稿');
+for(const changed of [['bob',...scope.slice(1)],['alice','client-b',...scope.slice(2)],['alice','client-a','project-b','session-a'],['alice','client-a','project-a','session-b']])assert.equal(cache.read('draft',changed),null);
+blocked=true;cache.write('draft',scope,{text:'配额满时的新草稿'});assert.equal(cache.read('draft',scope).text,'配额满时的新草稿');
+blocked=false;cache.history(scope,{id:'session-a'},Array.from({length:300},(_,i)=>({seq:i,text:'x'.repeat(2000)})));assert(cache.read('history',scope).entries.length<250);assert.equal(cache.read('draft',scope).text,'配额满时的新草稿');
+cache.remove('draft',scope);assert.equal(cache.read('draft',scope),null);
+console.log('PASS: account/client/project/session isolation; memory fallback when storage is unavailable; bounded history without draft eviction');

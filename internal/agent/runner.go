@@ -156,6 +156,13 @@ func runProcess(ctx context.Context, p Provider, s protocol.Service, prompt stri
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	args := providerSessionArgs(s.Provider, write, s.ResumeID)
+	if s.Provider == "codex" && len(s.Images) > 0 {
+		args = args[:len(args)-1]
+		for _, path := range s.Images {
+			args = append(args, "--image", path)
+		}
+		args = append(args, "-")
+	}
 	if s.Provider == "codex" && s.ResumeID == "" {
 		args = args[:len(args)-1]
 		if s.Model != "" && s.Model != "default" {

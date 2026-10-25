@@ -12,7 +12,7 @@ import (
 func TestRebindAPIIsOwnerOnlyAndChecksTargetBeforeConsumption(t *testing.T) {
 	f := setup(t)
 	alice, bob := f.user("alice"), f.user("bob")
-	a, invite := f.enroll(alice)
+	a, invite := f.enroll(alice, "linux")
 	enrollment := f.request(&http.Client{}, "POST", "/api/enroll", map[string]string{"token": invite, "os": "linux", "arch": "amd64"}, 200)
 	var old struct {
 		Credential string `json:"credential"`
@@ -50,7 +50,7 @@ func TestRebindAPIIsOwnerOnlyAndChecksTargetBeforeConsumption(t *testing.T) {
 		t.Fatal("old binding remained valid")
 	}
 	// A mistaken --rebind on a normal invite must not consume that invite.
-	_, normal := f.enroll(alice)
+	_, normal := f.enroll(alice, "linux")
 	body["token"] = normal
 	f.request(&http.Client{}, "POST", "/api/enroll", body, 401)
 	f.request(&http.Client{}, "POST", "/api/enroll", map[string]string{"token": normal, "os": "linux", "arch": "amd64"}, 200)

@@ -11,6 +11,7 @@
   window.openChannelSetup = async (client, nextProject) => {
     const opening = ++revision;
     await connectDevice(client);
+    if(state.permissionMode!=="full")throw Error("客户端版本较旧，请先从设备菜单打开修复并安装新版客户端");
     await selectProject(nextProject.id);
     if (opening !== revision) return;
     project = nextProject; peer = state.peer;

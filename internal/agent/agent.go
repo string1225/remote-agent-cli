@@ -15,30 +15,33 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/string1225/remote-agent-cli/internal/buildinfo"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 	"github.com/string1225/remote-agent-cli/internal/store"
 )
 
 type Runner func(context.Context, Provider, protocol.Service, string, bool, func(protocol.Event) error, string) error
 type Agent struct {
-	notifyWake     chan struct{}
-	notifyDone     chan struct{}
-	channelMu      sync.Mutex
-	channels       map[string]*channelRuntime
-	channelFactory func(ChannelConfig) channelAdapter
-	mu             sync.Mutex
-	Config         Config
-	Providers      map[string]Provider
-	Execute        Runner
-	busy           bool
-	saysoOnce      sync.Once
-	sayso          *saysoStore
-	saysoErr       error
-	tasksOnce      sync.Once
-	taskCtx        context.Context
-	tasks          chan queuedTask
-	taskCancels    map[string]context.CancelFunc
-	taskDone       chan struct{}
+	removingProjects map[string]bool
+	attachmentMu     sync.Mutex
+	notifyWake       chan struct{}
+	notifyDone       chan struct{}
+	channelMu        sync.Mutex
+	channels         map[string]*channelRuntime
+	channelFactory   func(ChannelConfig) channelAdapter
+	mu               sync.Mutex
+	Config           Config
+	Providers        map[string]Provider
+	Execute          Runner
+	busy             bool
+	saysoOnce        sync.Once
+	sayso            *saysoStore
+	saysoErr         error
+	tasksOnce        sync.Once
+	taskCtx          context.Context
+	tasks            chan queuedTask
+	taskCancels      map[string]context.CancelFunc
+	taskDone         chan struct{}
 }
 
 func New(c Config) *Agent {
@@ -283,6 +286,8 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) error) {
 	fail := func(err error) { _ = send(protocol.Event{ID: req.ID, Type: "error", Error: err.Error()}) }
 	switch req.Type {
+	case "attachments.write", "attachments.read":
+		a.handleAttachment(req, send)
 	case "channels.get", "channels.configure", "channels.notify":
 		a.handleChannel(p, req, send)
 	case "tasks.cancel":
@@ -343,7 +348,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: conversation})
 	case "authenticate", "services.list":
 		a.mu.Lock()
-		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": a.Providers, "allowedRoots": a.Config.AllowedRoots, "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true}
+		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": a.Providers, "allowedRoots": a.Config.AllowedRoots, "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "attachments": true, "clientVersion": buildinfo.Current()}
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 	case "services.add":
@@ -354,38 +359,25 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		}
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: result})
 	case "services.remove":
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		if a.busy {
-			fail(errors.New("stop the running task before removing a service"))
-			return
-		}
-		for _, s := range a.Config.Services {
-			if s.ID == req.ServiceID && s.Channel != nil {
-				fail(errors.New("请先解绑项目的 IM 渠道"))
-				return
-			}
-		}
-		old := a.Config.Services
-		list := []protocol.Service{}
-		for _, s := range old {
-			if s.ID != req.ServiceID {
-				list = append(list, s)
-			}
-		}
-		a.Config.Services = list
-		if err := a.Config.Save(); err != nil {
-			a.Config.Services = old
+		if err := a.removeProject(p.ctx, req.ServiceID, req.RemoveChannel); err != nil {
 			fail(err)
 			return
 		}
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: true})
 	case "run":
+		if strings.TrimSpace(req.Prompt) == "" && len(req.Attachments) > 0 {
+			req.Prompt = "请查看附件。"
+		}
 		if len(strings.TrimSpace(req.Prompt)) == 0 || len(req.Prompt) > 32000 {
 			fail(errors.New("prompt must be 1–32000 bytes"))
 			return
 		}
 		a.mu.Lock()
+		if a.removingProjects[req.ServiceID] {
+			a.mu.Unlock()
+			fail(errors.New("项目正在删除"))
+			return
+		}
 		if a.busy {
 			a.mu.Unlock()
 			fail(errors.New("this device is already running a task"))
@@ -431,6 +423,13 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			return
 		}
 		service.ResumeID = conversation.NativeID
+		refs, paths, images, attachmentErr := a.resolveAttachments(conversation.ID, req.Attachments)
+		if attachmentErr != nil {
+			a.mu.Unlock()
+			fail(attachmentErr)
+			return
+		}
+		service.Images = images
 		service.Model = req.Service.Model
 		service.ToolBinary, _ = os.Executable()
 		service.ToolConfig = a.Config.Path
@@ -445,7 +444,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			service.ToolNotifySession = conversation.ID
 		}
 		if !req.Recorded {
-			if _, err = history.append(conversation.ID, protocol.ChatEntry{TurnID: req.ID, Role: "user", Text: req.Prompt, Kind: "message"}); err != nil {
+			if _, err = history.append(conversation.ID, protocol.ChatEntry{TurnID: req.ID, Role: "user", Text: req.Prompt, Kind: "message", Attachments: refs}); err != nil {
 				a.mu.Unlock()
 				fail(err)
 				return
@@ -462,6 +461,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		p.mu.Unlock()
 		go func() {
 			defer cancel()
+			log.Printf("task start session=%s provider=%s permissions=full client=%s", conversation.ID, service.Provider, buildinfo.Current())
 			_ = send(protocol.Event{ID: req.ID, Type: "started", Data: map[string]string{"sessionId": conversation.ID}})
 			decoder := &transcript{
 				native: func(id string) error { return history.nativeID(conversation.ID, id) },
@@ -487,7 +487,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 					return nil
 				},
 			}
-			prompt := req.Prompt
+			prompt := attachmentPrompt(req.Prompt, refs, paths)
 			if conversation.Kind == "im" {
 				prompt = "这是固定的 IM 渠道会话。需要执行具体工作时，请使用 remote_agent 的 start_web_session 工具创建项目下的新 Web 会话，及时回复创建结果，并启用完成通知；也可以通过 list_clients_projects 查看同账号其他客户端项目。不要等待新任务结束才回复用户。\n\n" + prompt
 			}

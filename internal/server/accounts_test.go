@@ -121,7 +121,7 @@ func TestAdministrationAuthorizationAndLastAdmin(t *testing.T) {
 
 func (f *fixture) connectedDevice(c *http.Client) (store.Agent, string, *websocket.Conn, *websocket.Conn) {
 	f.t.Helper()
-	a, invite := f.enroll(c)
+	a, invite := f.enroll(c, "linux")
 	body := f.request(&http.Client{}, "POST", "/api/enroll", map[string]string{"token": invite, "os": "linux", "arch": "amd64"}, 200)
 	var enrollment struct {
 		Credential string `json:"credential"`

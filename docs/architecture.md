@@ -49,6 +49,12 @@ sequenceDiagram
 
 客户端配置保存设备身份、服务器、项目、允许目录、写入策略及渠道 Secret。`history.db` 保存 Web/IM 会话、原生 ID、聊天记录、任务来源和通知队列。SaySo `sayso/state.json` 原子保存讨论/Action，录音在 `sayso/recordings/`。升级保留全部目录；旧空 Kind 视作 Web，旧 SaySo 按相同工作目录绑定到原项目并保留原讨论/录音 ID，其他执行器项目独立创建绑定。
 
+浏览器按稳定账号/客户端/项目/会话 ID 保存草稿、已完成上传的附件引用与有界消息缓存；不缓存设备凭据、模型 Token 或渠道 Secret。缓存优先展示，远端完整页替换旧历史，草稿与待确认发送记录单独校对；存储不可用时回退内存。退出账号不会向其他账号加载原缓存。离线可读已有缓存并编辑草稿，执行与上传必须重新连接客户端。
+
+`attachments.write/read` 经原有认证 WebSocket 分片传输，单块 32 KiB，完整文件存 `attachments/<sessionId>/`；随机 ID、os.Root 路径约束、重复分片校验和完整状态限制跨会话访问/越界。客户端解析已完成引用后生成本地路径，历史只记录名称/MIME/大小/ID；图片传给 Codex --image（含 resume），其他文件加入 stdin 的附件说明，不执行上传内容。网页使用 blob 预览白名单图片，其他类型仅下载。
+
+项目移除先阻止该项目新任务并备份原配置；有渠道时需明确确认解绑。移除只改登记，不删除历史、录音或工作目录。客户端 OS 在创建时固定，兑换不匹配系统不消耗邀请；恢复凭证也不能更换系统。运行元数据上报 clientVersion/permissionMode/attachments 能力，网页以真实能力显示权限，并把 Session ID 放入标题说明；操作日志仅记录会话 ID、版本和脱敏错误，不记录正文或凭据。
+
 所有模型调用共享设备级单任务互斥。按当前产品要求，Web、IM、SaySo 均完整授权：Codex `danger-full-access` / `approval_policy=never`，Qoder `bypass_permissions`。旧 allowWrite=false 配置读取时内存迁移为 full，项目注册仍检查允许目录；旧 Windows 文件系统 RX 授权须通过 connect 的管理员服务配置更新。MCP 注入仅当前进程生效，Windows npm `.cmd` 路径使用经过原生 PowerShell/shim 验证的参数编码。
 
 SaySo 仅接受预定义的 state/settings/projects/sessions/actions/runs/audio 路径，禁止任意 URL/文件路径。录音仅用户主动在网页开始；按 16 KB 分片，经 139 转发至客户端，每段限 64 MiB。未完成上传在断连/重启后清理，页面提供备份；浏览器崩溃前尚未停止的录音不能保证恢复。Action 派发创建新 Web 会话，保留动作/讨论关联及取消入口。
