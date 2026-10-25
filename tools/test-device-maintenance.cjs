@@ -37,7 +37,14 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
             if (fixture.completed && fixture.operation) fixture.operation = { ...fixture.operation, status: 'succeeded', stage: 'complete', message: 'Codex CLI 更新完成', afterVersion: '1.2.3' };
             data = fixture.operation || {};
           }
-          setTimeout(() => this.onmessage?.({ data: JSON.stringify({ type: 'event', event: { id: request.id, type: 'result', data } }) }), 5);
+          setTimeout(() => {
+            if (request.type === 'services.list') {
+              const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(data))));
+              this.onmessage?.({ data: JSON.stringify({ type: 'event', event: { id: request.id, type: 'chunk', data: encoded } }) });
+              data = { chunked: true };
+            }
+            this.onmessage?.({ data: JSON.stringify({ type: 'event', event: { id: request.id, type: 'result', data } }) });
+          }, 5);
         }
         close() { this.readyState = 3; this.onclose?.(); }
       };
@@ -71,6 +78,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.evaluate(() => showInstallCommands({ repair: true, agent: { id: 'target-device', name: '目标电脑', hostname: 'old-host' }, windows: 'remote-agent connect --client-id target-device' }));
     assert.match(await page.locator('#repair-target-client').innerText(), /target-device.*old-host/);
     assert.match(await page.locator('#enroll-command-note').innerText(), /BIND/);
+    await page.evaluate(() => showInstallCommands({ agent: { id: 'new-client' } }));
+    assert.equal(await page.locator('#repair-target-client').count(), 0);
     assert.deepEqual(errors, []);
     console.log('PASS: submenu, offline/project state, target ID, lost-ack idempotency, download progress, reopen during installation and completion');
   } catch (error) {
