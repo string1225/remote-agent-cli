@@ -35,7 +35,7 @@ func startTestWebProxy(t *testing.T, cfg Config) (string, context.CancelFunc, <-
 }
 
 func TestWebProxyHTTPSStreamsThroughBoundRelay(t *testing.T) {
-	for _, host := range []string{"release-assets.githubusercontent.com", "chatgpt.com", "ws.chatgpt.com"} {
+	for _, host := range []string{"release-assets.githubusercontent.com", "chatgpt.com", "ws.chatgpt.com", "api.openai.com", "www.google.com"} {
 		t.Run(host, func(t *testing.T) { assertWebProxyHTTPSRelay(t, host) })
 	}
 }

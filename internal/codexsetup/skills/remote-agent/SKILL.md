@@ -27,7 +27,7 @@ Remote Agent 是本机常驻客户端，属于一个平台账号，管理多个�
 
 ## Web 代理与 139 分流
 
-Web 代理**默认关闭**，与模型代理分别配置。GitHub 和 ChatGPT 经 139 中转，其他请求由客户端直接放行。仅在用户要求或已授权的流程需要时开启：
+Web 代理**默认关闭**，与模型代理分别配置。GitHub、ChatGPT、OpenAI 和 Google 经 139 中转，其他请求由客户端直接放行。仅在用户要求或已授权的流程需要时开启：
 
 ```text
 remote-agent web-proxy status
@@ -35,7 +35,7 @@ remote-agent web-proxy on
 remote-agent web-proxy off
 ```
 
-`on` 默认监听 `127.0.0.1:17891`，可用 `--listen 127.0.0.1:PORT` 改端口。常驻客户端约 1 秒内应用保存的开关；未运行时须先启动客户端。`status` 显示配置状态，不证明监听或公网访问成功。临时前台运行用 `remote-agent web-proxy run`，以 Ctrl+C 停止；保存的开关只控制常驻客户端。
+`on` 默认监听 `127.0.0.1:17891`，可用 `--listen 127.0.0.1:PORT` 改端口。它先等待健康检查核对本机客户端，再验证 GitHub 中转 CONNECT；成功后自动开启 Windows 当前用户系统代理，无需管理员权限。未就绪/中转失败会报错且不改系统代理，先检查或升级客户端服务。`off` 先恢复系统代理原设置，再关闭监听；原设置私有备份至 `~/.remote-agent/web-proxy-system.json`，外部后来修改的代理会保留。`status` 区分配置、监听就绪、系统代理启用及归属。macOS/Linux 需在应用中选择代理。临时前台运行用 `remote-agent web-proxy run`，Ctrl+C 停止，此模式不自动改系统代理。
 
 开启后按单次请求显式选择代理，例如：
 
@@ -45,7 +45,7 @@ curl --proxy http://127.0.0.1:17891 https://api.github.com/
 curl --proxy http://127.0.0.1:17891 https://chatgpt.com/
 ```
 
-支持普通 HTTP 转发和 HTTPS CONNECT：`github.com`、`githubusercontent.com`、`githubassets.com`、`chatgpt.com` 及其子域的 80/443 经已绑定站点的鉴权 WebSocket 到 139，其他目标直接放行。重定向后按新目标重新选择路由。中转失败报错，不回退直连；其他目标不依赖 139 在线。CONNECT 中目标 TLS/WSS 透传，由应用正常校验证书，不要关闭证书验证。旧 `.github-proxy.json` 开关保留，新 `.web-proxy.json` 优先。不要擅自改全局 Git、系统代理或永久环境变量。
+支持普通 HTTP 转发和 HTTPS CONNECT：`github.com`、`githubusercontent.com`、`githubassets.com`、`chatgpt.com`、`openai.com`、`google.com` 及其子域的 80/443 经已绑定站点的鉴权 WebSocket 到 139，其他目标直接放行。重定向后按新目标重新选择路由。中转失败报错，不回退直连；其他目标不依赖 139 在线。139 遇 Fake-IP DNS 会使用固定公网解析器的 HTTPS 查询并继续拒绝非公网地址。CONNECT 中目标 TLS/WSS 透传，由应用正常校验证书，不要关闭证书验证。旧 `.github-proxy.json` 开关保留，新 `.web-proxy.json` 优先。按用户要求使用 `on/off` 管理系统代理，不额外改全局 Git、环境变量或证书验证。
 
 ## 本机维护
 

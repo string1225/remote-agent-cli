@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"net"
 	"net/http"
 
@@ -40,6 +41,7 @@ func (s *Server) serveWebProxy(w http.ResponseWriter, r *http.Request, dial func
 	defer release()
 	upstream, err := dial(ctx, target)
 	if err != nil {
+		log.Printf("web relay connection failed target=%s: %v", target, err)
 		fail(w, http.StatusBadGateway, "cannot connect to destination through the web relay")
 		return
 	}

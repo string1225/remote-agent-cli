@@ -17,7 +17,7 @@
 | 能力 | 当前实现 | 尚需验证或补齐 |
 | --- | --- | --- |
 | 服务器 | 账号/设备注册与撤销、心跳、网页、项目目录、机器人唯一绑定、139 WebSocket 中转 | 多节点扩展留待后续 |
-| Web 代理与 Codex 技能 | 默认关闭的 web-proxy，GitHub/ChatGPT 经 139，其他 HTTP/HTTPS 直接放行；安装/更新/setup 自动安装 remote-agent skill | 同版 139/客户端部署、真实 Git/LFS、ChatGPT、直连与 Windows Service 开关验收，见 [使用说明](web-proxy.md) |
+| Web 代理与 Codex 技能 | 默认关闭的 web-proxy，GitHub/ChatGPT/OpenAI/Google 经 139，其他 HTTP/HTTPS 直连；Windows on/off 经就绪检查联动系统代理并保留恢复点；139 Fake-IP DNS 可信回退；Codex 安装/更新/setup 自动安装 skill | 真实浏览器、Git/LFS、各站点 HTTPS/WSS 与 Windows Service 冷启动持续验收，见 [使用说明](web-proxy.md) |
 | Windows 安装 | x64/ARM64 MSI、自动 Windows Service、失败恢复、旧任务迁移、保留数据升级/回滚；不新建计划任务 | 发布者签名、原生 ARM64、真实整机冷启动/退出桌面验收 |
 | Windows 业务更新 | MSI 1.1 固定宿主 + SYSTEM 更新服务，签名 core、普通用户命令/后台检查、事务切换/上一稳定版回退，日常无需 MSI/UAC；不做旧客户端兼容 | 一次性管理员 runner 的真实 MSI/SCM 验收，原生 ARM64、断电与冷启动/退出桌面验收 |
 | macOS/Linux 远程更新 | 客户端菜单发起签名更新，空闲检查、原子替换、保留 PID 重新加载、启动中断回退及进度持久化，不改写服务注册；旧客户端需先命令行升级一次 | 原生进程测试及回退测试；真实 LaunchAgent/systemd 的开机、退出登录与原生 ARM64 环境单独验收，见 [客户端维护](client-maintenance.md) |

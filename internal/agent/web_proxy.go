@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/string1225/remote-agent-cli/internal/buildinfo"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 	"github.com/string1225/remote-agent-cli/internal/webproxy"
 )
@@ -75,6 +77,12 @@ func ServeWebProxy(ctx context.Context, cfg Config, listener net.Listener) error
 }
 
 func (p *webProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet && !r.URL.IsAbs() && r.URL.Path == WebProxyHealthPath {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{"clientId": p.config.ID, "version": buildinfo.Current()})
+		return
+	}
 	if r.Method != http.MethodConnect {
 		p.forwardHTTP(w, r)
 		return
@@ -99,6 +107,7 @@ func (p *webProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer release()
 	upstream, err := p.dial(ctx, target)
 	if err != nil {
+		log.Printf("web proxy connection failed target=%s: %v", target, err)
 		http.Error(w, "web proxy destination unavailable", http.StatusBadGateway)
 		return
 	}
@@ -154,6 +163,9 @@ func (p *webProxy) dial(ctx context.Context, authority string) (net.Conn, error)
 		if response != nil && response.Body != nil {
 			response.Body.Close()
 		}
+		if response != nil {
+			return nil, fmt.Errorf("web relay returned HTTP %d; check server DNS and relay logs", response.StatusCode)
+		}
 		return nil, errors.New("web relay unavailable; check the client binding and server version")
 	}
 	// net.Pipe gives HTTP transports and CONNECT the same streaming connection
@@ -173,6 +185,7 @@ func (a *Agent) startWebProxy(ctx context.Context) func() {
 		defer close(done)
 		var stopProxy func()
 		active := ""
+		nextAttempt := time.Time{}
 		defer func() {
 			if stopProxy != nil {
 				stopProxy()
@@ -199,12 +212,23 @@ func (a *Agent) startWebProxy(ctx context.Context) func() {
 					stopProxy()
 					stopProxy = nil
 				}
-				active = address
+				active = ""
 				if address != "" {
+					if time.Now().Before(nextAttempt) {
+						select {
+						case <-managerCtx.Done():
+							return
+						case <-ticker.C:
+							continue
+						}
+					}
 					listener, err := ListenWebProxy(address)
 					if err != nil {
+						nextAttempt = time.Now().Add(3 * time.Second)
 						log.Printf("web proxy unavailable at %s: %v", address, err)
 					} else {
+						active = address
+						nextAttempt = time.Time{}
 						proxyCtx, stop := context.WithCancel(managerCtx)
 						proxyDone := make(chan struct{})
 						go func() {

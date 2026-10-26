@@ -71,6 +71,8 @@ func TestWebProxyRelayAuthenticatesBeforeDialAndRestrictsTargets(t *testing.T) {
 		{"chatgpt.com:443", credential, "", true, 502},
 		{"ws.chatgpt.com:443", credential, "", true, 502},
 		{"github.com:80", credential, "", true, 502},
+		{"api.openai.com:443", credential, "", true, 502},
+		{"www.google.com:443", credential, "", true, 502},
 		{"chatgpt.com.evil.test:443", credential, "", true, 403},
 	} {
 		r := httptest.NewRequest("GET", "/api/agent/web-proxy?id="+id+"&target="+url.QueryEscape(item.target), nil)
@@ -86,7 +88,7 @@ func TestWebProxyRelayAuthenticatesBeforeDialAndRestrictsTargets(t *testing.T) {
 			t.Fatalf("%s: got %d: %s", item.target, w.Code, w.Body.String())
 		}
 	}
-	if calls.Load() != 4 {
+	if calls.Load() != 6 {
 		t.Fatal("denied request dialed network", calls.Load())
 	}
 	if err := s.Store.Revoke("owner", id); err != nil {
@@ -96,7 +98,7 @@ func TestWebProxyRelayAuthenticatesBeforeDialAndRestrictsTargets(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+credential)
 	w := httptest.NewRecorder()
 	s.serveWebProxy(w, r, dial)
-	if w.Code != 401 || calls.Load() != 4 {
+	if w.Code != 401 || calls.Load() != 6 {
 		t.Fatal("revoked device admitted")
 	}
 }

@@ -26,7 +26,7 @@ func Address(authority string) (string, error) {
 // Other hosts are connected directly by the client, never by the server.
 func RelayHost(host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	for _, domain := range []string{"github.com", "githubusercontent.com", "githubassets.com", "chatgpt.com"} {
+	for _, domain := range []string{"github.com", "githubusercontent.com", "githubassets.com", "chatgpt.com", "openai.com", "google.com"} {
 		if host == domain || strings.HasSuffix(host, "."+domain) {
 			return true
 		}
@@ -76,14 +76,9 @@ func Dial(ctx context.Context, authority string) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	host, port, _ := net.SplitHostPort(target)
-	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-	if err != nil || len(ips) == 0 {
-		return nil, errors.New("cannot resolve relay destination")
-	}
-	for _, ip := range ips {
-		if !publicIP(ip) {
-			return nil, errors.New("relay destination resolved to a non-public address")
-		}
+	ips, err := resolveRelayIPs(ctx, host, net.DefaultResolver.LookupNetIP, lookupPublicDNS)
+	if err != nil {
+		return nil, err
 	}
 	var dialer net.Dialer
 	for _, ip := range ips {
