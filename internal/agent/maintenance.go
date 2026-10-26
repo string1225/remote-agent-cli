@@ -33,15 +33,15 @@ func (a *Agent) PauseUpdates(ctx context.Context, force bool) error {
 		return errors.New("recording or audio upload is active; finish it before updating")
 	}
 	a.maintenance = true
-	busy := a.busy || len(a.taskCancels) > 0 || a.operations > 0
+	busy := len(a.runs) > 0 || len(a.taskCancels) > 0 || a.operations > 0
 	if busy && !force {
 		a.maintenance = false
 		a.mu.Unlock()
 		return errors.New("client has active tasks; retry after they finish or use --force")
 	}
 	if force {
-		if a.activeCancel != nil {
-			a.activeCancel()
+		for _, cancel := range a.runs {
+			cancel()
 		}
 		for _, cancel := range a.taskCancels {
 			cancel()
@@ -50,7 +50,7 @@ func (a *Agent) PauseUpdates(ctx context.Context, force bool) error {
 	a.mu.Unlock()
 	for {
 		a.mu.Lock()
-		idle := !a.busy && len(a.taskCancels) == 0 && a.operations == 0
+		idle := len(a.runs) == 0 && len(a.taskCancels) == 0 && a.operations == 0
 		a.mu.Unlock()
 		if idle {
 			return nil

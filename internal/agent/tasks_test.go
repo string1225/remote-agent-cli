@@ -10,7 +10,7 @@ import (
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 )
 
-func TestQueuedWebTasksKeepProjectHistoryAndContinueAfterCallerCloses(t *testing.T) {
+func TestConcurrentWebTasksKeepProjectHistoryAndContinueAfterCallerCloses(t *testing.T) {
 	root := t.TempDir()
 	daemon, stop := context.WithCancel(context.Background())
 	defer stop()
@@ -30,6 +30,7 @@ func TestQueuedWebTasksKeepProjectHistoryAndContinueAfterCallerCloses(t *testing
 		return send(protocol.Event{ID: id, Type: "output", Data: map[string]string{"stream": "stdout", "text": "task complete"}})
 	}}
 	a.initTasks(daemon)
+	t.Cleanup(func() { stop(); <-a.taskDone; <-a.notifyDone })
 	caller, cancel := context.WithCancel(context.Background())
 	first, err := a.startTask(caller, protocol.TaskStart{ServiceID: "project", Prompt: "one", Source: "sayso", ActionID: "action", ParentSessionID: "discussion"}, func(err error) { finished <- err })
 	if err != nil {
@@ -40,18 +41,17 @@ func TestQueuedWebTasksKeepProjectHistoryAndContinueAfterCallerCloses(t *testing
 		t.Fatal(err)
 	}
 	cancel()
-	select {
-	case prompt := <-started:
-		if prompt != "one" {
-			t.Fatal(prompt)
+	prompts := map[string]bool{}
+	for range 2 {
+		select {
+		case prompt := <-started:
+			prompts[prompt] = true
+		case <-time.After(3 * time.Second):
+			t.Fatal("independent background tasks did not start concurrently")
 		}
-	case <-time.After(time.Second):
-		t.Fatal("first task not started")
 	}
-	select {
-	case <-started:
-		t.Fatal("task queue ran two turns concurrently")
-	default:
+	if !prompts["one"] || !prompts["two"] {
+		t.Fatal(prompts)
 	}
 	close(release)
 	for range 2 {

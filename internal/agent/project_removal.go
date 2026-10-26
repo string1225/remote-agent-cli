@@ -12,7 +12,7 @@ import (
 // Removal unregisters a project, never its directory or local conversation data.
 func (a *Agent) removeProject(ctx context.Context, id string, removeChannel bool) error {
 	a.mu.Lock()
-	if a.busy {
+	if len(a.runs) > 0 {
 		a.mu.Unlock()
 		return errors.New("请先等待或停止客户端当前任务，再删除项目")
 	}

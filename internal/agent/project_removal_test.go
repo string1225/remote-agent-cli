@@ -27,11 +27,11 @@ func TestProjectRemovalRetainsLocalDataAndRequiresChannelConsent(t *testing.T) {
 		t.Fatal("channel removal did not require consent")
 	}
 	a.Config.Services[0].Channel = nil
-	a.busy = true
+	a.runs = map[string]context.CancelFunc{"active": func() {}}
 	if err := a.removeProject(context.Background(), p.ID, true); err == nil {
 		t.Fatal("removed a busy project")
 	}
-	a.busy = false
+	delete(a.runs, "active")
 	if err := a.removeProject(context.Background(), p.ID, true); err != nil {
 		t.Fatal(err)
 	}

@@ -57,7 +57,7 @@ Windows MSI 1.1 使用固定 `cmd/agent-host`，业务 core 在 MSI seed 或受�
 
 项目移除先阻止该项目新任务并备份原配置；有渠道时需明确确认解绑。移除只改登记，不删除历史、录音或工作目录。客户端 OS 在创建时固定，兑换不匹配系统不消耗邀请；恢复凭证也不能更换系统。运行元数据上报 clientVersion/permissionMode/attachments 能力，网页以真实能力显示权限，并把 Session ID 放入标题说明；操作日志仅记录会话 ID、版本和脱敏错误，不记录正文或凭据。
 
-所有模型调用共享设备级单任务互斥。按当前产品要求，Web、IM、SaySo 均完整授权：Codex `danger-full-access` / `approval_policy=never`，Qoder `bypass_permissions`。旧 allowWrite=false 配置读取时内存迁移为 full，项目注册仍检查允许目录；旧 Windows 文件系统 RX 授权须通过 connect 的管理员服务配置更新。MCP 注入仅当前进程生效，Windows npm `.cmd` 路径使用经过原生 PowerShell/shim 验证的参数编码。
+所有模型调用按会话隔离；同设备、同项目的不同 Web/IM 会话和 SaySo 分析可并发运行，同一原生会话仍顺序执行以保留上下文。取消只作用于指定任务，维护更新跟踪并等待全部任务；强制更新取消全部任务。按当前产品要求，Web、IM、SaySo 均完整授权：Codex `danger-full-access` / `approval_policy=never`，Qoder `bypass_permissions`。旧 allowWrite=false 配置读取时内存迁移为 full，项目注册仍检查允许目录；旧 Windows 文件系统 RX 授权须通过 connect 的管理员服务配置更新。MCP 注入仅当前进程生效，Windows npm `.cmd` 路径使用经过原生 PowerShell/shim 验证的参数编码。
 
 SaySo 仅接受预定义的 state/settings/projects/sessions/actions/runs/audio 路径，禁止任意 URL/文件路径。录音仅用户主动在网页开始；按 16 KB 分片，经 139 转发至客户端，每段限 64 MiB。未完成上传在断连/重启后清理，页面提供备份；浏览器崩溃前尚未停止的录音不能保证恢复。Action 派发创建新 Web 会话，保留动作/讨论关联及取消入口。
 

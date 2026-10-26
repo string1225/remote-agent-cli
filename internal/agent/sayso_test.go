@@ -182,10 +182,10 @@ func TestSaysoAnalysisMergePermissionsAndCancellation(t *testing.T) {
 		t.Fatal("dispatch did not start")
 	}
 	s.a.mu.Lock()
-	busy := s.a.busy
+	busy := len(s.a.runs) > 0
 	s.a.mu.Unlock()
 	if !busy {
-		t.Fatal("shared run limit not held")
+		t.Fatal("active run not tracked for maintenance")
 	}
 	p.cancel()
 	soWait(t, s, func() bool { return a.Status == "failed" })

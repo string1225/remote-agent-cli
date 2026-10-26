@@ -163,7 +163,10 @@ func TestUnixRemoteUpdateRejectsCorruptionBusyAndOldRelease(t *testing.T) {
 			if err := c.Save(); err != nil {
 				t.Fatal(err)
 			}
-			a := &Agent{Config: c, busy: scenario == "busy"}
+			a := &Agent{Config: c}
+			if scenario == "busy" {
+				a.runs = map[string]context.CancelFunc{"active": func() {}}
+			}
 			op, _, err := a.maintenanceState().start(maintenanceInput{Kind: "client", RequestID: "fixture"})
 			if err != nil {
 				t.Fatal(err)

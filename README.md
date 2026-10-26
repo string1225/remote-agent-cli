@@ -38,7 +38,7 @@
 - 每项目置顶 SaySo，飞书/钉钉默认所有人可聊，按来信自动隔离私聊/群聊会话并显示对方名称。支持 Markdown 和飞书 THINKING 表情。Action/IM/Web 派生任务关闭网页后继续，完成通知回到原渠道会话；Secret 只持久存本机，绑定全局唯一。
 - 每次 Codex/Qoder 工作进程注入客户端 MCP：`list_clients_projects`、`start_web_session`、`notify_im_session`；支持同账号跨设备协作，遵守目标客户端允许目录和文件权限。
 - 会话历史保存在目标电脑 `~/.remote-agent/history.db`，通过站点分页读取；支持新建、搜索、刷新后查看，以及按 Codex / Qoder 原生会话 ID 继续对话。
-- 流式 Markdown、固定底部输入框和长消息滚动；Enter 发送，Shift+Enter 换行，兼容中文输入法；停止任务、断线取消、设备单任务互斥、20 分钟任务超时、30 分钟连接上限。
+- 流式 Markdown、固定底部输入框和长消息滚动；Enter 发送，Shift+Enter 换行，兼容中文输入法；停止任务、断线取消、同设备多会话并发、同会话按序执行、20 分钟任务超时、30 分钟连接上限。
 - 项目目录白名单；所有会话完整授权（Codex danger-full-access/never，Qoder bypass_permissions），旧配置读取时迁移。设备右键支持重命名、安装/更新指引及同 ID 重新绑定恢复。
 
 ## Windows 安装与 Token 配置

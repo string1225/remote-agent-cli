@@ -28,7 +28,7 @@ type Agent struct {
 	maintenance       bool
 	recordingActivity int
 	operations        int
-	activeCancel      context.CancelFunc
+	runs              map[string]context.CancelFunc
 	removingProjects  map[string]bool
 	attachmentMu      sync.Mutex
 	notifyWake        chan struct{}
@@ -40,7 +40,6 @@ type Agent struct {
 	Config            Config
 	Providers         map[string]Provider
 	Execute           Runner
-	busy              bool
 	saysoOnce         sync.Once
 	sayso             *saysoStore
 	saysoErr          error
@@ -233,13 +232,12 @@ func (a *Agent) connect(ctx context.Context) error {
 }
 
 type peer struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	once      sync.Once
-	mu        sync.Mutex
-	runID     string
-	runCancel context.CancelFunc
-	requests  chan protocol.Request
+	ctx      context.Context
+	cancel   context.CancelFunc
+	once     sync.Once
+	mu       sync.Mutex
+	runs     map[string]context.CancelFunc
+	requests chan protocol.Request
 }
 
 func (p *peer) close() { p.once.Do(p.cancel) }
@@ -411,9 +409,17 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			fail(errors.New("项目正在删除"))
 			return
 		}
-		if a.busy {
+		if a.maintenance || a.toolInstalling {
 			a.mu.Unlock()
-			fail(errors.New("this device is already running a task"))
+			fail(errUpdating)
+			return
+		}
+		p.mu.Lock()
+		duplicate := p.runs[req.ID] != nil
+		p.mu.Unlock()
+		if duplicate {
+			a.mu.Unlock()
+			fail(errors.New("this request is already running"))
 			return
 		}
 		var service protocol.Service
@@ -455,6 +461,11 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			fail(err)
 			return
 		}
+		if a.runs[conversation.ID] != nil {
+			a.mu.Unlock()
+			fail(errSessionRunning)
+			return
+		}
 		service.ResumeID = conversation.NativeID
 		refs, paths, images, attachmentErr := a.resolveAttachments(conversation.ID, req.Attachments)
 		if attachmentErr != nil {
@@ -485,16 +496,9 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		}
 		provider := a.Providers[service.Provider]
 		write := true
-		a.busy = true
-		a.mu.Unlock()
 		ctx, cancel := context.WithTimeout(p.ctx, 20*time.Minute)
-		a.mu.Lock()
-		a.activeCancel = cancel
+		a.trackRunLocked(p, req.ID, conversation.ID, cancel)
 		a.mu.Unlock()
-		p.mu.Lock()
-		p.runID = req.ID
-		p.runCancel = cancel
-		p.mu.Unlock()
 		go func() {
 			defer cancel()
 			log.Printf("task start session=%s provider=%s permissions=full client=%s", conversation.ID, service.Provider, buildinfo.Current())
@@ -548,14 +552,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			if _, saveErr := history.append(conversation.ID, ending); saveErr != nil && err == nil {
 				err = saveErr
 			}
-			p.mu.Lock()
-			p.runCancel = nil
-			p.runID = ""
-			p.mu.Unlock()
-			a.mu.Lock()
-			a.busy = false
-			a.activeCancel = nil
-			a.mu.Unlock()
+			a.untrackRun(p, req.ID, conversation.ID)
 			event := protocol.Event{ID: req.ID, Type: "done", Data: map[string]bool{"ok": err == nil}}
 			if err != nil {
 				event.Error = err.Error()
@@ -564,8 +561,8 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		}()
 	case "cancel":
 		p.mu.Lock()
-		if p.runID == req.RunID && p.runCancel != nil {
-			p.runCancel()
+		if cancel := p.runs[req.RunID]; cancel != nil {
+			cancel()
 		}
 		p.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: true})

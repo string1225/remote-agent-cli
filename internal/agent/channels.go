@@ -246,9 +246,6 @@ func (r *channelRuntime) receive(in channelMessage) error {
 	}
 	result := protocol.TaskStarted{Session: session, TaskID: key}
 	taskCtx, cancel := context.WithCancel(r.ctx)
-	r.a.mu.Lock()
-	r.a.taskCancels[key] = cancel
-	r.a.mu.Unlock()
 	finish := func(err error) {
 		text := r.a.historyStore().turnText(session.ID, key, 1<<20)
 		if err != nil {
@@ -272,18 +269,13 @@ func (r *channelRuntime) receive(in channelMessage) error {
 			_, _ = r.notifyTo(route, text)
 		}
 	}
-	select {
-	case r.a.tasks <- queuedTask{ctx: taskCtx, cancel: cancel, recorded: true, start: protocol.TaskStart{ServiceID: r.config.ServiceID, Prompt: in.Text, Source: "im"}, result: result, complete: finish}:
-		return nil
-	default:
-		cancel()
-		r.clearThinking(in.ID, reactionID)
-		r.a.mu.Lock()
-		delete(r.a.taskCancels, key)
-		r.a.mu.Unlock()
-		_, _ = r.notifyTo(route, "客户端任务队列已满，本条消息已保存在渠道会话，请稍后重新发送。")
+	if r.a.enqueueTask(queuedTask{ctx: taskCtx, cancel: cancel, recorded: true, start: protocol.TaskStart{ServiceID: r.config.ServiceID, Prompt: in.Text, Source: "im"}, result: result, complete: finish}) {
 		return nil
 	}
+	cancel()
+	r.clearThinking(in.ID, reactionID)
+	_, _ = r.notifyTo(route, "客户端任务队列已满，本条消息已保存在渠道会话，请稍后重新发送。")
+	return nil
 }
 func (r *channelRuntime) clearThinking(messageID, reactionID string) error {
 	if reactionID == "" {

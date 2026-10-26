@@ -335,7 +335,7 @@ func (w *maintenanceWriter) Write(p []byte) (int, error) {
 }
 func (a *Agent) installRemoteCodex(ctx context.Context, op MaintenanceOperation, set func(string, string)) error {
 	a.mu.Lock()
-	if a.maintenance || a.toolInstalling || a.busy || a.operations > 0 || len(a.taskCancels) > 0 || a.recordingActivity > 0 {
+	if a.maintenance || a.toolInstalling || len(a.runs) > 0 || a.operations > 0 || len(a.taskCancels) > 0 || a.recordingActivity > 0 {
 		a.mu.Unlock()
 		return errors.New("请先结束客户端上的任务和录音，再安装或升级 Codex CLI")
 	}

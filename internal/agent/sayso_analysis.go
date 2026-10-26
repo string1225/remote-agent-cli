@@ -377,9 +377,9 @@ func (s *saysoStore) dispatch(p *peer, a *soAction) (any, error) {
 }
 func (a *Agent) runSayso(ctx context.Context, p *peer, workspace, prompt, model, schema string, write bool, emit func(string, string) error) error {
 	a.mu.Lock()
-	if a.busy {
+	if a.maintenance || a.toolInstalling {
 		a.mu.Unlock()
-		return errors.New("设备正在执行另一个任务，请稍后重试")
+		return errUpdating
 	}
 	root, err := a.Config.Workspace(workspace)
 	if err != nil {
@@ -388,21 +388,12 @@ func (a *Agent) runSayso(ctx context.Context, p *peer, workspace, prompt, model,
 	}
 	provider := a.Providers["codex"]
 	write = true
-	a.busy = true
-	a.mu.Unlock()
-	defer func() { a.mu.Lock(); a.busy = false; a.mu.Unlock() }()
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
-	a.mu.Lock()
-	a.activeCancel = cancel
-	a.mu.Unlock()
-	defer func() { a.mu.Lock(); a.activeCancel = nil; a.mu.Unlock() }()
 	id := store.Token()
-	p.mu.Lock()
-	p.runID = id
-	p.runCancel = cancel
-	p.mu.Unlock()
-	defer func() { p.mu.Lock(); p.runID = ""; p.runCancel = nil; p.mu.Unlock() }()
+	a.trackRunLocked(p, id, id, cancel)
+	a.mu.Unlock()
+	defer a.untrackRun(p, id, id)
 	decoder := &transcript{native: func(string) error { return nil }, text: emit, structured: schema != ""}
 	err = a.Execute(ctx, provider, protocol.Service{Provider: "codex", Workspace: root, Model: model, OutputSchema: schema}, prompt, write, func(event protocol.Event) error {
 		if event.Type != "output" {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/string1225/remote-agent-cli/internal/protocol"
@@ -20,6 +21,28 @@ type queuedTask struct {
 	start    protocol.TaskStart
 	result   protocol.TaskStarted
 	complete func(error)
+}
+
+const maxBackgroundTasks = 32
+
+// Bound accepted background work, including turns waiting for the same session.
+func (a *Agent) enqueueTask(task queuedTask) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if task.ctx.Err() != nil || a.maintenance || a.toolInstalling || a.removingProjects[task.start.ServiceID] || len(a.taskCancels) >= maxBackgroundTasks {
+		return false
+	}
+	if a.taskCancels == nil {
+		a.taskCancels = map[string]context.CancelFunc{}
+	}
+	a.taskCancels[task.result.TaskID] = task.cancel
+	select {
+	case a.tasks <- task:
+		return true
+	default:
+		delete(a.taskCancels, task.result.TaskID)
+		return false
+	}
 }
 
 func (h historyStore) update(id string, change func(*protocol.Conversation)) error {
@@ -38,7 +61,7 @@ func (a *Agent) initTasks(ctx context.Context) {
 		a.recoverTasks()
 		a.initNotifications(ctx)
 		a.mu.Lock()
-		a.tasks = make(chan queuedTask, 32)
+		a.tasks = make(chan queuedTask, maxBackgroundTasks)
 		a.taskDone = make(chan struct{})
 		a.taskCancels = map[string]context.CancelFunc{}
 		a.mu.Unlock()
@@ -123,63 +146,91 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 		return result, err
 	}
 	taskCtx, taskCancel := context.WithCancel(a.taskCtx)
-	a.mu.Lock()
-	a.taskCancels[result.TaskID] = taskCancel
-	a.mu.Unlock()
-	select {
-	case a.tasks <- queuedTask{ctx: taskCtx, cancel: taskCancel, recorded: true, start: in, result: result, complete: complete}:
+	if a.enqueueTask(queuedTask{ctx: taskCtx, cancel: taskCancel, recorded: true, start: in, result: result, complete: complete}) {
 		return result, nil
-	default:
-		taskCancel()
-		a.mu.Lock()
-		delete(a.taskCancels, result.TaskID)
-		a.mu.Unlock()
-		_ = a.historyStore().update(session.ID, func(v *protocol.Conversation) { v.TaskStatus = "failed" })
-		return result, errors.New("客户端任务队列已满，请稍后重试")
 	}
+	taskCancel()
+	_ = a.historyStore().update(session.ID, func(v *protocol.Conversation) { v.TaskStatus = "failed" })
+	return result, errors.New("客户端任务队列已满，请稍后重试")
 }
 func (a *Agent) workTasks(ctx context.Context) {
 	defer close(a.taskDone)
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	var mu sync.Mutex
+	tails := map[string]chan struct{}{}
+	start := func(task queuedTask) {
+		sessionID := task.result.Session.ID
+		done := make(chan struct{})
+		mu.Lock()
+		previous := tails[sessionID]
+		tails[sessionID] = done
+		mu.Unlock()
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			defer func() {
+				mu.Lock()
+				if tails[sessionID] == done {
+					delete(tails, sessionID)
+				}
+				close(done)
+				mu.Unlock()
+			}()
+			if previous != nil {
+				<-previous
+			}
+			a.finishTask(task)
+		}()
+	}
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case task := <-a.tasks:
-			err := a.workTask(task.ctx, task)
-			task.cancel()
 			a.mu.Lock()
-			delete(a.taskCancels, task.result.TaskID)
+			for _, cancel := range a.taskCancels {
+				cancel()
+			}
 			a.mu.Unlock()
-			status := "done"
-			if err != nil {
-				status = "failed"
-				if errors.Is(err, context.Canceled) {
-					status = "cancelled"
+			for {
+				select {
+				case task := <-a.tasks:
+					start(task)
+				default:
+					return
 				}
 			}
-			_ = a.historyStore().update(task.result.Session.ID, func(v *protocol.Conversation) { v.TaskStatus = status })
-			a.notifyTask(task, err)
-			if task.complete != nil {
-				task.complete(err)
-			}
+		case task := <-a.tasks:
+			start(task)
 		}
 	}
 }
+
+func (a *Agent) finishTask(task queuedTask) {
+	defer func() {
+		a.mu.Lock()
+		delete(a.taskCancels, task.result.TaskID)
+		a.mu.Unlock()
+	}()
+	err := a.workTask(task.ctx, task)
+	task.cancel()
+	status := "done"
+	if err != nil {
+		status = "failed"
+		if errors.Is(err, context.Canceled) {
+			status = "cancelled"
+		}
+	}
+	_ = a.historyStore().update(task.result.Session.ID, func(v *protocol.Conversation) { v.TaskStatus = status })
+	a.notifyTask(task, err)
+	if task.complete != nil {
+		task.complete(err)
+	}
+}
+
 func (a *Agent) workTask(ctx context.Context, task queuedTask) error {
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
-		}
-		a.mu.Lock()
-		busy := a.busy
-		a.mu.Unlock()
-		if busy {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(200 * time.Millisecond):
-				continue
-			}
 		}
 		turnCtx, cancel := context.WithCancel(ctx)
 		p := &peer{ctx: turnCtx, cancel: cancel}
@@ -209,7 +260,7 @@ func (a *Agent) workTask(ctx context.Context, task queuedTask) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if e.Error == "this device is already running a task" {
+			if e.Error == errSessionRunning.Error() {
 				select {
 				case <-ctx.Done():
 					return ctx.Err()

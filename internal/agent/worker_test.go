@@ -77,9 +77,9 @@ func TestWorkerBoundLifecycleOffline(t *testing.T) {
 }
 
 func TestMaintenanceGateRetainsActiveWorkAndForceCancels(t *testing.T) {
-	a := &Agent{busy: true}
+	a := &Agent{runs: map[string]context.CancelFunc{}}
 	cancelled := make(chan struct{})
-	a.activeCancel = func() { close(cancelled); go func() { a.mu.Lock(); a.busy = false; a.mu.Unlock() }() }
+	a.runs["active"] = func() { close(cancelled); go func() { a.mu.Lock(); delete(a.runs, "active"); a.mu.Unlock() }() }
 	if err := a.PauseUpdates(context.Background(), false); err == nil {
 		t.Fatal("busy client paused without force")
 	}
