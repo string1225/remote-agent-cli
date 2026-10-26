@@ -64,3 +64,11 @@ CONNECT 中应用与目标的 TLS 保持原样，正常校验证书，139 不替
 ## 验收边界
 
 模拟上游测试覆盖 HTTPS 证书验证、双向大数据、CONNECT 缓冲字节、HTTP/HTTPS 直连、ChatGPT 中转、跨路由重定向、中转失败不回退、鉴权、目标限制、连接额度、关闭清理、开关和旧配置恢复。真实 139 需部署同版服务器和客户端后验证 Git clone/push、发布附件/LFS、ChatGPT HTTPS/WSS、直连、设备撤销和 Windows Service 开关；单元测试不能替代这些现场验收。
+
+### 2026-10-26 现场修复与验证
+
+原故障为：Windows `on` 仅保存开关、未联动系统代理；139 上的透明代理 DNS 返回 `198.18.x.x`，被公网校验拒绝，导致中转 CONNECT 502。修复版本 `9e06218` 已部署 139，并通过签名发布序号 `2026102602` 升级本机 Windows 业务核心，原 Service、设备 ID 和配置文件字节保持不变。
+
+实际使用 Windows WinINET 的系统代理配置访问（未单独传 proxy 参数）：GitHub、OpenAI、ChatGPT、ChatGPT robots.txt 和百度均为 HTTP 200，Google generate_204 为 204，未携带凭证的 OpenAI models API 为预期的 401。关闭命令将 ProxyEnable 恢复为原来的 0 并停止监听；重新开启后为 1、监听 `127.0.0.1:17891`，健康检查和中转检查均通过。
+
+六平台客户端、同版 Linux 服务端及 x64/ARM64 MSI 1.1.2 均已构建发布；Go tests/vet、Linux 全量 race、MSI UI 静态检查通过，未执行 MSI 安装测试。服务端原程序、数据库与加密密钥、环境和 Nginx/systemd 配置备份位于 `/var/backups/remote-agent/20261026-9e06218-proxy`。这些验证不替代真实浏览器登录、付费模型、LFS、大文件、原生 ARM64 或冷启动/退出登录验收。
