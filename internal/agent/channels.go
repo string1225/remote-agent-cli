@@ -248,6 +248,7 @@ func (r *channelRuntime) receive(in channelMessage) error {
 	taskCtx, cancel := context.WithCancel(r.ctx)
 	finish := func(err error) {
 		text := r.a.historyStore().turnText(session.ID, key, 1<<20)
+		text = withoutSessionLinks(text, r.a.Config.Server)
 		if err != nil {
 			text = "渠道请求未完成，请稍后重试。"
 		} else if strings.TrimSpace(text) == "" {
@@ -353,6 +354,7 @@ func (r *channelRuntime) notify(text string) (string, error) {
 	return r.notifyTo(route, text)
 }
 func (r *channelRuntime) notifyTo(route ChannelConfig, text string) (string, error) {
+	text = withoutSessionLinks(text, r.a.Config.Server)
 	if strings.TrimSpace(text) == "" || len(text) > 16000 {
 		return "", errors.New("通知内容需为 1–16000 字节")
 	}
@@ -460,6 +462,10 @@ func (a *Agent) notifyProject(serviceID, text string) (string, error) {
 	return a.notifyProjectSession(serviceID, "", text)
 }
 func (a *Agent) notifyProjectSession(serviceID, sessionID, text string) (string, error) {
+	return a.notifyProjectSessionID(serviceID, sessionID, "", text)
+}
+func (a *Agent) notifyProjectSessionID(serviceID, sessionID, id, text string) (string, error) {
+	text = withoutSessionLinks(text, a.Config.Server)
 	a.channelMu.Lock()
 	r := a.channels[serviceID]
 	a.channelMu.Unlock()
@@ -470,7 +476,20 @@ func (a *Agent) notifyProjectSession(serviceID, sessionID, text string) (string,
 	if err != nil {
 		return "", err
 	}
-	return r.notifyTo(route, text)
+	if id == "" {
+		return r.notifyTo(route, text)
+	}
+	if strings.TrimSpace(text) == "" || len(text) > 16000 || len(id) > 160 {
+		return "", errors.New("无效通知")
+	}
+	err = a.historyStore().channelNotification(route, id, text)
+	if err == nil {
+		select {
+		case r.wake <- struct{}{}:
+		default:
+		}
+	}
+	return id, err
 }
 func (a *Agent) channelView(serviceID string) any {
 	a.channelMu.Lock()
@@ -692,15 +711,16 @@ func (a *Agent) handleChannel(p *peer, req protocol.Request, send func(protocol.
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: a.channelView(in.ServiceID)})
 	case "channels.notify":
 		var in struct {
-			ServiceID string `json:"serviceId"`
-			SessionID string `json:"sessionId"`
-			Message   string `json:"message"`
+			NotificationID string `json:"notificationId"`
+			ServiceID      string `json:"serviceId"`
+			SessionID      string `json:"sessionId"`
+			Message        string `json:"message"`
 		}
 		if json.Unmarshal(req.Body, &in) != nil {
 			fail(errors.New("invalid notification"))
 			return
 		}
-		id, err := a.notifyProjectSession(in.ServiceID, in.SessionID, in.Message)
+		id, err := a.notifyProjectSessionID(in.ServiceID, in.SessionID, in.NotificationID, in.Message)
 		if err != nil {
 			fail(err)
 			return
@@ -712,12 +732,10 @@ func (a *Agent) notifyTask(task queuedTask, err error) {
 	if !task.start.Notify {
 		return
 	}
-	status := "完成"
-	if err != nil {
-		status = "失败"
+	text := a.taskCompletionText(task, err)
+	if text == "" {
+		return
 	}
-	link := fmt.Sprintf("%s/#client=%s&project=%s&session=%s", a.Config.Server, a.Config.ID, task.start.ServiceID, task.result.Session.ID)
-	text := fmt.Sprintf("任务%s：%s\n%s", status, task.result.Session.Title, link)
 	target, project := task.start.NotifyAgentID, task.start.NotifyServiceID
 	if target == "" {
 		target = a.Config.ID
@@ -729,10 +747,17 @@ func (a *Agent) notifyTask(task queuedTask, err error) {
 	if notifySession == "" && task.start.ParentAgentID == target && task.start.Source == "im" {
 		notifySession = task.start.ParentSessionID
 	}
-	if target == a.Config.ID {
-		_, _ = a.notifyProjectSession(project, notifySession, text)
-	} else {
-		_ = a.queueRemoteNotification(remoteNotification{ID: task.result.TaskID + "-completion", AgentID: target, ServiceID: project, SessionID: notifySession, Text: text})
+	if task.start.Source == "im" && notifySession == "" {
+		log.Printf("task notification missing origin IM session task=%s", task.result.TaskID)
+		return
+	}
+	// Persist local deliveries too, so a restarting channel cannot lose results.
+	for i, part := range notificationParts(text) {
+		id := fmt.Sprintf("%s-completion-%04d", task.result.TaskID, i)
+		if queueErr := a.queueRemoteNotification(remoteNotification{ID: id, AgentID: target, ServiceID: project, SessionID: notifySession, Text: part}); queueErr != nil {
+			log.Printf("task notification enqueue failed task=%s: %v", task.result.TaskID, queueErr)
+			return
+		}
 	}
 }
 

@@ -42,7 +42,11 @@ func (a *Agent) initNotifications(ctx context.Context) {
 						a.mu.Lock()
 						config := a.Config
 						a.mu.Unlock()
-						_, err = ClientTool(ctx, config, item.AgentID, "channels.notify", map[string]string{"serviceId": item.ServiceID, "sessionId": item.SessionID, "message": item.Text})
+						if item.AgentID == config.ID {
+							_, err = a.notifyProjectSessionID(item.ServiceID, item.SessionID, item.ID, item.Text)
+						} else {
+							_, err = ClientTool(ctx, config, item.AgentID, "channels.notify", map[string]string{"serviceId": item.ServiceID, "sessionId": item.SessionID, "notificationId": item.ID, "message": item.Text})
+						}
 						if err != nil {
 							break
 						}

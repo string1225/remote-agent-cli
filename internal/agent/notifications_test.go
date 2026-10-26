@@ -36,8 +36,8 @@ func TestRemoteTaskCompletionReturnsToOriginChannelAndRetriesDurably(t *testing.
 		if json.NewDecoder(r.Body).Decode(&in) != nil || in.AgentID != "origin-client" || in.Type != "channels.notify" || in.Body.ServiceID != "origin-project" || in.Body.SessionID != "origin-im-session" {
 			t.Error("completion not routed to original project channel")
 		}
-		if !strings.Contains(in.Body.Message, "client=worker-client&project=work-project&session=web-work") {
-			t.Error("notification did not link to actual worker session")
+		if !strings.Contains(in.Body.Message, "实质结论：修复完成，测试通过") || strings.Contains(in.Body.Message, "#client=") {
+			t.Error("notification omitted the result or included a workspace link")
 		}
 		attempts <- struct{}{}
 		if fail {
@@ -49,6 +49,9 @@ func TestRemoteTaskCompletionReturnsToOriginChannelAndRetriesDurably(t *testing.
 	}))
 	defer site.Close()
 	a := &Agent{Config: Config{Path: filepath.Join(t.TempDir(), "config.json"), ID: "worker-client", Server: site.URL, Credential: "target-device-credential"}}
+	if err := a.historyStore().saveTaskResult("task", "实质结论：修复完成，测试通过"); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.initTasks(ctx)
 	t.Cleanup(func() {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,12 +41,18 @@ func TestConcurrentWebTasksKeepProjectHistoryAndContinueAfterCallerCloses(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	if second.Session.NotifySessionID != "channel" || second.Session.NotifyServiceID != "project" {
+		t.Fatal("IM task without explicit notify lost its default completion route", second.Session)
+	}
 	cancel()
 	prompts := map[string]bool{}
 	for range 2 {
 		select {
 		case prompt := <-started:
 			prompts[prompt] = true
+			if strings.HasSuffix(prompt, "\n\ntwo") {
+				prompts["two"] = true
+			}
 		case <-time.After(3 * time.Second):
 			t.Fatal("independent background tasks did not start concurrently")
 		}

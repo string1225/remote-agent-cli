@@ -84,6 +84,7 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 	if in.Source != "web" && in.Source != "im" && in.Source != "sayso" {
 		in.Source = "web"
 	}
+	in.Notify = in.Notify || in.Source == "im" || in.NotifySessionID != ""
 	var service protocol.Service
 	a.mu.Lock()
 	for _, s := range a.Config.Services {
@@ -119,6 +120,9 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 	if in.Notify {
 		if in.NotifyAgentID == "" {
 			in.NotifyAgentID = a.Config.ID
+			if in.Source == "im" && in.ParentAgentID != "" {
+				in.NotifyAgentID = in.ParentAgentID
+			}
 		}
 		if in.NotifyServiceID == "" {
 			in.NotifyServiceID = in.ServiceID
@@ -133,9 +137,14 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 			}
 		}
 	}
-	session.NotifyAgentID = in.NotifyAgentID
-	session.NotifyServiceID = in.NotifyServiceID
-	session.NotifySessionID = in.NotifySessionID
+	if in.Notify && in.NotifySessionID == "" && in.Source == "im" && (in.ParentAgentID == "" || in.ParentAgentID == in.NotifyAgentID) {
+		in.NotifySessionID = in.ParentSessionID
+	}
+	if in.Notify {
+		session.NotifyAgentID = in.NotifyAgentID
+		session.NotifyServiceID = in.NotifyServiceID
+		session.NotifySessionID = in.NotifySessionID
+	}
 	session.TaskStatus = "queued"
 	session.TaskID = store.Token()
 	if err = a.historyStore().update(session.ID, func(v *protocol.Conversation) { *v = session }); err != nil {
@@ -330,5 +339,8 @@ func (a *Agent) recoverTasks() {
 	for _, v := range interrupted {
 		_ = h.update(v.ID, func(s *protocol.Conversation) { s.TaskStatus = "failed" })
 		_, _ = h.append(v.ID, protocol.ChatEntry{TurnID: v.TaskID, Role: "system", Kind: "error", Text: "客户端重启，之前的任务已中断。请检查已完成内容后再继续。"})
+		if v.NotifyAgentID != "" {
+			a.notifyTask(queuedTask{start: protocol.TaskStart{ServiceID: v.ServiceID, Source: v.Source, Notify: true, NotifyAgentID: v.NotifyAgentID, NotifyServiceID: v.NotifyServiceID, NotifySessionID: v.NotifySessionID, ParentAgentID: v.ParentAgentID, ParentSessionID: v.ParentSessionID}, result: protocol.TaskStarted{TaskID: v.TaskID, Session: v}}, errors.New("客户端重启，任务已中断"))
+		}
 	}
 }

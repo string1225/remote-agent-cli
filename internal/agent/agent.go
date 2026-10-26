@@ -505,6 +505,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			_ = send(protocol.Event{ID: req.ID, Type: "started", Data: map[string]string{"sessionId": conversation.ID}})
 			decoder := &transcript{
 				native: func(id string) error { return history.nativeID(conversation.ID, id) },
+				final:  func(text string) error { return history.saveTaskResult(req.ID, text) },
 				text: func(stream, text string) error {
 					role := "assistant"
 					if stream != "stdout" {
@@ -529,7 +530,9 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			}
 			prompt := attachmentPrompt(req.Prompt, refs, paths)
 			if conversation.Kind == "im" {
-				prompt = "这是固定的 IM 渠道会话。需要执行具体工作时，请使用 remote_agent 的 start_web_session 工具创建项目下的新 Web 会话，及时回复创建结果，并启用完成通知；也可以通过 list_clients_projects 查看同账号其他客户端项目。不要等待新任务结束才回复用户。\n\n" + prompt
+				prompt = "这是固定的 IM 渠道会话。需要执行具体工作时，请使用 remote_agent 的 start_web_session 工具创建项目下的新 Web 会话；也可以通过 list_clients_projects 查看同账号其他客户端项目。" + IMDeliveryInstructions + "\n\n" + prompt
+			} else if conversation.NotifySessionID != "" {
+				prompt = IMDeliveryInstructions + "\n\n" + prompt
 			}
 			err := a.Execute(ctx, provider, service, prompt, write, func(event protocol.Event) error {
 				if event.Type != "output" {

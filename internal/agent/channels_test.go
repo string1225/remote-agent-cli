@@ -85,6 +85,7 @@ func TestIMConversationDelegatesWebTaskDeduplicatesAndPreservesConfiguration(t *
 	})
 	a.channelFactory = func(ChannelConfig) channelAdapter { return &fakeIM{sent: sent, fail: &fail} }
 	var executions atomic.Int32
+	allowCompletion := make(chan struct{})
 	a.Execute = func(ctx context.Context, _ Provider, s protocol.Service, prompt string, write bool, send func(protocol.Event) error, id string) error {
 		executions.Add(1)
 		if !write {
@@ -95,8 +96,8 @@ func TestIMConversationDelegatesWebTaskDeduplicatesAndPreservesConfiguration(t *
 			if s.ToolNotifySession != s.ToolSession {
 				t.Error("IM tool context lost its original reply conversation")
 			}
-			text = "request-accepted"
-			if !strings.Contains(prompt, "固定的 IM 渠道会话") {
+			text = "request-accepted " + a.Config.Server + "/#client=c&project=p&session=s"
+			if !strings.Contains(prompt, "固定的 IM 渠道会话") || !strings.Contains(prompt, IMDeliveryInstructions) {
 				t.Error("missing channel context")
 			}
 			if _, err := a.startTask(ctx, protocol.TaskStart{ServiceID: s.ID, Prompt: "delegated work", Title: "web-from-im", Source: "im", ParentAgentID: "client", ParentSessionID: s.ToolSession, Notify: true}, nil); err != nil {
@@ -104,6 +105,15 @@ func TestIMConversationDelegatesWebTaskDeduplicatesAndPreservesConfiguration(t *
 			}
 		} else if s.ToolNotifySession == "" || s.ToolNotifySession == s.ToolSession {
 			t.Error("delegated Web task lost its origin IM conversation")
+		} else {
+			if !strings.Contains(prompt, IMDeliveryInstructions) {
+				t.Error("delegated task missed the IM delivery contract")
+			}
+			select {
+			case <-allowCompletion:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 		data := `{"type":"thread.started","thread_id":"native-thread"}` + "\n" + `{"type":"item.completed","item":{"type":"agent_message","text":"` + text + `"}}` + "\n"
 		return send(protocol.Event{ID: id, Type: "output", Data: map[string]string{"stream": "stdout", "text": data}})
@@ -125,7 +135,16 @@ func TestIMConversationDelegatesWebTaskDeduplicatesAndPreservesConfiguration(t *
 	for deadline := time.After(10 * time.Second); !gotReply || !gotCompletion; {
 		select {
 		case text := <-sent:
-			gotReply = gotReply || strings.Contains(text, "request-accepted")
+			if strings.Contains(text, "#client=") {
+				t.Error("IM creation/completion included a workspace address")
+			}
+			if strings.Contains(text, "任务完成：web-from-im") && (!strings.Contains(text, "web-complete") || strings.Contains(text, "#client=")) {
+				t.Error("completion did not include the actual result")
+			}
+			if strings.Contains(text, "request-accepted") && !gotReply {
+				gotReply = true
+				close(allowCompletion) // Initial confirmation must arrive before work finishes.
+			}
 			gotCompletion = gotCompletion || strings.Contains(text, "任务完成：web-from-im")
 		case <-deadline:
 			t.Fatal("channel reply or task notification missing")
@@ -152,6 +171,17 @@ func TestIMConversationDelegatesWebTaskDeduplicatesAndPreservesConfiguration(t *
 	private, err := a.historyStore().get(channel.ID)
 	if err != nil || private.NativeID != "native-thread" {
 		t.Fatal("fixed native channel session not retained", err)
+	}
+	history, err := a.historyStore().read(channel.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retainedLink := false
+	for _, entry := range history.Entries {
+		retainedLink = retainedLink || strings.Contains(entry.Text, a.Config.Server+"/#client=")
+	}
+	if !retainedLink {
+		t.Fatal("IM filtering changed original web history")
 	}
 	public, _ := json.Marshal(a.channelView("project"))
 	if strings.Contains(string(public), "secret-fixture") {

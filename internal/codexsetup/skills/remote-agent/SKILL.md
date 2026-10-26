@@ -17,7 +17,9 @@ Remote Agent 是本机常驻客户端，属于一个平台账号，管理多个�
 | --- | --- |
 | `list_clients_projects` | 无参数，查询同账号未撤销的客户端、在线状态和项目 ID。跨设备操作先查询，使用返回的 ID。 |
 | `start_web_session` | `prompt` 必填；可传 `clientId`、`projectId`、`title`、`notify`。在目标项目新建独立 Web 会话并排队执行。返回 session/task ID 仅表示已接收，不能宣称执行完成。 |
-| `notify_im_session` | `message` 必填；可传 `clientId`、`projectId`、`sessionId`。向已绑定的飞书/钉钉会话发送消息，默认继承任务来源会话。仅在用户要求通知或已授权的任务流程中调用；`queued:true` 不代表平台已送达。 |
+| `notify_im_session` | `message` 必填；可传 `clientId`、`projectId`、`sessionId`、`final`。向已绑定的飞书/钉钉会话发送消息，默认继承任务来源会话。仅在用户要求通知或已授权的任务流程中调用；`queued:true` 不代表平台已送达。 |
+
+IM 来源任务默认开启完成通知。创建后立即简短确认已排队，不等待完成，不附网页会话地址。最终回答用中文直接给出实质结论、关键结果、验证/提交情况及待处理事项；系统提取最终文本并回到任务保存的原始私聊/群聊，不用网页地址替代结果。`notify_im_session` 通常只发进度；如确需主动发送最终实质结果，传 `final:true`，成功入队到继承来源后才会抑制重复自动结果；发往其他会话、发送失败或普通进度均不抑制。旧运行客户端需升级后才支持这一结果回传与 final 标记。
 
 单独启动的本机 Codex 不一定有 MCP 注入。可使用 `remote-agent mcp --config PATH` 的 JSON-RPC stdio 接口；先 `initialize`、`tools/list`，再 `tools/call`，工具名和参数与上表一致。该进程从本机配置读取凭证。若需要当前项目/会话，使用真实 ID 传 `--project`、`--session`；不得编造来源会话。不要仅为查询长期改写用户 MCP 配置。
 

@@ -15,6 +15,8 @@ type transcript struct {
 	text       func(string, string) error
 	native     func(string) error
 	structured bool
+	final      func(string) error
+	jsonOutput bool
 }
 
 func (t *transcript) write(stream, text string) error {
@@ -70,6 +72,7 @@ func (t *transcript) line(stream, line string) error {
 			ID      string `json:"id"`
 			Type    string `json:"type"`
 			Text    string `json:"text"`
+			Phase   string `json:"phase"`
 			Command string `json:"command"`
 			Output  string `json:"aggregated_output"`
 		} `json:"item"`
@@ -83,6 +86,12 @@ func (t *transcript) line(stream, line string) error {
 	if json.Unmarshal([]byte(line), &e) != nil {
 		return t.text(stream, line+"\n")
 	}
+	if e.Type != "" && !t.jsonOutput && t.final != nil {
+		t.jsonOutput = true
+		if err := t.final(""); err != nil {
+			return err
+		}
+	}
 	if e.ThreadID != "" {
 		if err := t.native(e.ThreadID); err != nil {
 			return err
@@ -94,6 +103,11 @@ func (t *transcript) line(stream, line string) error {
 		}
 	}
 	if e.Item.Text != "" {
+		if e.Type == "item.completed" && e.Item.Type == "agent_message" && e.Item.Phase != "commentary" && t.final != nil {
+			if err := t.final(e.Item.Text); err != nil {
+				return err
+			}
+		}
 		if t.structured && e.Item.Type == "agent_message" {
 			return t.text("result", e.Item.Text+"\n")
 		}
@@ -121,6 +135,25 @@ func (t *transcript) line(stream, line string) error {
 		return t.text("stdout", e.Event.Delta.Text)
 	}
 	if e.Type == "assistant" {
+		// Keep the completed message even when deltas already populated the UI.
+		if t.final != nil {
+			var msg struct {
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			}
+			if json.Unmarshal(e.Message, &msg) == nil {
+				var text strings.Builder
+				for _, c := range msg.Content {
+					text.WriteString(c.Text)
+				}
+				if text.Len() > 0 {
+					if err := t.final(text.String()); err != nil {
+						return err
+					}
+				}
+			}
+		}
 		if t.seen["qoder-delta"] != "" {
 			delete(t.seen, "qoder-delta")
 			return nil
@@ -141,8 +174,15 @@ func (t *transcript) line(stream, line string) error {
 			}
 		}
 	}
-	if e.Type == "result" && e.Result != "" && t.seen["qoder-message"] == "" {
-		return t.text("stdout", e.Result+"\n")
+	if e.Type == "result" && e.Result != "" {
+		if t.final != nil {
+			if err := t.final(e.Result); err != nil {
+				return err
+			}
+		}
+		if t.seen["qoder-message"] == "" {
+			return t.text("stdout", e.Result+"\n")
+		}
 	}
 	if e.Type == "error" || e.Type == "turn.failed" {
 		return t.text("stderr", line+"\n")

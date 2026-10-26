@@ -351,11 +351,25 @@ func (h historyStore) channelQueueReply(c ChannelConfig, id, text string, record
 		if err != nil {
 			return err
 		}
-		if b.Stats().KeyN >= 1000 {
-			return errors.New("通知队列已满，请检查渠道连接")
-		}
 		if b.Get([]byte(id)) != nil {
 			return nil
+		}
+		// Keep accepted IDs after delivery, including across relay retries.
+		if record {
+			seen, err := tx.CreateBucketIfNotExists([]byte("channel_notifications"))
+			if err != nil {
+				return err
+			}
+			key := []byte(c.destination() + "\x00" + id)
+			if seen.Get(key) != nil {
+				return nil
+			}
+			if err = seen.Put(key, []byte{1}); err != nil {
+				return err
+			}
+		}
+		if b.Stats().KeyN >= 1000 {
+			return errors.New("通知队列已满，请检查渠道连接")
 		}
 		if record {
 			if _, err = appendHistory(tx, c.SessionID, protocol.ChatEntry{TurnID: id, Role: "assistant", Text: text, Kind: "notification"}); err != nil {

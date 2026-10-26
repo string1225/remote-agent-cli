@@ -56,7 +56,11 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 		case "initialize":
 			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{"tools": map[string]bool{}}, "serverInfo": map[string]string{"name": "remote_agent", "version": "1.0"}, "instructions": "客户端包含项目，项目包含会话。先列出同账号客户端与项目，再用 start_web_session 在目标项目创建独立任务；立即返回排队结果。IM 会话将具体工作交给新 Web 会话并启用完成通知。notify_im_session 发送进度到指定项目已绑定的渠道。使用平台返回的 ID。"}
 			if metadata, ok := result.(map[string]any); ok {
-				metadata["instructions"] = fmt.Sprintf("当前客户端=%s，项目=%s，会话=%s；来源通知客户端=%s，项目=%s。%s", c.ID, *project, *session, *notifyClient, *notifyProject, metadata["instructions"])
+				instructions := fmt.Sprint(metadata["instructions"])
+				if *source == "im" || *notifySession != "" {
+					instructions += agent.IMDeliveryInstructions
+				}
+				metadata["instructions"] = fmt.Sprintf("当前客户端=%s，项目=%s，会话=%s；来源通知客户端=%s，项目=%s，会话=%s。%s", c.ID, *project, *session, *notifyClient, *notifyProject, *notifySession, instructions)
 			}
 		case "ping":
 			result = map[string]bool{}
@@ -72,6 +76,7 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 					Title     string `json:"title"`
 					Message   string `json:"message"`
 					Notify    bool   `json:"notify"`
+					Final     bool   `json:"final"`
 					SessionID string `json:"sessionId"`
 				} `json:"arguments"`
 			}
@@ -104,6 +109,9 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 					conversation = *notifySession
 				}
 				data, err = agent.ClientTool(ctx, c, target, "channels.notify", map[string]string{"serviceId": serviceID, "sessionId": conversation, "message": call.Arguments.Message})
+				if err == nil && call.Arguments.Final && *source != "im" && *notifySession != "" && target == notificationTarget(*notifyClient, c.ID) && serviceID == notificationTarget(*notifyProject, *project) && conversation == *notifySession {
+					err = agent.RecordFinalNotification(c, *session)
+				}
 			default:
 				err = errors.New("unknown tool")
 			}
@@ -137,7 +145,7 @@ func clientTools() []any {
 	return []any{
 		map[string]any{"name": "list_clients_projects", "annotations": map[string]bool{"readOnlyHint": true, "destructiveHint": false}, "description": "列出当前账号的全部客户端与项目，包含客户端在线状态和项目 ID。跨设备操作先调用此工具确认目标。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}},
 		map[string]any{"name": "start_web_session", "annotations": map[string]bool{"readOnlyHint": false, "destructiveHint": false}, "description": "在同账号指定客户端/项目创建独立的新 Web 会话并排队执行任务。返回可跟踪的会话与任务 ID；遵守目标设备本机权限。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "title": str("会话标题，最多 80 字"), "prompt": str("任务内容，最多 32000 字节"), "notify": map[string]any{"type": "boolean", "description": "完成后通知发起会话项目已绑定的 IM 渠道"}}, "required": []string{"prompt"}, "additionalProperties": false}},
-		map[string]any{"name": "notify_im_session", "annotations": map[string]bool{"readOnlyHint": false, "destructiveHint": false}, "description": "向同账号目标项目的 IM 会话发送通知，默认返回任务来源的原始私聊或群聊，并保存在对应会话历史。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"clientId": str("目标客户端 ID；默认任务来源客户端"), "projectId": str("目标项目 ID；默认任务来源项目"), "sessionId": str("目标 IM 会话 ID；默认继承任务来源私聊/群聊，多会话时需要准确指定"), "message": str("发送给用户的任务进度或完成通知")}, "required": []string{"message"}, "additionalProperties": false}},
+		map[string]any{"name": "notify_im_session", "annotations": map[string]bool{"readOnlyHint": false, "destructiveHint": false}, "description": "向同账号目标项目的 IM 会话发送通知，默认返回任务来源的原始私聊或群聊，并保存在对应会话历史。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"clientId": str("目标客户端 ID；默认任务来源客户端"), "projectId": str("目标项目 ID；默认任务来源项目"), "sessionId": str("目标 IM 会话 ID；默认继承任务来源私聊/群聊，多会话时需要准确指定"), "message": str("发送给用户的任务进度或完成通知"), "final": map[string]any{"type": "boolean", "description": "仅发送最终实质结果时设为 true；成功入队到来源会话后，免除本任务的自动完成结果；进度消息勿设置"}}, "required": []string{"message"}, "additionalProperties": false}},
 	}
 }
 
