@@ -83,7 +83,7 @@ button:focus-visible,a:focus-visible,summary:focus-visible { outline:3px solid #
 .message { margin-bottom:30px; min-width:0; }
 .message-label { color:#7890b1; font-size:11px; margin-bottom:10px; font-weight:650; }
 .message-text { color:#334158; font-size:14px; line-height:1.85; }
-.message.user { margin-left:12%; background:#f0f4fc; padding:14px 18px; border-radius:14px 14px 4px 14px; }
+.message.user { margin-left:12%; background:#e8efff; border:1px solid #cbd9f7; padding:16px 20px; border-radius:14px 14px 4px 14px; box-shadow:0 2px 8px #35569a08; }
 .message.user .message-label { color:#62799e; }
 .message.system { color:#8b96a8; }
 .message.system summary { font-size:11px; color:#8b96a8; }

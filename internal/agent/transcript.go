@@ -75,6 +75,10 @@ func (t *transcript) line(stream, line string) error {
 			Phase   string `json:"phase"`
 			Command string `json:"command"`
 			Output  string `json:"aggregated_output"`
+			Server  string `json:"server"`
+			Tool    string `json:"tool"`
+			Name    string `json:"name"`
+			Status  string `json:"status"`
 		} `json:"item"`
 		Event struct {
 			Type  string `json:"type"`
@@ -102,6 +106,26 @@ func (t *transcript) line(stream, line string) error {
 			return err
 		}
 	}
+	if e.Item.Type == "reasoning" {
+		return nil
+	}
+	if e.Item.Command != "" && e.Type == "item.completed" {
+		// Record the invocation, never the returned file/skill contents.
+		command := strings.SplitN(e.Item.Command, "\n", 2)[0]
+		if len([]rune(command)) > 1200 {
+			command = string([]rune(command)[:1200]) + "…"
+		}
+		return t.text("tool", "$ "+command+"\n")
+	}
+	if e.Item.Type == "mcp_tool_call" && e.Type == "item.completed" {
+		return t.text("tool", "工具调用："+e.Item.Server+"/"+e.Item.Tool+" "+e.Item.Status+"\n")
+	}
+	if e.Item.Type != "" && e.Item.Type != "agent_message" && e.Item.Text != "" {
+		if e.Type == "item.completed" {
+			return t.text("tool", "工具调用："+e.Item.Type+" "+e.Item.Status+"\n")
+		}
+		return nil
+	}
 	if e.Item.Text != "" {
 		if e.Type == "item.completed" && e.Item.Type == "agent_message" && e.Item.Phase != "commentary" && t.final != nil {
 			if err := t.final(e.Item.Text); err != nil {
@@ -125,9 +149,6 @@ func (t *transcript) line(stream, line string) error {
 			return t.text("stdout", e.Item.Text+"\n")
 		}
 		return nil
-	}
-	if e.Item.Command != "" && e.Type == "item.completed" {
-		return t.text("tool", "$ "+e.Item.Command+"\n"+e.Item.Output+"\n")
 	}
 	if e.Event.Delta.Text != "" {
 		t.seen["qoder-delta"] = "yes"

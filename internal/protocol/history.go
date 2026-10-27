@@ -25,6 +25,7 @@ type Conversation struct {
 	ParentSessionID string `json:"parentSessionId,omitempty"`
 	ActionID        string `json:"actionId,omitempty"`
 	TaskStatus      string `json:"taskStatus,omitempty"`
+	TaskError       string `json:"taskError,omitempty"`
 }
 
 type ChatEntry struct {

@@ -27,7 +27,7 @@ sequenceDiagram
 
 服务器覆盖所有路由 ID，只转发当前设备的对应连接；单设备最多 8 个网页/工具连接，网页最长相对租约 30 分钟。请求限 64 KiB、中转帧限 256 KiB；每个连接的客户端有界有序队列 16 项，心跳与业务处理分离。网络写超时 10 秒。大结果超过 48 KiB 分成 16 KiB base64 `chunk`，最后 `result:{chunked:true}`；网页合并上限 32 MiB。
 
-注销、账号停用、设备撤销、连接替换和租约过期关闭对应网页连接及交互任务；已经接受的后台 Web 任务由 daemon 生命周期管理。服务器不持久保存任务正文、输出或录音。两段 TLS 在可信服务器终止，服务器会转发并可见内容。Nginx 需保留 Upgrade 头、关闭缓冲、允许长读超时。
+网页通过 `tasks.run` 提交现有会话的一轮任务，客户端先持久接收再确认；执行由 daemon 管理，切换会话、项目、设备、关闭网页或中转租约到期不取消已接收任务。返回时按序号加载客户端历史和任务状态，可用 `tasks.cancel` 单独取消。同一客户端不同会话并发，同一原生会话禁止重叠执行。旧 `run` 交互接口仍随连接关闭取消；网页仅对上报 `backgroundRuns` 的客户端启用后台执行。账号停用和设备撤销关闭远程访问。服务器不持久保存任务正文、输出或录音。两段 TLS 在可信服务器终止，服务器会转发并可见内容。Nginx 需保留 Upgrade 头、关闭缓冲、允许长读超时。
 
 ## 共享协议
 
@@ -38,7 +38,8 @@ sequenceDiagram
 | `services.list/add/remove` | 本机项目、执行器、允许根目录和完整授权；add 额外返回首个 Web session，重试幂等复用；移除有渠道的项目被拒绝 |
 | `directories.list/search` | 仅白名单内真实目录，规范化并检查符号链接 |
 | `sessions.list/create/get` | 本机历史分页、搜索和原生上下文恢复 |
-| `run/cancel` | 当前 Web 会话的 CLI 交互，固定进程参数、20 分钟超时 |
+| `run/cancel` | 兼容交互执行，固定进程参数、2 小时执行上限 |
+| `tasks.run/cancel` | 现有 Web 会话的后台执行/指定任务取消；2 小时执行上限，断开网页后继续，按请求 ID 去重 |
 | `tasks.start/cancel` | 派生独立 Web 会话及 daemon 后台任务 |
 | `channels.get/configure/notify` | 脱敏配置读取、验证/绑定/解绑、持久通知 |
 | `sayso.open/call` | 项目固定 SaySo 讨论及受限讨论/Action/录音 API |

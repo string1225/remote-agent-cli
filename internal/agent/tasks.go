@@ -15,12 +15,13 @@ import (
 )
 
 type queuedTask struct {
-	recorded bool
-	ctx      context.Context
-	cancel   context.CancelFunc
-	start    protocol.TaskStart
-	result   protocol.TaskStarted
-	complete func(error)
+	attachments []string
+	recorded    bool
+	ctx         context.Context
+	cancel      context.CancelFunc
+	start       protocol.TaskStart
+	result      protocol.TaskStarted
+	complete    func(error)
 }
 
 const maxBackgroundTasks = 32
@@ -29,6 +30,10 @@ const maxBackgroundTasks = 32
 func (a *Agent) enqueueTask(task queuedTask) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.enqueueTaskLocked(task)
+}
+
+func (a *Agent) enqueueTaskLocked(task queuedTask) bool {
 	if task.ctx.Err() != nil || a.maintenance || a.toolInstalling || a.removingProjects[task.start.ServiceID] || len(a.taskCancels) >= maxBackgroundTasks {
 		return false
 	}
@@ -229,7 +234,13 @@ func (a *Agent) finishTask(task queuedTask) {
 			status = "cancelled"
 		}
 	}
-	_ = a.historyStore().update(task.result.Session.ID, func(v *protocol.Conversation) { v.TaskStatus = status })
+	_ = a.historyStore().update(task.result.Session.ID, func(v *protocol.Conversation) {
+		v.TaskStatus = status
+		v.TaskError = ""
+		if err != nil {
+			v.TaskError = err.Error()
+		}
+	})
 	a.notifyTask(task, err)
 	if task.complete != nil {
 		task.complete(err)
@@ -244,7 +255,7 @@ func (a *Agent) workTask(ctx context.Context, task queuedTask) error {
 		turnCtx, cancel := context.WithCancel(ctx)
 		p := &peer{ctx: turnCtx, cancel: cancel}
 		finished := make(chan protocol.Event, 1)
-		a.handle(p, protocol.Request{ID: task.result.TaskID, Type: "run", ServiceID: task.start.ServiceID, SessionID: task.result.Session.ID, Prompt: task.start.Prompt, Service: protocol.Service{Model: task.start.Model}, Recorded: task.recorded}, func(e protocol.Event) error {
+		a.handle(p, protocol.Request{ID: task.result.TaskID, Type: "run", ServiceID: task.start.ServiceID, SessionID: task.result.Session.ID, Prompt: task.start.Prompt, Attachments: task.attachments, Service: protocol.Service{Model: task.start.Model}, Recorded: task.recorded}, func(e protocol.Event) error {
 			if e.Type == "started" {
 				return a.historyStore().update(task.result.Session.ID, func(v *protocol.Conversation) { v.TaskStatus = "running"; v.TaskID = task.result.TaskID })
 			}

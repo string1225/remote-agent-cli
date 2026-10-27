@@ -90,6 +90,9 @@ func (a *Agent) taskCompletionText(task queuedTask, runErr error) string {
 		if errors.Is(runErr, context.Canceled) {
 			status = "取消"
 		}
+		if errors.Is(runErr, context.DeadlineExceeded) || strings.Contains(runErr.Error(), "任务执行超时") {
+			status = "超时"
+		}
 		partial := text
 		text = "任务未完成：" + runErr.Error() + "\n请检查已完成内容后再继续，避免重复执行。"
 		if partial != "" {

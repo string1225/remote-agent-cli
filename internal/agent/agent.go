@@ -310,7 +310,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		for name, provider := range a.Providers {
 			providers[name] = provider
 		}
-		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "attachments": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
+		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "attachments": true, "backgroundRuns": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 		return
@@ -330,6 +330,13 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: a.cancelTask(req.RunID)})
 	case "tasks.start":
 		a.handleTask(p, req, send)
+	case "tasks.run":
+		result, err := a.startSessionTask(req)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: result})
 	case "directories.search":
 		page, err := a.directories(p.ctx, req.Path, req.Search)
 		if err != nil {
@@ -496,7 +503,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		}
 		provider := a.Providers[service.Provider]
 		write := true
-		ctx, cancel := context.WithTimeout(p.ctx, 20*time.Minute)
+		ctx, cancel := context.WithTimeoutCause(p.ctx, taskRunTimeout, errTaskRunTimeout)
 		a.trackRunLocked(p, req.ID, conversation.ID, cancel)
 		a.mu.Unlock()
 		go func() {
@@ -546,6 +553,9 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			}, req.ID)
 			if flushErr := decoder.flush(); err == nil {
 				err = flushErr
+			}
+			if errors.Is(context.Cause(ctx), errTaskRunTimeout) {
+				err = taskTimeoutError()
 			}
 			ending := protocol.ChatEntry{TurnID: req.ID, Role: "system", Kind: "done"}
 			if err != nil {

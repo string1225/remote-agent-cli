@@ -20,6 +20,7 @@ const state = {
   running: null,
   runSession: null,
   pending: new Map(),
+  submitting: new Set(),
   expanded: new Set(),
   listRevision: 0,
   readRevision: 0,
@@ -195,10 +196,12 @@ function connectionStatus(text, good = false) {
 }
 function setRunning(id) {
   state.running = id;
+  const submitting = state.submitting.has(state.session?.id);
+  const local = !!id && state.runSession === state.session?.id;
   const background = ["queued","running"].includes(state.session?.taskStatus);
   $("cancel-run").hidden = !id && !(background && state.session?.taskId);
-  $("send-run").disabled = !!id || background || !state.session || !service() || !state.peer || state.permissionMode!=="full";
-  $("new-session").disabled = !!id || !service() || !state.peer || state.permissionMode!=="full";
+  $("send-run").disabled = submitting || local || background || !state.session || !service() || !state.peer || state.permissionMode!=="full";
+  $("new-session").disabled = !service() || !state.peer || state.permissionMode!=="full";
 }
 function resetWorkspace() {
   saveCurrentDraft();
@@ -253,7 +256,7 @@ function rpc(type, fields = {}) {
       reject(Error("设备尚未连接"));
       return;
     }
-    const id = crypto.randomUUID();
+    const id = fields.id || crypto.randomUUID();
     const timer = setTimeout(() => {
       state.pending.delete(id);
       reject(Error("设备响应超时"));
@@ -269,6 +272,7 @@ function rpc(type, fields = {}) {
   });
 }
 function refreshServices(data) {
+  state.backgroundRuns = !!data.backgroundRuns;
   state.directorySearch = !!data.directorySearch;
   state.sayso = !!data.sayso;
   state.services = data.services || [];
@@ -365,12 +369,9 @@ async function connectDevice(agent) {
   if (!agent.online) {
     const cached=WorkspaceCache.read("client",[state.user?.id,agent.id]);
     if(!cached)throw Error("客户端离线，尚无本地会话缓存");
-    if(state.running)throw Error("请先停止当前任务再打开离线缓存");
     if(closeSayso && !(await closeSayso()))throw Error("请先保存录音");
     disconnect();state.selected=agent;state.expanded.add(agent.id);refreshServices(cached);connectionStatus("离线 · 本地缓存");return cached;
   }
-  if (state.running && !confirm("切换设备会停止当前任务，继续吗？"))
-    return Promise.reject(Error("已取消切换"));
   if (closeSayso && !(await closeSayso())) throw Error("请先保存 SaySo 录音");
   disconnect();
   state.selected = agent;
@@ -413,8 +414,6 @@ async function connectDevice(agent) {
   return peer.ready;
 }
 async function selectProject(id) {
-  if (state.running && id !== state.serviceId)
-    throw Error("请先停止当前任务，再切换项目");
   if (!state.services.some((s) => s.id === id))
     throw Error("项目已被移除，请刷新设备");
   if (id === state.serviceId) return;
@@ -546,6 +545,7 @@ async function loadSession(session) {
   state.entries = entries.sort((a, b) => a.seq - b.seq);
   state.historyLocal=false;
   reconcilePendingDraft(); cacheCurrentSession();
+  setRunning(state.running);
   renderChat();
   $("chat-scroll").scrollTop = $("chat-scroll").scrollHeight;
 }
@@ -560,6 +560,11 @@ function mergeEntries(entries, live = false) {
   state.entries.sort((a, b) => a.seq - b.seq);
   if(live)reconcilePendingDraft(); cacheCurrentSession();
   renderChat(live);
+}
+function toolInvocation(text) {
+  // Older histories contain command output split across entries. Keep only
+  // invocation lines; continuation chunks can contain entire skill files.
+  return text.startsWith("$ ") || text.startsWith("工具调用：") ? text.split("\n", 1)[0].slice(0, 1200) + "\n" : "";
 }
 function renderChat(live = false) {
   updateSessionContext();
@@ -590,19 +595,21 @@ function renderChat(live = false) {
   const groups = [];
   for (const e of state.entries) {
     if (e.kind === "done") continue;
+    if (e.role === "system" && !["tool", "error"].includes(e.kind)) continue;
     const key = `${e.turnId}/${e.role}/${e.kind}`;
     let g = groups.find((g) => g.key === key);
     if (!g) {
       g = { key, role: e.role, text: "", turnId: e.turnId, kind: e.kind };
       groups.push(g);
     }
-    g.text += e.text;
+    g.text += e.kind === "tool" ? toolInvocation(e.text) : e.text;
   }
   const existing = new Map(
     [...container.children].map((el) => [el.dataset.key, el]),
   );
   const keep = new Set();
   for (const g of groups) {
+    if (!g.text.trim()) continue;
     keep.add(g.key);
     let el = existing.get(g.key);
     if (!el) {
@@ -618,14 +625,17 @@ function renderChat(live = false) {
           : g.role === "assistant"
             ? service()?.provider.toUpperCase() || "AGENT"
             : g.kind === "error"
-              ? "运行错误"
+              ? g.text.includes("任务执行超时") ? "运行超时" : "运行错误"
               : "运行详情";
       el.append(
         node(g.role === "system" ? "summary" : "div", label, "message-label"),
         node("div", "", "message-text"),
       );
-      container.append(el);
+      if (g.kind === "error") el.open = true;
     }
+    // Cache/live output may arrive before the earlier, IM-created user entry.
+    // Move existing nodes as well as new nodes into authoritative seq order.
+    container.append(el);
     const text = el.querySelector(".message-text");
     if (g.role === "assistant") renderMarkdown(text, g.text);
     else text.textContent = g.text;
@@ -1012,7 +1022,7 @@ $("service-form").onsubmit = async (e) => {
 };
 $("run-form").onsubmit = async (e) => {
   e.preventDefault();
-  if (state.running || $("send-run").disabled) return;
+  if ($("send-run").disabled) return;
   const files=window.chatAttachments?.snapshot() || [];
   const prompt = $("prompt").value.trim() || (files.length ? "请查看附件。" : "");
   if (!prompt || !state.session || !service()) return;
@@ -1028,42 +1038,33 @@ $("run-form").onsubmit = async (e) => {
     catch (e) { notice(e.message); } finally { button.disabled = false; }
     return;
   }
-  const id = crypto.randomUUID();
-  const context=draftContext();
-  state.runContext=context;
-  WorkspaceCache.write("pending",context,{text:$("prompt").value,attachments:files,turnId:id});
-  state.runSession = state.session.id;
-  setRunning(id);
-  mergeEntries(
-    [
-      {
-        seq: (state.entries.at(-1)?.seq || 0) + 1,
-        turnId: id,
-        role: "user",
-        text: prompt,
-        kind: "message",
-        attachments:files,
-      },
-    ],
-    false,
-  );
+  if (!state.backgroundRuns) { notice("请更新目标客户端：当前版本不支持离开网页后继续执行和多会话后台任务。"); return; }
+  const context=draftContext(), session=state.session, peer=state.peer, project=state.serviceId;
+  const text=$("prompt").value, previous=WorkspaceCache.read("pending",context);
+  const id=previous?.text===text && JSON.stringify(previous.attachments)===JSON.stringify(files) ? previous.turnId : crypto.randomUUID();
+  WorkspaceCache.write("pending",context,{text,attachments:files,turnId:id});
+  state.submitting.add(session.id);
+  setRunning(state.running);
   try {
-    sendRequest(state.peer, {
+    const result = await rpc("tasks.run", {
         id,
-        type: "run",
-        serviceId: state.serviceId,
-        sessionId: state.session.id,
+        serviceId: project,
+        sessionId: session.id,
         prompt,
         attachments:files.map(f=>f.id),
     });
-    $("prompt").value = "";
-    window.chatAttachments?.restore([]);
+    WorkspaceCache.remove("pending",context);
     WorkspaceCache.remove("draft",context);
-    renderSessions();
+    if (state.peer===peer && state.serviceId===project && state.session?.id===session.id) {
+      state.session=result.session;
+      if ($("prompt").value===text) { $("prompt").value=""; window.chatAttachments?.restore([]); }
+      await loadSession(result.session);
+    }
   } catch (err) {
-    setRunning(null);
-    state.runSession = null;
     notice(err.message);
+  } finally {
+    state.submitting.delete(session.id);
+    setRunning(state.running);
   }
 };
 $("prompt").onkeydown = (e) => {
@@ -1073,7 +1074,7 @@ $("prompt").onkeydown = (e) => {
   }
 };
 $("prompt").addEventListener("input",saveCurrentDraft);
-document.addEventListener("visibilitychange",()=>{if(document.hidden)saveCurrentDraft()});
+document.addEventListener("visibilitychange",()=>{if(document.hidden)saveCurrentDraft();else if(state.peer && state.session && state.mode!=="sayso")pollSession().catch(()=>{})});
 $("fix-client").onclick=()=>window.openDeviceRepair?.(state.selected).catch(e=>notice(e.message));
 $("cancel-run").onclick = async () => {
   try {
@@ -1116,7 +1117,6 @@ async function openSayso() {
   saveCurrentDraft();
   if (state.mode === "sayso") { closeDrawers(); return; }
   if (!state.sayso || !state.peer || !service()) throw Error("请先选择项目并连接已更新的客户端");
-  if (state.running) throw Error("请先等待当前任务结束，再打开 SaySo");
   const peer = state.peer, project = service();
   const binding = await rpc("sayso.open", {serviceId:project.id});
   const module = await import(`${basePath}/sayso/sayso.js`);
