@@ -1,6 +1,6 @@
 /* Account and token management stays separate from device/session transport. */
 (() => {
-  let user, gateway, tab = "setup", revision = 0;
+  let user, gateway, tab = "setup", adminTab = "users", revision = 0;
   let codexPoll, codexLoginID, codexLoading = false;
   const dialog = $("platform-dialog");
   const server = location.origin + basePath;
@@ -12,6 +12,10 @@
     $("token-secret").value = "";
     $("token-config-command").value = "";
     $("token-secret-box").hidden = true;
+  }
+  function clearGuide() {
+    $("admin-guide-text").value = "";
+    $("admin-guide-box").hidden = true;
   }
   window.platformSignedIn = (account) => {
     user = account;
@@ -26,6 +30,8 @@
     $("codex-login").hidden = true;
     $("codex-login-code").value = "";
     clearSecret();
+    clearGuide();
+    selectAdminTab("users");
     for (const id of ["token-list", "admin-user-list", "admin-token-list"]) $(id).replaceChildren();
     for (const id of ["account-form", "admin-create-form", "token-form"]) $(id).reset();
     dialog.close();
@@ -87,6 +93,7 @@
     $("codex-login").hidden = true;
     $("codex-login-code").value = "";
     clearSecret();
+    clearGuide();
     $("token-list").replaceChildren();
     $("account-form").elements.currentPassword.value = "";
     $("account-form").elements.password.value = "";
@@ -97,6 +104,9 @@
     if (!user) user = state.user;
     if (!user || (next === "admin" && !user.admin)) return;
     tab = next;
+    revision++;
+    clearTimeout(codexPoll);
+    clearGuide();
     clearSecret();
     for (const input of $("token-list").querySelectorAll('input[type="password"]')) input.value = "";
     for (const name of ["setup","tokens","account","admin"]) $("platform-" + name).hidden = name !== tab;
@@ -110,10 +120,37 @@
         updateCommands();
       } else if (tab === "tokens") { updateCommands(); await loadTokens(); }
       else if (tab === "account") $("account-form").elements.username.value = user.username;
-      else { await loadAdmin(); await loadCodexAccounts(); }
+      else await loadAdmin();
     } catch (e) { notice(e.message); }
   }
   for (const button of document.querySelectorAll("[data-platform]")) button.onclick = () => show(button.dataset.platform);
+  function selectAdminTab(next) {
+    adminTab = next;
+    revision++;
+    clearTimeout(codexPoll);
+    clearGuide();
+    for (const button of dialog.querySelectorAll("[data-admin]")) {
+      const active = button.dataset.admin === next;
+      button.setAttribute("aria-selected", String(active));
+      button.setAttribute("aria-current", String(active));
+      button.tabIndex = active ? 0 : -1;
+      $(button.getAttribute("aria-controls")).hidden = !active;
+    }
+  }
+  const adminTabs = [...dialog.querySelectorAll("[data-admin]")];
+  for (const button of adminTabs) {
+    button.onclick = () => {
+      if (!user?.admin || tab !== "admin") return;
+      selectAdminTab(button.dataset.admin);
+      loadAdmin().catch(e => notice(e.message));
+    };
+    button.onkeydown = (event) => {
+      const index = adminTabs.indexOf(button);
+      const next = ({ArrowRight:(index + 1) % adminTabs.length, ArrowLeft:(index + adminTabs.length - 1) % adminTabs.length, Home:0, End:adminTabs.length - 1})[event.key];
+      if (next === undefined) return;
+      event.preventDefault(); adminTabs[next].focus(); adminTabs[next].click();
+    };
+  }
   async function loadTokens() {
     const stamp = ++revision, tokens = await api("/api/tokens");
     if (stamp !== revision || !dialog.open || !user) return;
@@ -170,13 +207,45 @@
       await api("/api/account", "PATCH", values); signedOut(); notice("账号已更新，请重新登录。");
     } catch (e) { notice(e.message); } finally { button.disabled = false; }
   };
+  function accountGuide(account, mode) {
+    const credentials = `登录地址：${server}/\n用户名：${account.username}\n初始密码：<请填写初始密码>\n首次登录后，请在「账号设置」修改密码。`;
+    if (mode === "web") return `【网页版使用指引】\n${credentials}\n\n1. 用浏览器打开上述地址并登录。\n2. 在左侧「客户端」添加设备，选择实际使用的 Windows 或 macOS。Windows 先下载安装对应架构的 MSI，再打开新的 PowerShell；macOS 打开终端。将网页生成的绑定命令复制到这台电脑执行，按提示完成安装和绑定。\n3. 设备上线后，添加项目，选择这台电脑上的工作目录和 Codex / Qoder CLI。Codex 会自动配置；如提示缺少 CLI，按页面安装指引完成后重新连接。\n4. 打开项目下的 Web 会话，输入需求即可开始。Enter 发送，Shift+Enter 换行；可以创建多个会话。任务在绑定的电脑上执行，使用时请保持该电脑开机联网。`;
+    return `【Endpoint / Codex 本地使用指引（Windows / macOS）】\n${credentials}\n\n一、获取自己的 API Token\n登录后进入「我的 Token」，创建一个 Token 并复制。下方配置命令运行时会提示粘贴 Token，输入不会回显。\n\n二、仅使用 Endpoint\nBase URL：${server}/codex/v1\n接口类型：OpenAI Responses API（/responses）\nAPI Key：填写刚创建的个人 Token（不是登录密码）。\n在支持该接口的工具中填写以上信息；模型以 ${server}/codex/v1/models 返回的列表为准。\n\n三、自动安装并配置本地 Codex（二选一）\nWindows：\n1. 根据系统架构下载并安装 MSI：\nx64：${server}/downloads/remote-agent-windows-amd64.msi\nARM64：${server}/downloads/remote-agent-windows-arm64.msi\n2. 安装后打开新的 PowerShell，运行：\nremote-agent codex setup --server ${psQuote(server)} --token-prompt\n3. 提示时粘贴自己的 Token 并回车，等待安装与配置完成。\n\nmacOS：\n1. 打开终端，运行：\ncurl -fsSL ${shellQuote(server + "/install/cli-macos.sh")} | bash\n2. 安装成功后运行：\n"$HOME/.remote-agent/bin/remote-agent" codex setup --server ${shellQuote(server)} --token-prompt\n3. 提示时粘贴自己的 Token 并回车，等待安装与配置完成。\n\n四、开始使用\n打开新的终端，进入项目目录后运行 codex。若使用已安装的 Codex App，请完全退出并重开，再新建本地会话。配置前会备份原 config.toml；失败可按终端显示的备份路径恢复后重试。\n此方式无需添加或绑定远程设备。Windows MSI 会安装后台服务，未绑定时服务等待配置。请妥善保管个人 Token。`;
+  }
+  async function copyAccountGuide(account, mode) {
+    const text = accountGuide(account, mode);
+    clearGuide();
+    try { await navigator.clipboard.writeText(text); notice((mode === "web" ? "网页版" : "Endpoint / Codex") + "指引已复制，请填写初始密码后发送"); }
+    catch {
+      if (!dialog.open || tab !== "admin" || adminTab !== "users" || !user?.admin) return;
+      $("admin-guide-text").value = text;
+      $("admin-guide-box").hidden = false;
+      $("admin-guide-text").focus(); $("admin-guide-text").select();
+      notice("请按 Ctrl / ⌘ + C 复制，并填写初始密码后发送");
+    }
+  }
+  $("admin-guide-close").onclick = clearGuide;
   async function loadAdmin() {
+    if (adminTab === "codex") return loadCodexAccounts();
+    if (adminTab === "tokens") {
+      const stamp = ++revision, tokens = await api("/api/admin/tokens");
+      if (stamp !== revision || !dialog.open || tab !== "admin" || !user?.admin) return;
+      renderTokens($("admin-token-list"), tokens, true);
+      return;
+    }
     const stamp = ++revision;
-    const [users, tokens] = await Promise.all([api("/api/admin/users?search=" + encodeURIComponent($("admin-search-form").elements.search.value)), api("/api/admin/tokens")]);
-    if (stamp !== revision || !dialog.open || !user?.admin) return;
+    const users = await api("/api/admin/users?search=" + encodeURIComponent($("admin-search-form").elements.search.value));
+    if (stamp !== revision || !dialog.open || tab !== "admin" || !user?.admin) return;
     $("admin-user-list").replaceChildren(...users.map((account) => {
-      const card = node("article", undefined, "platform-card admin-card"), heading = node("div");
-      heading.append(node("strong", account.username), node("p", `${account.admin ? "管理员" : "普通用户"} · ${account.disabled ? "已禁用" : "正常"} · ${account.deviceCount} 台设备`, "small muted"));
+      const card = node("article", undefined, "platform-card admin-card"), heading = node("div", undefined, "admin-account-heading"), info = node("div"), guides = node("div", undefined, "admin-guide-actions");
+      info.append(node("strong", account.username), node("p", `${account.admin ? "管理员" : "普通用户"} · ${account.disabled ? "已禁用" : "正常"} · ${account.deviceCount} 台设备`, "small muted"));
+      for (const [mode, label] of [["web","复制网页版指引"],["endpoint","复制 Endpoint / Codex 指引"]]) {
+        const button = node("button", label, "secondary"); button.type = "button";
+        button.setAttribute("aria-label", `为 ${account.username} ${label}`);
+        button.onclick = () => copyAccountGuide(account, mode);
+        guides.append(button);
+      }
+      heading.append(info, guides);
       card.append(heading);
       const form = node("form", undefined, "admin-edit");
       for (const [key, label] of [["admin","管理员"],["disabled","禁用账号"]]) {
@@ -193,7 +262,6 @@
       card.append(form); return card;
     }));
     if (!users.length) $("admin-user-list").append(node("p", "没有匹配的账号。", "muted"));
-    renderTokens($("admin-token-list"), tokens, true);
   }
   $("admin-search-form").onsubmit = (e) => { e.preventDefault(); loadAdmin().catch(e => notice(e.message)); };
   $("admin-create-form").onsubmit = async (e) => {
@@ -204,12 +272,12 @@
     } catch (e) { notice(e.message); } finally { button.disabled = false; }
   };
   async function loadCodexAccounts() {
-    if (codexLoading || !user?.admin || !dialog.open || tab !== "admin") return;
+    if (codexLoading || !user?.admin || !dialog.open || tab !== "admin" || adminTab !== "codex") return;
     codexLoading = true;
     clearTimeout(codexPoll);
     try {
       const data = await api("/api/admin/codex/accounts");
-      if (!dialog.open || tab !== "admin" || !user?.admin) return;
+      if (!dialog.open || tab !== "admin" || adminTab !== "codex" || !user?.admin) return;
       $("codex-accounts-status").textContent = data.enabled ? "账号凭据仅存 139 服务器；授权使用 OpenAI 官方设备码流程。" : "尚未配置服务器账号管理，请部署账号管理网关及专用控制凭据。";
       $("codex-account-form").hidden = !data.enabled;
       $("codex-account-list").replaceChildren(...(data.accounts || []).map(account => {

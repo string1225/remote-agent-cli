@@ -46,6 +46,11 @@
 .check-label { display:flex !important; align-items:center; gap:8px; font-size:13px; }
 .check-label input { width:auto; margin:0; accent-color:#527d48; }
 .admin-card { display:block; }
+.admin-tabs { flex-wrap:nowrap; overflow-x:auto; margin:0; }
+.admin-tabs button { flex-shrink:0; white-space:nowrap; }
+.admin-account-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.admin-guide-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.admin-guide-actions button { padding:8px 12px; font-size:12px; }
 .admin-edit { margin-top:14px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
 .admin-edit .check-label { margin:0; }
 .admin-edit input[type="password"] { width:200px; flex:1; min-width:150px; }
