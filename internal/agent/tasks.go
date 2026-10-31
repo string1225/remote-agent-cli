@@ -79,7 +79,19 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 	}
 	defer a.endOperation()
 	a.initTasks(ctx)
+	a.taskStartMu.Lock()
+	defer a.taskStartMu.Unlock()
 	var result protocol.TaskStarted
+	if len(in.RequestID) > 160 || len(in.ParentSessionID) > 160 || len(in.ParentAgentID) > 160 {
+		return result, errors.New("无效任务请求 ID")
+	}
+	requestKey := ""
+	if in.RequestID != "" {
+		requestKey = store.Hash(in.ParentAgentID + "\x00" + in.ParentSessionID + "\x00" + in.RequestID)
+		if previous, found, err := a.historyStore().acceptedTask(requestKey); err != nil || found {
+			return previous, err
+		}
+	}
 	if in.Model != "" && !soModelPattern.MatchString(in.Model) {
 		return result, errors.New("无效模型")
 	}
@@ -89,7 +101,9 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 	if in.Source != "web" && in.Source != "im" && in.Source != "sayso" {
 		in.Source = "web"
 	}
-	in.Notify = in.Notify || in.Source == "im" || in.NotifySessionID != ""
+	// Legacy notification fields are read for compatibility, but cannot cause
+	// execution or outbound messages. The parent session owns result delivery.
+	in.Notify = false
 	var service protocol.Service
 	a.mu.Lock()
 	for _, s := range a.Config.Services {
@@ -122,34 +136,6 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 	session.ParentAgentID = in.ParentAgentID
 	session.ParentSessionID = in.ParentSessionID
 	session.ActionID = in.ActionID
-	if in.Notify {
-		if in.NotifyAgentID == "" {
-			in.NotifyAgentID = a.Config.ID
-			if in.Source == "im" && in.ParentAgentID != "" {
-				in.NotifyAgentID = in.ParentAgentID
-			}
-		}
-		if in.NotifyServiceID == "" {
-			in.NotifyServiceID = in.ServiceID
-		}
-		if in.NotifySessionID == "" && in.ParentAgentID == a.Config.ID && in.ParentSessionID != "" {
-			if parent, e := a.historyStore().get(in.ParentSessionID); e == nil {
-				if parent.Kind == "im" && in.NotifyAgentID == a.Config.ID && parent.ServiceID == in.NotifyServiceID {
-					in.NotifySessionID = parent.ID
-				} else if parent.NotifyAgentID == in.NotifyAgentID && parent.NotifyServiceID == in.NotifyServiceID {
-					in.NotifySessionID = parent.NotifySessionID
-				}
-			}
-		}
-	}
-	if in.Notify && in.NotifySessionID == "" && in.Source == "im" && (in.ParentAgentID == "" || in.ParentAgentID == in.NotifyAgentID) {
-		in.NotifySessionID = in.ParentSessionID
-	}
-	if in.Notify {
-		session.NotifyAgentID = in.NotifyAgentID
-		session.NotifyServiceID = in.NotifyServiceID
-		session.NotifySessionID = in.NotifySessionID
-	}
 	session.TaskStatus = "queued"
 	session.TaskID = store.Token()
 	if err = a.historyStore().update(session.ID, func(v *protocol.Conversation) { *v = session }); err != nil {
@@ -158,6 +144,11 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 	result = protocol.TaskStarted{Session: session, TaskID: session.TaskID}
 	if _, err = a.historyStore().append(session.ID, protocol.ChatEntry{TurnID: result.TaskID, Role: "user", Text: in.Prompt, Kind: "message"}); err != nil {
 		return result, err
+	}
+	if requestKey != "" {
+		if err = a.historyStore().rememberTask(requestKey, result); err != nil {
+			return result, err
+		}
 	}
 	taskCtx, taskCancel := context.WithCancel(a.taskCtx)
 	if a.enqueueTask(queuedTask{ctx: taskCtx, cancel: taskCancel, recorded: true, start: in, result: result, complete: complete}) {
@@ -241,7 +232,6 @@ func (a *Agent) finishTask(task queuedTask) {
 			v.TaskError = err.Error()
 		}
 	})
-	a.notifyTask(task, err)
 	if task.complete != nil {
 		task.complete(err)
 	}
@@ -306,6 +296,7 @@ func (a *Agent) handleTask(p *peer, req protocol.Request, send func(protocol.Eve
 		_ = send(protocol.Event{ID: req.ID, Type: "error", Error: err.Error()})
 		return
 	}
+	result.Session = publicSession(result.Session)
 	_ = send(protocol.Event{ID: req.ID, Type: "result", Data: result})
 }
 
@@ -348,10 +339,10 @@ func (a *Agent) recoverTasks() {
 	})
 	db.Close()
 	for _, v := range interrupted {
-		_ = h.update(v.ID, func(s *protocol.Conversation) { s.TaskStatus = "failed" })
+		_ = h.update(v.ID, func(s *protocol.Conversation) {
+			s.TaskStatus = "failed"
+			s.TaskError = "客户端重启，之前的任务已中断。请检查已完成内容后再继续。"
+		})
 		_, _ = h.append(v.ID, protocol.ChatEntry{TurnID: v.TaskID, Role: "system", Kind: "error", Text: "客户端重启，之前的任务已中断。请检查已完成内容后再继续。"})
-		if v.NotifyAgentID != "" {
-			a.notifyTask(queuedTask{start: protocol.TaskStart{ServiceID: v.ServiceID, Source: v.Source, Notify: true, NotifyAgentID: v.NotifyAgentID, NotifyServiceID: v.NotifyServiceID, NotifySessionID: v.NotifySessionID, ParentAgentID: v.ParentAgentID, ParentSessionID: v.ParentSessionID}, result: protocol.TaskStarted{TaskID: v.TaskID, Session: v}}, errors.New("客户端重启，任务已中断"))
-		}
 	}
 }

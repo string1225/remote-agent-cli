@@ -40,11 +40,12 @@ sequenceDiagram
 | `sessions.list/create/get` | 本机历史分页、搜索和原生上下文恢复 |
 | `run/cancel` | 兼容交互执行，固定进程参数、2 小时执行上限 |
 | `tasks.run/cancel` | 现有 Web 会话的后台执行/指定任务取消；2 小时执行上限，断开网页后继续，按请求 ID 去重 |
-| `tasks.start/cancel` | 派生独立 Web 会话及 daemon 后台任务 |
+| `tasks.start/cancel` | SaySo 等显式派发独立 Web 会话及 daemon 后台任务，不自动发 IM 完成通知 |
+| `sessions.spawn/control` | MCP 按需派生；直接父会话列出、读取、等待、继续或取消子任务 |
 | `channels.get/configure/notify` | 脱敏配置读取、验证/绑定/解绑、持久通知 |
 | `sayso.open/call` | 项目固定 SaySo 讨论及受限讨论/Action/录音 API |
 
-设备凭证可访问 `/api/agent/catalog` 和 `/api/agent/tools`；后者只允许 `tasks.start` 与 `channels.notify`，源/目标/通知设备必须属于同一有效账号。服务端通过现有目标 WebSocket 建立短暂工具连接，等待 ready 后发送请求，最多 25 秒。设备离线明确失败，不向任意 URL/命令代理。详见 [会话模型](session-model.md)。
+设备凭证可访问 `/api/agent/catalog` 和 `/api/agent/tools`；后者只允许 `tasks.start`、`sessions.spawn`、`sessions.control` 与 `channels.notify`，源/目标设备必须属于同一有效账号。服务端覆盖父客户端和调用客户端身份，目标客户端核对直接父子关系；单次等待不超过 20 秒，长结果分页。用户文本不追加分工指令，身份及能力只在 MCP 初始化说明中提供。任务只保存结果和状态，父会话自主读取及交付，不自动发 IM 完成通知；旧队列原样归档，详见会话模型。服务端通过现有目标 WebSocket 建立短暂工具连接，等待 ready 后发送请求，最多 25 秒。设备离线明确失败，不向任意 URL/命令代理。详见 [会话模型](session-model.md)。
 
 ## 本地数据与权限
 

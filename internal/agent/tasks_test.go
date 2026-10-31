@@ -41,8 +41,8 @@ func TestConcurrentWebTasksKeepProjectHistoryAndContinueAfterCallerCloses(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Session.NotifySessionID != "channel" || second.Session.NotifyServiceID != "project" {
-		t.Fatal("IM task without explicit notify lost its default completion route", second.Session)
+	if second.Session.NotifySessionID != "" || second.Session.NotifyServiceID != "" {
+		t.Fatal("IM task unexpectedly inherited automatic notification routing", second.Session)
 	}
 	cancel()
 	prompts := map[string]bool{}

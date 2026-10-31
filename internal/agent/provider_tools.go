@@ -16,7 +16,7 @@ func providerTools(s protocol.Service, args []string) ([]string, func(), error) 
 	if s.ToolBinary == "" || s.ToolConfig == "" || s.ToolSession == "" {
 		return args, cleanup, nil
 	}
-	toolArgs := []string{"mcp", "--config", s.ToolConfig, "--project", s.ID, "--session", s.ToolSession, "--source", s.ToolSource, "--notify-client", s.ToolNotifyAgent, "--notify-project", s.ToolNotifyProject, "--notify-session", s.ToolNotifySession}
+	toolArgs := []string{"mcp", "--config", s.ToolConfig, "--project", s.ID, "--session", s.ToolSession, "--turn", s.ToolTurn, "--source", s.ToolSource, "--parent-client", s.ToolParentAgent, "--parent-session", s.ToolParentSession}
 	if s.Provider == "codex" {
 		command := tomlToolString(s.ToolBinary)
 		quoted := make([]string, len(toolArgs))
@@ -28,7 +28,7 @@ func providerTools(s protocol.Service, args []string) ([]string, func(), error) 
 		args = append(append(append([]string{}, args[:len(args)-1]...), overrides...), args[len(args)-1])
 		return args, cleanup, nil
 	}
-	config := map[string]any{"mcpServers": map[string]any{"remote_agent": map[string]any{"command": s.ToolBinary, "args": toolArgs, "trust": true, "includeTools": []string{"list_clients_projects", "start_web_session", "notify_im_session"}}}}
+	config := map[string]any{"mcpServers": map[string]any{"remote_agent": map[string]any{"command": s.ToolBinary, "args": toolArgs, "trust": true, "includeTools": []string{"list_clients_projects", "start_web_session", "list_child_sessions", "read_session", "wait_session", "send_to_session", "cancel_session_task", "notify_im_session"}}}}
 	data, _ := json.Marshal(config)
 	f, err := os.CreateTemp(filepath.Dir(s.ToolConfig), ".mcp-*.json")
 	if err != nil {

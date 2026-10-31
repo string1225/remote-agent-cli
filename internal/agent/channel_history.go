@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -342,6 +343,49 @@ func (h historyStore) channelIncoming(sessionID, id, text string) (fresh bool, e
 func (h historyStore) channelNotification(c ChannelConfig, id, text string) error {
 	return h.channelQueue(c, id, text, true)
 }
+
+// Accept all parts of the session's answer atomically. A full queue must not
+// leave a partial answer active, and thinking ends after the last delivery.
+func (h historyStore) channelReplyParts(c ChannelConfig, id string, parts []string, messageID, reactionID string) error {
+	return h.transact(true, func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte("channel_outbox"))
+		if err != nil {
+			return err
+		}
+		needed := 0
+		for i := range parts {
+			if b.Get([]byte(fmt.Sprintf("%s-%04d", id, i))) == nil {
+				needed++
+			}
+		}
+		if b.Stats().KeyN+needed > 1000 {
+			return errors.New("通知队列已满，请检查渠道连接")
+		}
+		for i, text := range parts {
+			partID := fmt.Sprintf("%s-%04d", id, i)
+			if b.Get([]byte(partID)) != nil {
+				continue
+			}
+			sequence, err := b.NextSequence()
+			if err != nil {
+				return err
+			}
+			item := channelDelivery{ID: partID, Destination: c.destination(), SessionID: c.SessionID, Text: text, Sequence: sequence, Fingerprint: c.fingerprint(), ServiceID: c.ServiceID, ChatID: c.ChatID, ChatType: c.ChatType}
+			if i == len(parts)-1 {
+				item.MessageID, item.ReactionID = messageID, reactionID
+			}
+			data, err := json.Marshal(item)
+			if err != nil {
+				return err
+			}
+			if err = b.Put([]byte(partID), data); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (h historyStore) channelQueue(c ChannelConfig, id, text string, record bool) error {
 	return h.channelQueueReply(c, id, text, record, "", "")
 }
@@ -400,6 +444,10 @@ func (h historyStore) channelPendingItems(c ChannelConfig, all bool) (out []chan
 			var item channelDelivery
 			if err := json.Unmarshal(v, &item); err != nil {
 				return err
+			}
+			// Keep legacy automatic deliveries dormant even if archival failed.
+			if automaticCompletionID(item.ID) {
+				return nil
 			}
 			sameRoute := item.Destination == c.destination() && (item.Fingerprint != "" || c.validLegacyTarget())
 			sameBinding := item.Fingerprint == c.fingerprint() && item.ServiceID == c.ServiceID

@@ -52,7 +52,7 @@ func (s *Server) agentToolCall(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if in.Type != "tasks.start" && in.Type != "channels.notify" {
+	if in.Type != "tasks.start" && in.Type != "sessions.spawn" && in.Type != "channels.notify" && in.Type != "sessions.control" {
 		fail(w, 400, "unsupported client capability")
 		return
 	}
@@ -68,24 +68,28 @@ func (s *Server) agentToolCall(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "client not found")
 		return
 	}
-	if in.Type == "tasks.start" {
+	if in.Type == "tasks.start" || in.Type == "sessions.spawn" {
 		var task protocol.TaskStart
 		if json.Unmarshal(in.Body, &task) != nil {
 			fail(w, 400, "invalid task")
 			return
 		}
-		if task.NotifyAgentID != "" {
-			notifyTarget, e := s.Store.Agent(task.NotifyAgentID)
-			if e != nil || notifyTarget.Revoked || notifyTarget.UserID != source.UserID {
-				fail(w, 404, "notification client not found")
-				return
-			}
-		}
+		task.Notify = false
+		task.NotifyAgentID, task.NotifyServiceID, task.NotifySessionID = "", "", ""
 		task.ParentAgentID = source.ID
 		if task.Source != "im" && task.Source != "sayso" {
 			task.Source = "web"
 		}
 		in.Body, _ = json.Marshal(task)
+	}
+	if in.Type == "sessions.control" {
+		var control protocol.SessionControl
+		if json.Unmarshal(in.Body, &control) != nil {
+			fail(w, 400, "invalid session operation")
+			return
+		}
+		control.CallerAgentID = source.ID
+		in.Body, _ = json.Marshal(control)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()

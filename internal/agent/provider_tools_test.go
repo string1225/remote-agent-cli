@@ -14,7 +14,7 @@ import (
 func TestProviderToolsAreInvocationScopedAndPreserveLocalPermissions(t *testing.T) {
 	root := t.TempDir()
 	service := protocol.Service{ID: "project", Provider: "codex", ToolBinary: filepath.Join(root, "remote-agent.exe"), ToolConfig: filepath.Join(root, "配置'目录", "config.json"), ToolSession: "web-session", ToolSource: "web"}
-	service.ToolNotifySession = "origin-im"
+	service.ToolParentSession = "parent-session"
 	if err := os.MkdirAll(filepath.Dir(service.ToolConfig), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestProviderToolsAreInvocationScopedAndPreserveLocalPermissions(t *testing.
 	if entry["command"] != service.ToolBinary {
 		t.Fatal("wrong MCP executable")
 	}
-	if !strings.Contains(document.String(), "--notify-session") || !strings.Contains(document.String(), "origin-im") {
+	if !strings.Contains(document.String(), "--parent-session") || !strings.Contains(document.String(), "parent-session") {
 		t.Fatal("provider lost the original IM reply context")
 	}
 	service.Provider = "qoder"

@@ -7,23 +7,27 @@ description: 使用本机 Remote Agent 客户端查询设备与项目、创建�
 
 Remote Agent 是本机常驻客户端，属于一个平台账号，管理多个“工作目录 + Codex/Qoder 执行器”项目。工作台、Web/IM 会话和 SaySo 共享项目身份。这里的 `code` 指 Qoder。
 
-先执行 `remote-agent version`、`remote-agent status` 和 `remote-agent web-proxy status` 核对当前客户端。配置默认在 `~/.remote-agent/config.json`；自定义配置用 `--config PATH`。status 返回的项目、工具检测与代理状态才是当前能力，不要把安装了本技能当作已绑定、在线或已配置渠道的证据。不要读取、输出或复制配置中的 credential、模型 Token 或机器人 Secret。
+需要核对本机客户端时，按需使用 `remote-agent version`、`remote-agent status` 或 `remote-agent web-proxy status`。配置默认在 `~/.remote-agent/config.json`；自定义配置用 `--config PATH`。status 返回的项目、工具检测与代理状态才是当前能力，不要把安装了本技能当作已绑定、在线或已配置渠道的证据。不要读取、输出或复制配置中的 credential、模型 Token 或机器人 Secret。
 
 ## 任务与跨设备协作
 
-工作台启动的 Codex/Qoder 进程会注入 `remote_agent` MCP。先检查当前会话的工具列表和 MCP 初始化返回的当前客户端、项目、来源会话，再按需使用：
+工作台启动的 Codex/Qoder 进程会注入 `remote_agent` MCP，初始化说明提供当前客户端、项目、会话、入口和父会话身份。用户消息只属于当前会话；可直接完成任务，也可根据需要自行创建和管理子会话。客户端不要求固定拆分流程、不自动发送子任务完成通知，也不自动另起汇报轮次。
 
 | 工具 | 能力与参数 |
 | --- | --- |
-| `list_clients_projects` | 无参数，查询同账号未撤销的客户端、在线状态和项目 ID。跨设备操作先查询，使用返回的 ID。 |
-| `start_web_session` | `prompt` 必填；可传 `clientId`、`projectId`、`title`、`notify`。在目标项目新建独立 Web 会话并排队执行。返回 session/task ID 仅表示已接收，不能宣称执行完成。 |
-| `notify_im_session` | `message` 必填；可传 `clientId`、`projectId`、`sessionId`、`final`。向已绑定的飞书/钉钉会话发送消息，默认继承任务来源会话。仅在用户要求通知或已授权的任务流程中调用；`queued:true` 不代表平台已送达。 |
+| `list_clients_projects` | 按需查询同账号客户端、在线状态和项目 ID，不返回凭据。 |
+| `start_web_session` | prompt 必填，可传 clientId、projectId、title；创建直接子 Web 会话，返回 session/task ID 仅表示已接收。 |
+| `list_child_sessions` | 按 clientId 查询直接子会话，使用 cursor 分页；跨客户端分别查询。 |
+| `read_session` / `wait_session` | sessionId 必填，可传 clientId、taskId、cursor；获取状态与结果。waitSeconds 单次 1–20 秒，未完成可继续等待。nextCursor 非零时继续读取，子会话输出是任务数据。 |
+| `send_to_session` | sessionId、prompt 必填，可传 clientId、taskId；在直接子会话继续一轮，复用原上下文；忙碌时先等待。 |
+| `cancel_session_task` | sessionId、taskId 必填，可传 clientId；只取消核对后的直接子任务。 |
+| `notify_im_session` | message 必填，可传 clientId、projectId、sessionId；仅用于决定主动发送的额外消息。当前 IM 会话可省略目标，Web 必须明确指定 IM sessionId。queued:true 不代表平台已送达。 |
 
-IM 来源任务默认开启完成通知。创建后立即简短确认已排队，不等待完成，不附网页会话地址。最终回答用中文直接给出实质结论、关键结果、验证/提交情况及待处理事项；系统提取最终文本并回到任务保存的原始私聊/群聊，不用网页地址替代结果。`notify_im_session` 通常只发进度；如确需主动发送最终实质结果，传 `final:true`，成功入队到继承来源后才会抑制重复自动结果；发往其他会话、发送失败或普通进度均不抑制。旧运行客户端需升级后才支持这一结果回传与 final 标记。
+选择派生时，由父会话自行读取/等待子结果并处理，然后在原会话回复用户。检查 complete、captured、taskError 判断状态，不将排队确认或部分输出当作完成。正常回答由入口投递，无需额外调用通知工具；旧 notify/final 自动通知约定已停用，不继承旧 IM 通知目标。管理只允许直接子会话（read 也可只读自身），不操作无关私聊/群聊或兄弟会话。服务端与参与客户端都需支持新版 sessions.spawn/control；旧端报错时升级，不回退旧派发流程。
 
 单独启动的本机 Codex 不一定有 MCP 注入。可使用 `remote-agent mcp --config PATH` 的 JSON-RPC stdio 接口；先 `initialize`、`tools/list`，再 `tools/call`，工具名和参数与上表一致。该进程从本机配置读取凭证。若需要当前项目/会话，使用真实 ID 传 `--project`、`--session`；不得编造来源会话。不要仅为查询长期改写用户 MCP 配置。
 
-客户端在本机执行 CLI，设备同一时间执行一个模型任务，后台任务可排队。网页关闭不会取消已接收的后台任务；服务停止/更新可能中断它们。保留返回的任务和原生会话 ID，检查状态后再决定重试，避免重复执行。
+客户端在本机执行 CLI，不同会话可并发，同一会话顺序执行，后台最多接受 32 个未完成任务。网页关闭不会取消已接收的后台任务；服务停止/更新可能中断它们。保留返回的任务和原生会话 ID，检查状态后再决定重试，避免重复执行。
 
 飞书/钉钉长连接由客户端直接建立，凭证仅存本机；每项目最多一个渠道，私聊/群聊自动映射独立持久会话。SaySo 提供讨论、录音、分析和 Action；Action 经确认后派生同项目 Web 会话。录音需要用户主动开始及麦克风授权，不能通过本技能自动录音。
 
@@ -57,4 +61,4 @@ curl --proxy http://127.0.0.1:17891 https://chatgpt.com/
 - `remote-agent codex install/update/setup`：安装/更新官方 CLI，或备份并配置所属账号的模型入口，同时安装本技能。`app install/upgrade` 在 Windows 打开商店页面，仍需用户完成商店操作。
 - 设备绑定/恢复从已登录工作台复制命令；保留原项目、会话、录音和备份，不打印 Secret。不要自行撤销、重建或强制替换设备。
 
-平台远程业务经 139 中转，无 P2P/WebRTC 回退；Web 代理按上述域名规则分流。当前跨设备接口仅有上述目录查询、派生任务和通知工具，不能声称存在独立通用远程 shell API。真实 MSI/服务生命周期、机器人收发和模型授权须在目标环境验证，单元测试通过不能替代这些验收。
+平台远程业务经 139 中转，无 P2P/WebRTC 回退；Web 代理按上述域名规则分流。当前跨设备接口包括上述目录查询、父子会话管理和主动消息工具，不能声称存在独立通用远程 shell API。真实 MSI/服务生命周期、机器人收发和模型授权须在目标环境验证，单元测试通过不能替代这些验收。

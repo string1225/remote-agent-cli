@@ -115,7 +115,7 @@ func (a *Agent) startSessionTask(req protocol.Request) (protocol.TaskStarted, er
 	}
 	result = protocol.TaskStarted{TaskID: req.ID, Session: session}
 	taskCtx, cancel := context.WithCancel(a.taskCtx)
-	in := protocol.TaskStart{ServiceID: service.ID, Prompt: req.Prompt, Source: "web", Notify: session.NotifyAgentID != "", NotifyAgentID: session.NotifyAgentID, NotifyServiceID: session.NotifyServiceID, NotifySessionID: session.NotifySessionID}
+	in := protocol.TaskStart{ServiceID: service.ID, Prompt: req.Prompt, Source: "web"}
 	if a.enqueueTaskLocked(queuedTask{ctx: taskCtx, cancel: cancel, recorded: true, attachments: append([]string{}, req.Attachments...), start: in, result: result}) {
 		return result, nil
 	}

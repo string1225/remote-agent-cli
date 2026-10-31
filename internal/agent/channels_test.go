@@ -44,7 +44,7 @@ func (f *fakeIM) Send(ctx context.Context, _ string, text string) error {
 		return ctx.Err()
 	}
 }
-func TestIMConversationDelegatesWebTaskDeduplicatesAndPreservesConfiguration(t *testing.T) {
+func TestIMConversationChoosesDelegationAndPreservesConfiguration(t *testing.T) {
 	root := t.TempDir()
 	var fail atomic.Bool
 	sent := make(chan string, 20)
@@ -85,37 +85,45 @@ func TestIMConversationDelegatesWebTaskDeduplicatesAndPreservesConfiguration(t *
 	})
 	a.channelFactory = func(ChannelConfig) channelAdapter { return &fakeIM{sent: sent, fail: &fail} }
 	var executions atomic.Int32
-	allowCompletion := make(chan struct{})
-	a.Execute = func(ctx context.Context, _ Provider, s protocol.Service, prompt string, write bool, send func(protocol.Event) error, id string) error {
+	a.Execute = func(ctx context.Context, _ Provider, svc protocol.Service, prompt string, write bool, send func(protocol.Event) error, id string) error {
 		executions.Add(1)
 		if !write {
-			t.Error("channel did not use the configured full-access project permission")
+			t.Error("channel lost full-access project permission")
 		}
-		text := "web-complete"
-		if s.ToolSource == "im" {
-			if s.ToolNotifySession != s.ToolSession {
-				t.Error("IM tool context lost its original reply conversation")
+		text, native := "session-final "+a.Config.Server+"/#client=c&project=p&session=s", "native-thread"
+		if svc.ToolSource == "im" {
+			if svc.ToolNotifySession != "" {
+				t.Error("IM inherited an automatic notification route")
 			}
-			text = "request-accepted " + a.Config.Server + "/#client=c&project=p&session=s"
-			if !strings.Contains(prompt, "固定的 IM 渠道会话") || !strings.Contains(prompt, IMDeliveryInstructions) {
-				t.Error("missing channel context")
+			if prompt != "start work" && prompt != "delegate" {
+				t.Error("user message was rewritten", prompt)
 			}
-			if _, err := a.startTask(ctx, protocol.TaskStart{ServiceID: s.ID, Prompt: "delegated work", Title: "web-from-im", Source: "im", ParentAgentID: "client", ParentSessionID: s.ToolSession, Notify: true}, nil); err != nil {
-				return err
+			if prompt == "delegate" {
+				if svc.ResumeID != "native-thread" {
+					t.Error("IM native context was not reused")
+				}
+				child, err := a.startTask(ctx, protocol.TaskStart{ServiceID: svc.ID, Prompt: "child work", Source: "im", ParentAgentID: "client", ParentSessionID: svc.ToolSession, Notify: true}, nil)
+				if err != nil {
+					return err
+				}
+				got, err := a.sessionControl(ctx, protocol.SessionControl{Operation: "wait", CallerAgentID: "client", CallerSessionID: svc.ToolSession, SessionID: child.Session.ID, TaskID: child.TaskID})
+				if err != nil {
+					return err
+				}
+				state := got.(protocol.SessionState)
+				if !state.Complete || state.Result != "child-result" {
+					t.Error("parent did not receive child result", state)
+				}
+				text += " parent-reviewed"
 			}
-		} else if s.ToolNotifySession == "" || s.ToolNotifySession == s.ToolSession {
-			t.Error("delegated Web task lost its origin IM conversation")
 		} else {
-			if !strings.Contains(prompt, IMDeliveryInstructions) {
-				t.Error("delegated task missed the IM delivery contract")
+			if prompt != "child work" || svc.ToolNotifySession != "" {
+				t.Error("child prompt or delivery changed")
 			}
-			select {
-			case <-allowCompletion:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+			text, native = "child-result", "native-child"
 		}
-		data := `{"type":"thread.started","thread_id":"native-thread"}` + "\n" + `{"type":"item.completed","item":{"type":"agent_message","text":"` + text + `"}}` + "\n"
+		item, _ := json.Marshal(map[string]any{"type": "item.completed", "item": map[string]string{"type": "agent_message", "phase": "final_answer", "text": text}})
+		data := `{"type":"thread.started","thread_id":"` + native + `"}` + "\n" + string(item) + "\n"
 		return send(protocol.Event{ID: id, Type: "output", Data: map[string]string{"stream": "stdout", "text": data}})
 	}
 	config := ChannelConfig{ServiceID: "project", Provider: "feishu", AppID: "app-public", AppSecret: "secret-fixture"}
@@ -131,27 +139,38 @@ func TestIMConversationDelegatesWebTaskDeduplicatesAndPreservesConfiguration(t *
 	if err := r.receive(channelMessage{ID: "message-1", Text: "start work", ChatID: "chat", ChatType: "user"}); err != nil {
 		t.Fatal(err)
 	}
-	gotReply, gotCompletion := false, false
-	for deadline := time.After(10 * time.Second); !gotReply || !gotCompletion; {
-		select {
-		case text := <-sent:
-			if strings.Contains(text, "#client=") {
-				t.Error("IM creation/completion included a workspace address")
-			}
-			if strings.Contains(text, "任务完成：web-from-im") && (!strings.Contains(text, "web-complete") || strings.Contains(text, "#client=")) {
-				t.Error("completion did not include the actual result")
-			}
-			if strings.Contains(text, "request-accepted") && !gotReply {
-				gotReply = true
-				close(allowCompletion) // Initial confirmation must arrive before work finishes.
-			}
-			gotCompletion = gotCompletion || strings.Contains(text, "任务完成：web-from-im")
-		case <-deadline:
-			t.Fatal("channel reply or task notification missing")
+	select {
+	case text := <-sent:
+		if !strings.Contains(text, "session-final") || strings.Contains(text, "parent-reviewed") {
+			t.Fatal("unexpected direct reply", text)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("missing direct reply")
+	}
+	initial, _ := a.historyStore().list("project", "", 0)
+	for _, session := range initial.Sessions {
+		if session.Kind != "im" {
+			t.Fatal("ordinary user message created a child")
 		}
 	}
-	if executions.Load() != 2 {
-		t.Fatal("duplicate message executed or web task not delegated", executions.Load())
+	if err := r.receive(channelMessage{ID: "message-2", Text: "delegate", ChatID: "chat", ChatType: "user"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case text := <-sent:
+		if !strings.Contains(text, "parent-reviewed") || strings.Contains(text, "任务完成") || strings.Contains(text, "child-result") {
+			t.Fatal("child bypassed its parent", text)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("missing parent reply")
+	}
+	if executions.Load() != 3 {
+		t.Fatal("duplicate message executed or unexpected execution", executions.Load())
+	}
+	select {
+	case text := <-sent:
+		t.Fatal("unexpected automatic delivery", text)
+	default:
 	}
 	page, err := a.historyStore().list("project", "", 0)
 	if err != nil {
@@ -165,7 +184,7 @@ func TestIMConversationDelegatesWebTaskDeduplicatesAndPreservesConfiguration(t *
 			web = s
 		}
 	}
-	if channel.ID == "" || web.ID == "" || channel.ID == web.ID || web.ParentSessionID != channel.ID || web.NotifySessionID != channel.ID || web.Source != "im" || web.TaskStatus != "done" {
+	if channel.ID == "" || web.ID == "" || channel.ID == web.ID || web.ParentSessionID != channel.ID || web.NotifySessionID != "" || web.Source != "im" || web.TaskStatus != "done" {
 		t.Fatal("incorrect project/session relationships")
 	}
 	private, err := a.historyStore().get(channel.ID)
@@ -811,6 +830,9 @@ func TestIMDeliveryFailureClearsThinkingAndKeepsReplyForRetry(t *testing.T) {
 	}
 	task := <-a.tasks
 	defer task.cancel()
+	if err := a.historyStore().saveTaskResult(task.result.TaskID, "model-authored reply"); err != nil {
+		t.Fatal(err)
+	}
 	task.complete(nil)
 	done := make(chan struct{})
 	go func() { defer close(done); r.outbox() }()
@@ -858,6 +880,9 @@ func TestIMThinkingRemainsUntilReplyDeliveredAndClearsOnFailure(t *testing.T) {
 				err = errors.New("executor failed")
 			} else if outcome == "cancel" {
 				err = context.Canceled
+			}
+			if err := a.historyStore().saveTaskResult(task.result.TaskID, "model-authored reply"); err != nil {
+				t.Fatal(err)
 			}
 			task.complete(err)
 			if outcome == "success" {

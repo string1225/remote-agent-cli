@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -247,16 +246,20 @@ func (r *channelRuntime) receive(in channelMessage) error {
 	result := protocol.TaskStarted{Session: session, TaskID: key}
 	taskCtx, cancel := context.WithCancel(r.ctx)
 	finish := func(err error) {
-		text := r.a.historyStore().turnText(session.ID, key, 1<<20)
-		text = withoutSessionLinks(text, r.a.Config.Server)
+		text, _, resultErr := r.a.historyStore().taskResultText(session.ID, key)
+		if resultErr != nil && err == nil {
+			err = resultErr
+		}
 		if err != nil {
-			text = "渠道请求未完成，请稍后重试。"
-		} else if strings.TrimSpace(text) == "" {
-			text = "请求已处理。"
+			text = "会话执行未完成，请检查已完成内容后再继续。"
+		}
+		if strings.TrimSpace(text) == "" {
+			r.clearThinking(in.ID, reactionID)
+			return
 		}
 		id := key + "-reply"
 		if err == nil {
-			if queueErr := r.a.historyStore().channelQueueReply(route, id, text, false, in.ID, reactionID); queueErr != nil {
+			if queueErr := r.a.historyStore().channelReplyParts(route, id, notificationParts(text), in.ID, reactionID); queueErr != nil {
 				r.clearThinking(in.ID, reactionID)
 				r.setOperationError("storage", queueErr)
 				return
@@ -354,7 +357,6 @@ func (r *channelRuntime) notify(text string) (string, error) {
 	return r.notifyTo(route, text)
 }
 func (r *channelRuntime) notifyTo(route ChannelConfig, text string) (string, error) {
-	text = withoutSessionLinks(text, r.a.Config.Server)
 	if strings.TrimSpace(text) == "" || len(text) > 16000 {
 		return "", errors.New("通知内容需为 1–16000 字节")
 	}
@@ -465,7 +467,6 @@ func (a *Agent) notifyProjectSession(serviceID, sessionID, text string) (string,
 	return a.notifyProjectSessionID(serviceID, sessionID, "", text)
 }
 func (a *Agent) notifyProjectSessionID(serviceID, sessionID, id, text string) (string, error) {
-	text = withoutSessionLinks(text, a.Config.Server)
 	a.channelMu.Lock()
 	r := a.channels[serviceID]
 	a.channelMu.Unlock()
@@ -728,39 +729,6 @@ func (a *Agent) handleChannel(p *peer, req protocol.Request, send func(protocol.
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: map[string]any{"queued": true, "messageId": id}})
 	}
 }
-func (a *Agent) notifyTask(task queuedTask, err error) {
-	if !task.start.Notify {
-		return
-	}
-	text := a.taskCompletionText(task, err)
-	if text == "" {
-		return
-	}
-	target, project := task.start.NotifyAgentID, task.start.NotifyServiceID
-	if target == "" {
-		target = a.Config.ID
-	}
-	if project == "" {
-		project = task.start.ServiceID
-	}
-	notifySession := task.start.NotifySessionID
-	if notifySession == "" && task.start.ParentAgentID == target && task.start.Source == "im" {
-		notifySession = task.start.ParentSessionID
-	}
-	if task.start.Source == "im" && notifySession == "" {
-		log.Printf("task notification missing origin IM session task=%s", task.result.TaskID)
-		return
-	}
-	// Persist local deliveries too, so a restarting channel cannot lose results.
-	for i, part := range notificationParts(text) {
-		id := fmt.Sprintf("%s-completion-%04d", task.result.TaskID, i)
-		if queueErr := a.queueRemoteNotification(remoteNotification{ID: id, AgentID: target, ServiceID: project, SessionID: notifySession, Text: part}); queueErr != nil {
-			log.Printf("task notification enqueue failed task=%s: %v", task.result.TaskID, queueErr)
-			return
-		}
-	}
-}
-
 func (a *Agent) syncChannels(ctx context.Context) {
 	a.channelMu.Lock()
 	defer a.channelMu.Unlock()

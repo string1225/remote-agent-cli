@@ -14,7 +14,7 @@
 
 目标是搭建“服务器管理设备与网页入口，客户端常驻执行任务”的平台。Windows 正式客户端使用 **MSI + Windows Service**，开机启动，退出登录后仍在线；支持命令执行、Codex/Qoder 检测、Codex 代理配置与 CLI 安装更新、Codex App 商店入口。飞书/钉钉由客户端直接长连接，AK/SK 只存客户端；每个客户端项目最多一个渠道，每个机器人最多绑定一个项目，映射到固定 session。网页从指定客户端的项目进入 SaySo。需求中的 `code` 指 **Qoder**。
 
-完整职责和现状见 **[docs/project-goals.md](docs/project-goals.md)**，会话命名、MCP 工具与跨设备通知见 **[docs/session-model.md](docs/session-model.md)**。Windows 正式安装入口使用 MSI + Windows Service，支持原数据目录迁移；安装、升级和服务管理见 **[docs/windows-service-msi.md](docs/windows-service-msi.md)**。独立通用命令 API 与完整网页工具管理仍待实现。
+完整职责和现状见 **[docs/project-goals.md](docs/project-goals.md)**，会话命名、MCP 工具与父子会话管理见 **[docs/session-model.md](docs/session-model.md)**。Windows 正式安装入口使用 MSI + Windows Service，支持原数据目录迁移；安装、升级和服务管理见 **[docs/windows-service-msi.md](docs/windows-service-msi.md)**。独立通用命令 API 与完整网页工具管理仍待实现。
 
 所有代码直接提交并推送到 `main`，不新建分支。旧 `codex/unified-codex-platform` 分支的代码已汇入主线；协作规范见 [AGENTS.md](AGENTS.md)。
 
@@ -35,8 +35,8 @@
 - 添加项目时可按目录名搜索、输入部分路径自动补全，或逐层浏览；支持键盘和手机触摸，目录候选经站点从目标电脑读取。
 - 网页与客户端统一通过 139 站点的 WebSocket 中转，客户端持续心跳与断线重连，保留账号和会话归属校验。
 - 桌面三栏工作台：客户端 → 项目、可搜索会话列表、右侧工作区；系统图标及灰/绿在线点，客户端 + 添加项目，项目图标区分 Codex/Qoder；分隔线可拖动并保存列宽，手机使用左右抽屉。
-- 每项目置顶 SaySo，飞书/钉钉默认所有人可聊，按来信自动隔离私聊/群聊会话并显示对方名称。支持 Markdown 和飞书 THINKING 表情。Action/IM/Web 派生任务关闭网页后继续，完成通知回到原渠道会话；Secret 只持久存本机，绑定全局唯一。
-- 每次 Codex/Qoder 工作进程注入客户端 MCP：`list_clients_projects`、`start_web_session`、`notify_im_session`；支持同账号跨设备协作，遵守目标客户端允许目录和文件权限。
+- 每项目置顶 SaySo，飞书/钉钉默认所有人可聊，按来信自动隔离私聊/群聊会话并显示对方名称。支持 Markdown 和飞书 THINKING 表情。用户消息留在对应会话，由会话自行决定是否派生及管理子任务，读取结果后自行回复；关闭网页后已接受的任务继续，不自动发 IM 完成通知；Secret 只持久存本机，绑定全局唯一。
+- 每次 Codex/Qoder 工作进程注入客户端 MCP：查询项目、按需创建子会话，以及列出、读取、等待、继续、取消子任务和主动消息工具；支持同账号跨设备协作，遵守目标客户端允许目录和文件权限。
 - 会话历史保存在目标电脑 `~/.remote-agent/history.db`，通过站点分页读取；支持新建、搜索、刷新后查看，以及按 Codex / Qoder 原生会话 ID 继续对话。
 - 流式 Markdown、固定底部输入框和长消息滚动；Enter 发送，Shift+Enter 换行，兼容中文输入法；停止任务、断线取消、同设备多会话并发、同会话按序执行、20 分钟任务超时、30 分钟连接上限。
 - 项目目录白名单；所有会话完整授权（Codex danger-full-access/never，Qoder bypass_permissions），旧配置读取时迁移。设备右键支持重命名、安装/更新指引及同 ID 重新绑定恢复。

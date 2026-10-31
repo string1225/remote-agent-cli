@@ -76,3 +76,67 @@ func TestClientCapabilitiesStayWithinAccountAndUseServerAssignedRouting(t *testi
 		t.Fatal("operation response not forwarded")
 	}
 }
+
+func TestSessionManagementRelayReplacesCallerAndRejectsForeignClients(t *testing.T) {
+	for _, kind := range []string{"sessions.spawn", "sessions.control"} {
+		t.Run(kind, func(t *testing.T) {
+			f := setupAt(t, "/agents")
+			alice, bob := f.user("alice"), f.user("bob")
+			source, credential, _, _ := f.connectedDevice(alice)
+			target, _, device, _ := f.connectedDevice(alice)
+			foreign, _, _, _ := f.connectedDevice(bob)
+			call := func(targetID string) (int, []byte) {
+				body, _ := json.Marshal(map[string]any{"agentId": targetID, "type": kind, "body": map[string]any{"serviceId": "project", "prompt": "work", "parentAgentId": foreign.ID, "parentSessionId": "parent", "callerAgentId": foreign.ID, "callerSessionId": "parent", "sessionId": "child", "operation": "read", "notify": true, "notifyAgentId": foreign.ID}})
+				r, _ := http.NewRequest("POST", f.url+"/api/agent/tools?id="+source.ID, bytes.NewReader(body))
+				r.Header.Set("Authorization", "Bearer "+credential)
+				r.Header.Set("Content-Type", "application/json")
+				res, err := http.DefaultClient.Do(r)
+				if err != nil {
+					t.Error(err)
+					return 0, nil
+				}
+				defer res.Body.Close()
+				data, _ := io.ReadAll(res.Body)
+				return res.StatusCode, data
+			}
+			if status, _ := call(foreign.ID); status != 404 {
+				t.Fatal("crossed account boundary", status)
+			}
+			result := make(chan int, 1)
+			go func() { status, _ := call(target.ID); result <- status }()
+			device.SetReadDeadline(time.Now().Add(5 * time.Second))
+			var open, request protocol.Signal
+			if err := device.ReadJSON(&open); err != nil {
+				t.Fatal(err)
+			}
+			if err := device.WriteJSON(protocol.Signal{Type: "ready", PeerID: open.PeerID, Transport: protocol.RelayTransport}); err != nil {
+				t.Fatal(err)
+			}
+			if err := device.ReadJSON(&request); err != nil || request.Request == nil {
+				t.Fatal("missing management request", err)
+			}
+			var forwarded map[string]any
+			if json.Unmarshal(request.Request.Body, &forwarded) != nil {
+				t.Fatal("invalid relay body")
+			}
+			if kind == "sessions.spawn" {
+				if forwarded["parentAgentId"] != source.ID || forwarded["notify"] == true || forwarded["notifyAgentId"] != nil {
+					t.Fatal("spawn retained spoofed routing", forwarded)
+				}
+			} else if forwarded["callerAgentId"] != source.ID || forwarded["callerSessionId"] != "parent" {
+				t.Fatal("caller was not authenticated", forwarded)
+			}
+			if err := device.WriteJSON(protocol.Signal{Type: "event", PeerID: open.PeerID, Event: &protocol.Event{ID: request.Request.ID, Type: "result", Data: map[string]bool{"ok": true}}}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case status := <-result:
+				if status != 200 {
+					t.Fatal(status)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("relay did not complete")
+			}
+		})
+	}
+}

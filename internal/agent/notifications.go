@@ -1,126 +1,82 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
+	"log"
 	"os"
-	"path/filepath"
-	"time"
+	"strings"
 
+	"github.com/string1225/remote-agent-cli/internal/store"
 	bolt "go.etcd.io/bbolt"
 )
 
-type remoteNotification struct{ ID, AgentID, ServiceID, SessionID, Text string }
-
-func (a *Agent) initNotifications(ctx context.Context) {
-	a.notifyWake = make(chan struct{}, 1)
-	a.notifyDone = make(chan struct{})
-	go func() {
-		defer close(a.notifyDone)
-		if _, err := os.Stat(filepath.Join(filepath.Dir(a.Config.Path), "notifications.enabled")); err == nil {
-			// A task may already have published a wake while this worker was
-			// starting. Never block startup (and cancellation) on a full signal.
-			select {
-			case a.notifyWake <- struct{}{}:
-			default:
-			}
-		}
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-a.notifyWake:
-			}
-			for ctx.Err() == nil {
-				items, err := a.historyStore().remotePending()
-				if err == nil && len(items) == 0 {
-					break
-				}
-				if err == nil {
-					for _, item := range items {
-						a.mu.Lock()
-						config := a.Config
-						a.mu.Unlock()
-						if item.AgentID == config.ID {
-							_, err = a.notifyProjectSessionID(item.ServiceID, item.SessionID, item.ID, item.Text)
-						} else {
-							_, err = ClientTool(ctx, config, item.AgentID, "channels.notify", map[string]string{"serviceId": item.ServiceID, "sessionId": item.SessionID, "notificationId": item.ID, "message": item.Text})
-						}
-						if err != nil {
-							break
-						}
-						if err = a.historyStore().remoteDelivered(item.ID); err != nil {
-							break
-						}
-					}
-				}
-				if err != nil {
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(30 * time.Second):
-					case <-a.notifyWake:
-					}
-				}
-			}
-		}
-	}()
-}
-func (a *Agent) queueRemoteNotification(v remoteNotification) error {
-	// Publish the recovery marker before the durable queue entry. A crash can
-	// leave an empty enabled queue, never an undiscoverable pending delivery.
-	marker := filepath.Join(filepath.Dir(a.Config.Path), "notifications.enabled")
-	f, err := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
+// Old releases persisted automatic completion deliveries. Keep their exact
+// bytes in a recovery bucket, but never send them after a session-managed upgrade.
+func (h historyStore) retireAutomaticNotifications() error {
+	if _, err := os.Stat(h.path); os.IsNotExist(err) {
+		return nil
 	}
-	f.Close()
-	err = a.historyStore().transact(true, func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte("remote_notifications"))
-		if err != nil {
-			return err
-		}
-		if b.Stats().KeyN >= 1000 {
-			return errors.New("跨设备通知队列已满")
-		}
-		data, err := json.Marshal(v)
-		if err != nil {
-			return err
-		}
-		return b.Put([]byte(v.ID), data)
-	})
-	if err == nil {
-		select {
-		case a.notifyWake <- struct{}{}:
-		default:
-		}
-	}
-	return err
-}
-func (h historyStore) remotePending() (items []remoteNotification, err error) {
-	err = h.transact(false, func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("remote_notifications"))
-		if b == nil {
-			return nil
-		}
-		return b.ForEach(func(_, v []byte) error {
-			var item remoteNotification
-			if err := json.Unmarshal(v, &item); err != nil {
+	return h.transact(true, func(tx *bolt.Tx) error {
+		for _, name := range []string{"remote_notifications", "channel_outbox"} {
+			b := tx.Bucket([]byte(name))
+			if b == nil {
+				continue
+			}
+			archive, err := tx.CreateBucketIfNotExists([]byte("retired_" + name))
+			if err != nil {
 				return err
 			}
-			items = append(items, item)
-			return nil
-		})
-	})
-	return
-}
-func (h historyStore) remoteDelivered(id string) error {
-	return h.transact(true, func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("remote_notifications"))
-		if b == nil {
-			return nil
+			c := b.Cursor()
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				if name == "channel_outbox" {
+					var item channelDelivery
+					if json.Unmarshal(v, &item) != nil || !automaticCompletionID(item.ID) {
+						continue
+					}
+				}
+				archiveKey := k
+				if previous := archive.Get(k); previous != nil && !bytes.Equal(previous, v) {
+					archiveKey = []byte(string(k) + "\x00" + store.Hash(string(v)))
+				}
+				if err = archive.Put(archiveKey, v); err != nil {
+					return err
+				}
+				if err = c.Delete(); err != nil {
+					return err
+				}
+			}
 		}
-		return b.Delete([]byte(id))
+		return nil
 	})
+}
+
+func automaticCompletionID(id string) bool {
+	if strings.HasSuffix(id, "-completion") {
+		return true
+	}
+	i := strings.LastIndex(id, "-completion-")
+	if i < 0 {
+		return false
+	}
+	part := id[i+len("-completion-"):]
+	if len(part) != 4 {
+		return false
+	}
+	for _, r := range part {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *Agent) initNotifications(context.Context) {
+	// Retain the shutdown channel for existing daemon lifecycle callers.
+	a.notifyDone = make(chan struct{})
+	if err := a.historyStore().retireAutomaticNotifications(); err != nil {
+		log.Printf("retaining legacy task notifications without delivery: %v", err)
+	}
+	close(a.notifyDone)
 }

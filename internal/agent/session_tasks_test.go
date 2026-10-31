@@ -120,15 +120,13 @@ func TestExistingWebTurnsSurvivePeerCloseRunConcurrentlyAndResume(t *testing.T) 
 	}
 }
 
-func TestTimeoutNotificationExplainsContinuationAndToolRecordsOmitSkillContents(t *testing.T) {
-	a, _ := concurrencyFixture(t)
+func TestTimeoutExplainsContinuationAndToolRecordsOmitSkillContents(t *testing.T) {
 	err := taskTimeoutError()
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal("deadline cause lost")
 	}
-	task := queuedTask{result: protocol.TaskStarted{TaskID: "timeout", Session: protocol.Conversation{ID: "web", Title: "work"}}}
-	message := a.taskCompletionText(task, err)
-	for _, want := range []string{"任务超时：", "2 小时", "同一会话", "继续"} {
+	message := err.Error()
+	for _, want := range []string{"任务执行超时", "2 小时", "同一会话", "继续"} {
 		if !strings.Contains(message, want) {
 			t.Fatal(message)
 		}

@@ -3,6 +3,9 @@ package protocol
 import "encoding/json"
 
 type Service struct {
+	ToolTurn          string       `json:"-"`
+	ToolParentAgent   string       `json:"-"`
+	ToolParentSession string       `json:"-"`
 	Images            []string     `json:"-"`
 	ToolNotifyAgent   string       `json:"-"`
 	ToolNotifyProject string       `json:"-"`

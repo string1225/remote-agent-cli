@@ -31,7 +31,6 @@ type Agent struct {
 	runs              map[string]context.CancelFunc
 	removingProjects  map[string]bool
 	attachmentMu      sync.Mutex
-	notifyWake        chan struct{}
 	notifyDone        chan struct{}
 	channelMu         sync.Mutex
 	channels          map[string]*channelRuntime
@@ -44,6 +43,7 @@ type Agent struct {
 	sayso             *saysoStore
 	saysoErr          error
 	tasksOnce         sync.Once
+	taskStartMu       sync.Mutex
 	taskCtx           context.Context
 	tasks             chan queuedTask
 	taskCancels       map[string]context.CancelFunc
@@ -328,8 +328,10 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		a.handleChannel(p, req, send)
 	case "tasks.cancel":
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: a.cancelTask(req.RunID)})
-	case "tasks.start":
+	case "tasks.start", "sessions.spawn":
 		a.handleTask(p, req, send)
+	case "sessions.control":
+		a.handleSessionControl(p.ctx, req, send)
 	case "tasks.run":
 		result, err := a.startSessionTask(req)
 		if err != nil {
@@ -485,15 +487,10 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		service.ToolBinary, _ = os.Executable()
 		service.ToolConfig = a.Config.Path
 		service.ToolSession = conversation.ID
+		service.ToolTurn = req.ID
 		service.ToolSource = conversation.Kind
-		service.ToolNotifyAgent = conversation.NotifyAgentID
-		service.ToolNotifyProject = conversation.NotifyServiceID
-		service.ToolNotifySession = conversation.NotifySessionID
-		if conversation.Kind == "im" {
-			service.ToolNotifyAgent = a.Config.ID
-			service.ToolNotifyProject = service.ID
-			service.ToolNotifySession = conversation.ID
-		}
+		service.ToolParentAgent = conversation.ParentAgentID
+		service.ToolParentSession = conversation.ParentSessionID
 		if !req.Recorded {
 			if _, err = history.append(conversation.ID, protocol.ChatEntry{TurnID: req.ID, Role: "user", Text: req.Prompt, Kind: "message", Attachments: refs}); err != nil {
 				a.mu.Unlock()
@@ -536,11 +533,6 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 				},
 			}
 			prompt := attachmentPrompt(req.Prompt, refs, paths)
-			if conversation.Kind == "im" {
-				prompt = "这是固定的 IM 渠道会话。需要执行具体工作时，请使用 remote_agent 的 start_web_session 工具创建项目下的新 Web 会话；也可以通过 list_clients_projects 查看同账号其他客户端项目。" + IMDeliveryInstructions + "\n\n" + prompt
-			} else if conversation.NotifySessionID != "" {
-				prompt = IMDeliveryInstructions + "\n\n" + prompt
-			}
 			err := a.Execute(ctx, provider, service, prompt, write, func(event protocol.Event) error {
 				if event.Type != "output" {
 					return send(event)

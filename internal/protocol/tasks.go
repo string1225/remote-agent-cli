@@ -1,6 +1,8 @@
 package protocol
 
 type TaskStart struct {
+	RequestID string `json:"requestId,omitempty"`
+	// Legacy notification fields are accepted but do not trigger delivery.
 	NotifyAgentID   string `json:"notifyAgentId,omitempty"`
 	NotifyServiceID string `json:"notifyServiceId,omitempty"`
 	NotifySessionID string `json:"notifySessionId,omitempty"`

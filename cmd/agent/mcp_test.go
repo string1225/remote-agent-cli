@@ -12,18 +12,18 @@ import (
 	"testing"
 
 	"github.com/string1225/remote-agent-cli/internal/agent"
-	bolt "go.etcd.io/bbolt"
 )
 
-func TestMCPToolsUseEnrolledSiteAndProjectSessionContext(t *testing.T) {
+func TestMCPSessionOwnsDelegationAndExplicitMessages(t *testing.T) {
 	var operations []string
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var spawnIDs []string
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer local-device-secret" || r.URL.Query().Get("id") != "source-client" {
-			t.Error("wrong device identity")
+			t.Error("lost device authentication")
 		}
-		operations = append(operations, r.URL.Path)
 		if r.URL.Path == "/api/agent/catalog" {
-			io.WriteString(w, `{"clients":[{"id":"target","projects":[{"id":"project-b"}]}]}`)
+			operations = append(operations, "catalog")
+			io.WriteString(w, `{"clients":[]}`)
 			return
 		}
 		var in struct {
@@ -34,159 +34,72 @@ func TestMCPToolsUseEnrolledSiteAndProjectSessionContext(t *testing.T) {
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			t.Error("invalid tool request")
 		}
-		if in.Type == "tasks.start" {
-			if in.AgentID != "target" || in.Body["serviceId"] != "project-b" || in.Body["parentSessionId"] != "origin-im" || in.Body["source"] != "im" || in.Body["notify"] != true || in.Body["notifySessionId"] != "origin-im" {
-				t.Error("lost caller or target context")
+		operations = append(operations, in.Type)
+		switch in.Type {
+		case "sessions.spawn":
+			if in.AgentID != "target" || in.Body["parentSessionId"] != "current-im" || in.Body["serviceId"] != "target-project" || in.Body["notify"] == true || in.Body["notifySessionId"] != nil {
+				t.Error("spawn inherited automatic routing", in)
 			}
-			io.WriteString(w, `{"session":{"id":"new-web","kind":"web"},"taskId":"task"}`)
-		} else if in.Type == "channels.notify" {
-			if in.AgentID != "source-client" || in.Body["serviceId"] != "project-a" || in.Body["sessionId"] != "origin-im" || in.Body["message"] != "done" {
-				t.Error("notification not scoped to current project")
+			spawnIDs = append(spawnIDs, in.Body["requestId"].(string))
+			io.WriteString(w, `{"session":{"id":"child"},"taskId":"task"}`)
+		case "sessions.control":
+			if in.Body["callerSessionId"] != "current-im" || in.Body["sessionId"] != "child" || in.Body["taskId"] != "task" {
+				t.Error("lost management identity", in)
+			}
+			io.WriteString(w, `{"complete":true,"result":"child-result"}`)
+		case "channels.notify":
+			if in.AgentID != "source-client" || in.Body["sessionId"] != "current-im" || in.Body["serviceId"] != "current-project" {
+				t.Error("message escaped current IM session", in)
 			}
 			io.WriteString(w, `{"queued":true}`)
-		} else {
-			t.Error("unexpected operation")
+		default:
+			t.Error("unexpected request", in.Type)
 		}
 	}))
-	defer up.Close()
-	c := agent.Config{Path: filepath.Join(t.TempDir(), "config.json"), Server: up.URL, ID: "source-client", Credential: "local-device-secret"}
+	defer site.Close()
+	c := agent.Config{Path: filepath.Join(t.TempDir(), "config.json"), ID: "source-client", Credential: "local-device-secret", Server: site.URL}
 	if err := c.Save(); err != nil {
 		t.Fatal(err)
 	}
-	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}
+	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_clients_projects","arguments":{}}}
-{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"start_web_session","arguments":{"clientId":"target","projectId":"project-b","prompt":"work"}}}
-{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"notify_im_session","arguments":{"message":"done"}}}
-`)
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"start_web_session","arguments":{"clientId":"target","projectId":"target-project","prompt":"work"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"start_web_session","arguments":{"clientId":"target","projectId":"target-project","prompt":"work"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"wait_session","arguments":{"clientId":"target","sessionId":"child","taskId":"task","waitSeconds":1}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"notify_im_session","arguments":{"message":"explicit message"}}}`)
 	var out bytes.Buffer
-	if err := runMCP(context.Background(), []string{"--config", c.Path, "--project", "project-a", "--session", "origin-im", "--source", "im"}, input, &out); err != nil {
+	if err := runMCP(context.Background(), []string{"--config", c.Path, "--project", "current-project", "--session", "current-im", "--turn", "turn-1", "--source", "im"}, input, &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(operations) != 3 || !strings.Contains(out.String(), "new-web") || strings.Contains(out.String(), "local-device-secret") {
-		t.Fatal("tool calls missing or leaked credentials")
+	if len(operations) != 5 || len(spawnIDs) != 2 || spawnIDs[0] != spawnIDs[1] {
+		t.Fatal("operation sequence or retry identity changed", operations, spawnIDs)
 	}
-	decoder := json.NewDecoder(&out)
-	count := 0
-	for decoder.More() {
-		var v map[string]any
-		if err := decoder.Decode(&v); err != nil {
-			t.Fatal(err)
-		}
-		count++
+	if strings.Contains(out.String(), "local-device-secret") || !strings.Contains(out.String(), "child-result") {
+		t.Fatal("missing result or exposed credential")
 	}
-	if count != 5 {
-		t.Fatal("notifications produced replies or lost responses", count)
+	var init struct {
+		Result struct {
+			Instructions string `json:"instructions"`
+		} `json:"result"`
+	}
+	if json.NewDecoder(bytes.NewReader(out.Bytes())).Decode(&init) != nil || !strings.Contains(init.Result.Instructions, agent.SessionInstructions) || strings.Contains(init.Result.Instructions, "先列出") {
+		t.Fatal("incorrect MCP guidance", out.String())
 	}
 }
 
-func TestMCPDelegationRetainsOriginIMConversation(t *testing.T) {
-	operations := 0
-	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var in struct {
-			AgentID string         `json:"agentId"`
-			Type    string         `json:"type"`
-			Body    map[string]any `json:"body"`
-		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil {
-			t.Error("invalid request")
-		}
-		operations++
-		if in.Type == "tasks.start" {
-			if in.Body["parentSessionId"] != "web-child" || in.Body["notifySessionId"] != "original-im" || in.Body["notify"] != true || in.Body["notifyAgentId"] != "origin-client" || in.Body["notifyServiceId"] != "origin-project" {
-				t.Error("nested task lost original IM route")
-			}
-		} else if in.AgentID != "origin-client" || in.Body["serviceId"] != "origin-project" || in.Body["sessionId"] != "original-im" {
-			t.Error("progress notification used worker Web session")
-		}
-		io.WriteString(w, `{"ok":true}`)
-	}))
+func TestMCPWebSessionDoesNotInheritIMDelivery(t *testing.T) {
+	calls := 0
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; io.WriteString(w, `{}`) }))
 	defer site.Close()
-	c := agent.Config{Path: filepath.Join(t.TempDir(), "config.json"), Server: site.URL, ID: "worker-client", Credential: "mock"}
+	c := agent.Config{Path: filepath.Join(t.TempDir(), "config.json"), ID: "worker", Credential: "mock", Server: site.URL}
 	if err := c.Save(); err != nil {
 		t.Fatal(err)
 	}
-	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"start_web_session","arguments":{"prompt":"nested work"}}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"notify_im_session","arguments":{"message":"progress"}}}`)
 	var out bytes.Buffer
-	if err := runMCP(context.Background(), []string{"--config", c.Path, "--project", "worker-project", "--session", "web-child", "--source", "web", "--notify-client", "origin-client", "--notify-project", "origin-project", "--notify-session", "original-im"}, input, &out); err != nil {
-		t.Fatal(err)
-	}
-	if operations != 2 {
-		t.Fatal("missing nested operations", out.String())
-	}
-}
-
-func TestMCPFinalNotificationOnlySuppressesAfterOriginAccepts(t *testing.T) {
-	for _, tc := range []struct {
-		name               string
-		final, fail, other bool
-		want               bool
-	}{
-		{name: "progress"}, {name: "final", final: true, want: true}, {name: "failed", final: true, fail: true}, {name: "other-session", final: true, other: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if tc.fail {
-					w.WriteHeader(503)
-					io.WriteString(w, `{"error":"offline"}`)
-					return
-				}
-				io.WriteString(w, `{"queued":true}`)
-			}))
-			defer site.Close()
-			root := t.TempDir()
-			c := agent.Config{Path: filepath.Join(root, "config.json"), Server: site.URL, ID: "worker", Credential: "mock"}
-			if err := c.Save(); err != nil {
-				t.Fatal(err)
-			}
-			history := filepath.Join(root, "history.db")
-			db, err := bolt.Open(history, 0600, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = db.Update(func(tx *bolt.Tx) error {
-				b, err := tx.CreateBucketIfNotExists([]byte("sessions"))
-				if err != nil {
-					return err
-				}
-				return b.Put([]byte("web"), []byte(`{"id":"web","taskId":"task"}`))
-			})
-			db.Close()
-			if err != nil {
-				t.Fatal(err)
-			}
-			args := map[string]any{"message": "结论、验证和提交", "final": tc.final}
-			if tc.other {
-				args["sessionId"] = "other-im"
-			}
-			request, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "notify_im_session", "arguments": args}})
-			var output bytes.Buffer
-			if err := runMCP(context.Background(), []string{"--config", c.Path, "--project", "work", "--session", "web", "--source", "web", "--notify-client", "origin", "--notify-project", "original-project", "--notify-session", "original-im"}, bytes.NewReader(append(request, '\n')), &output); err != nil {
-				t.Fatal(err)
-			}
-			db, err = bolt.Open(history, 0600, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer db.Close()
-			notified := false
-			err = db.View(func(tx *bolt.Tx) error {
-				if b := tx.Bucket([]byte("task_results")); b != nil {
-					var result struct{ Notified bool }
-					if data := b.Get([]byte("task")); data != nil {
-						if err := json.Unmarshal(data, &result); err != nil {
-							return err
-						}
-						notified = result.Notified
-					}
-				}
-				return nil
-			})
-			if err != nil || notified != tc.want {
-				t.Fatal("incorrect automatic completion suppression", notified, err, output.String())
-			}
-		})
+	err := runMCP(context.Background(), []string{"--config", c.Path, "--project", "work", "--session", "web-child", "--source", "web", "--notify-client", "old-origin", "--notify-project", "old-project", "--notify-session", "old-im"}, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"notify_im_session","arguments":{"message":"must not auto-route"}}}`), &out)
+	if err != nil || calls != 0 || !strings.Contains(out.String(), "isError") {
+		t.Fatal("legacy route sent an unsolicited message", err, out.String())
 	}
 }
