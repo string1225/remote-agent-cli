@@ -48,6 +48,7 @@
       ? `remote-agent codex setup --server ${psQuote(server)} --token-prompt`
       : `"$HOME/.remote-agent/bin/remote-agent" codex setup --server ${shellQuote(server)} --token-prompt`;
     const windows = platform() === "windows";
+    $("setup-git-auth").hidden = !windows;
     $("local-command-label").firstChild.textContent = "刷新已绑定设备的 Codex 配置";
     $("copy-local-cli").textContent = "复制配置命令";
     $("setup-install-description").textContent = "设备绑定会自动申请所属账号的 Token 并配置 Codex。再次刷新时，使用本机绑定识别账号，终端会显示账号名称。";

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"os"
+	"runtime"
 
 	"github.com/string1225/remote-agent-cli/internal/agent"
 )
@@ -58,7 +59,11 @@ func runService(args []string) error {
 			}
 			return p.Save(*output)
 		}
-		return agent.ConfigureWindowsService(p, *noStart)
+		if err := agent.ConfigureWindowsService(p, *noStart); err != nil {
+			return err
+		}
+		gitAuthReminder(os.Stdout, runtime.GOOS, p.Config, *noStart)
+		return nil
 	default:
 		return errors.New(tr("use service run/profile/configure/status"))
 	}

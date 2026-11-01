@@ -12,7 +12,7 @@ import (
 	"github.com/string1225/remote-agent-cli/internal/agent"
 )
 
-func runConnect(args []string) error {
+func runConnect(args []string) (result error) {
 	flags := newCLIFlagSet("connect")
 	server := flags.String("server", "https://codex.sunny-string.cn/agents", tr("platform URL"))
 	config := flags.String("config", agent.DefaultPath(), tr("device configuration"))
@@ -43,6 +43,11 @@ func runConnect(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if result == nil {
+			gitAuthReminder(os.Stdout, runtime.GOOS, path, *noStart)
+		}
+	}()
 	if runtime.GOOS == "windows" {
 		if _, err = agent.WindowsServiceStatus(); err != nil {
 			return fmt.Errorf(tr("Install Remote Agent MSI first: %w"), err)

@@ -74,6 +74,8 @@ func (a *Agent) catalogServices() []protocol.Service {
 }
 func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
+	stopGitAuth := a.startGitAuth(ctx)
+	defer stopGitAuth()
 	stopWebProxy := a.startWebProxy(ctx)
 	defer stopWebProxy()
 	defer func() {

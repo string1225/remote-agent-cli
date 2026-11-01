@@ -47,6 +47,32 @@ PATH、用户目录、`CODEX_HOME`、已检测到的 Codex/Qoder 路径从原用
 
 Codex App 商店页面等桌面操作仍应在登录用户会话中进行，不能通过 Session 0 服务直接显示。
 
+## 后台 GitHub 授权
+
+客户端初始化（connect，含已有绑定、修复和恢复）、enroll、service configure 完成后会提示后台 GitHub 授权。桌面 Git Credential Manager 的登录凭据不会自动供 LocalService 使用；后台任务读取私有仓库或推送前，在设备属主的普通 PowerShell 运行：
+
+```powershell
+remote-agent git login
+remote-agent git status
+```
+
+需要先安装包含 Git Credential Manager（GCM）的 Git for Windows，并启动已配置的 RemoteAgent 服务。login 由服务执行 GCM 的设备码授权，在终端显示官方地址和验证码；请自行在浏览器确认。无需管理员授权，不会在 Session 0 打开浏览器。登录成功后，服务启动的 Codex/Qoder 使用独立的 DPAPI 凭据存储，退出 Windows 登录或重启后继续使用。status 只列出后台已保存的账号，不验证 Token 是否已在 GitHub 撤销，也不代表已拥有某个仓库的推送权限。
+
+```powershell
+# 指定账号或刷新失效授权
+remote-agent git login --username YOUR_GITHUB_ACCOUNT --force
+# 仅移除选定后台账号；桌面 Git 登录保留
+remote-agent git logout --username YOUR_GITHUB_ACCOUNT
+# 自定义设备配置必须与绑定和服务一致
+remote-agent git login --config 'C:\Users\you\custom-agent\config.json'
+```
+
+`--no-start` 初始化后，应先在管理员终端用 `remote-agent start --config ...` 启用服务，再回到设备属主的终端授权。服务未升级或未启动时，git 命令明确返回不可用，不能把当前桌面的登录结果当作后台授权成功。macOS/Linux 的客户端继续以实际运行用户完成普通 Git 认证，无需此 Windows 命令。
+
+授权管理只经本机命名管道，双方核对进程身份；仅设备属主、管理员或 SYSTEM 可管理。凭据位于原数据目录 `git-auth`，使用 GCM CurrentUser DPAPI 和仅 RemoteAgent SID/SYSTEM/管理员可访问的受保护目录权限；OWNER RIGHTS 限制共享 LocalService 属主的隐式改权限能力。设备码、Token 不经 139、不写聊天历史或服务日志。服务进程环境选择独立 GitHub helper，保留原 `.gitconfig`、桌面凭据、Git 作者信息和其他主机配置。任务禁用交互密码提示，缺少授权时不会无限等待；用上述 login/status 处理。
+
+普通测试在临时目录使用模拟凭据验证 GCM DPAPI 存取、重启 helper 后读取、管道、取消和权限，不执行真实授权或修改真实服务。目标环境仍须验收真实 LocalService 登录、私有仓库读取、`git push --dry-run`，以及经过授权的实际推送、退出登录和冷启动。公开仓库的 `ls-remote` 成功不能代替认证验收。
+
 ## 手动配置与诊断
 
 先安装对应 CPU 架构的 MSI，再在原用户 PowerShell 捕获环境：
