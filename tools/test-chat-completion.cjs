@@ -12,6 +12,7 @@ function harness(reply) {
     submitting:new Set(), peer:{}, permissionMode:'full', listRevision:0,
   };
   const sandbox = {
+    window:{},
     state, $:id => {
       if (!elements.has(id)) elements.set(id, {value:''});
       return elements.get(id);

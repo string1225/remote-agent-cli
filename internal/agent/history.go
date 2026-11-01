@@ -85,6 +85,9 @@ func (h historyStore) get(id string) (s protocol.Conversation, err error) {
 	return
 }
 func (h historyStore) list(serviceID, search string, offset uint64) (page protocol.ConversationPage, err error) {
+	return h.listArchived(serviceID, search, offset, false)
+}
+func (h historyStore) listArchived(serviceID, search string, offset uint64, archived bool) (page protocol.ConversationPage, err error) {
 	page.Sessions = []protocol.Conversation{}
 	err = h.transact(false, func(tx *bolt.Tx) error {
 		all := []protocol.Conversation{}
@@ -93,7 +96,7 @@ func (h historyStore) list(serviceID, search string, offset uint64) (page protoc
 			if err := json.Unmarshal(v, &s); err != nil {
 				return err
 			}
-			if s.ServiceID == serviceID && strings.Contains(strings.ToLower(s.Title), strings.ToLower(search)) {
+			if s.DeletedAt == 0 && (s.ArchivedAt != 0) == archived && s.ServiceID == serviceID && strings.Contains(strings.ToLower(s.Title), strings.ToLower(search)) {
 				s.NativeID = ""
 				all = append(all, s)
 			}
@@ -133,6 +136,10 @@ func (h historyStore) read(id string, after uint64) (page protocol.HistoryPage, 
 			return err
 		}
 		page.Session.NativeID = ""
+		page.Session.QueuedMessages, err = queuedMessagesFrom(tx, id)
+		if err != nil {
+			return err
+		}
 		bucket := tx.Bucket([]byte("entries")).Bucket([]byte(id))
 		if bucket == nil {
 			return errors.New("session history missing")
@@ -177,7 +184,7 @@ func appendHistory(tx *bolt.Tx, id string, entry protocol.ChatEntry) (entries []
 		if bucket.Sequence() > 100000 {
 			return errors.New("session history is full; start a new session")
 		}
-		if entry.Role == "user" && s.Title == "新会话" {
+		if entry.Role == "user" && s.Title == "新会话" && !s.CustomTitle {
 			r := []rune(strings.TrimSpace(entry.Text))
 			if len(r) > 60 {
 				r = r[:60]

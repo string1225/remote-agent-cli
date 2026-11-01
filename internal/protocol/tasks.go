@@ -1,5 +1,15 @@
 package protocol
 
+type QueuedMessage struct {
+	ID          string       `json:"id"`
+	Prompt      string       `json:"prompt"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	Status      string       `json:"status"`
+	Source      string       `json:"source"`
+	CreatedAt   int64        `json:"createdAt"`
+	Priority    bool         `json:"priority,omitempty"`
+}
+
 type TaskStart struct {
 	RequestID string `json:"requestId,omitempty"`
 	// Legacy notification fields are accepted but do not trigger delivery.

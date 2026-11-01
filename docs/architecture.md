@@ -31,6 +31,10 @@ sequenceDiagram
 
 ## 共享协议
 
+工作台新增 `projectSettings`、`sessionManagement` 和 `taskQueue` 能力标记。`services.update` 只更新原项目名称和已授权目录，保存原配置备份，不改项目 ID、历史工作目录、原生会话或录音；新任务使用当前项目目录。目录修改须等待该项目任务、排队消息及录音结束。`sessions.rename/archive/delete` 核对项目归属，归档列表使用 `sessions.list` 的 `archived:true` 分页；删除写入 `deletedAt`，保留本机历史、原生上下文和附件作为恢复数据。
+
+网页默认按会话 FIFO 排队，`tasks.run` 可显式传 `interrupt:true`，`tasks.promote` 将待执行消息提到队首并取消当前轮；等待原进程结束后再恢复原生上下文执行，IM 来信统一使用插队。`tasks.edit` 原子移出待执行队列并返回正文、附件，浏览器保存到原会话草稿后以 `body.acknowledged:true` 确认；确认丢失可重复取回。`history.db/task_queue` 保存待执行消息和去重记录，`sessions.get.session.queuedMessages` 返回排队、暂停或待取回编辑的内容。重启不自动重放任务：未执行消息保留为 paused，可检查后插队继续或编辑。客户端管理工具的 `send_to_session` 仍要求目标子会话空闲。
+
 `internal/protocol` 定义 `Signal`、`Request`、`Event`。网页使用的主要请求：
 
 | 请求 | 行为 |

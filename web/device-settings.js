@@ -13,7 +13,8 @@
   function openMenu(event,nextDevice,anchor) {
     event.preventDefault(); event.stopPropagation(); device = nextDevice; opener = anchor;
     window.prepareMaintenanceMenu?.(device,project);
-    $("device-menu-settings").hidden=!!project;
+    $("device-menu-settings").hidden=false;
+    $("device-menu-settings").disabled=!!project&&!device.online;
     $("device-menu-channel").hidden=!project;$("device-menu-channel").disabled=!device.online;
     $("device-menu-delete").textContent=project?"删除项目":"删除客户端";
     $("device-menu-delete").disabled=!!project&&!device.online;
@@ -25,6 +26,7 @@
     menu.querySelector("button:not([hidden])").focus();
   }
   $("device-menu-settings").onclick = () => {
+    if(project){const current=device,target=project;closeMenu();window.openProjectSettings(current,target).catch(e=>notice(e.message));return}
     closeMenu(); form.elements.name.value = device.name; $("device-settings-subtitle").textContent = device.name;
     form.elements.os.value=device.os || "";form.elements.os.disabled=!!device.os;
     dialog.showModal(); form.elements.name.focus(); form.elements.name.select();

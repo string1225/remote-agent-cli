@@ -50,6 +50,9 @@ type Signal struct {
 }
 
 type Request struct {
+	RequireIdle   bool            `json:"-"`
+	Archived      bool            `json:"archived,omitempty"`
+	Interrupt     bool            `json:"interrupt,omitempty"`
 	Attachments   []string        `json:"attachments,omitempty"`
 	RemoveChannel bool            `json:"removeChannel,omitempty"`
 	Recorded      bool            `json:"-"`

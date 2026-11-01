@@ -135,7 +135,7 @@ func (a *Agent) sessionControl(ctx context.Context, in protocol.SessionControl) 
 		if in.RequestID == "" {
 			return nil, errors.New("继续子会话需要请求 ID")
 		}
-		result, err := a.startSessionTask(protocol.Request{ID: in.RequestID, ServiceID: s.ServiceID, SessionID: s.ID, Prompt: in.Prompt})
+		result, err := a.startSessionTask(protocol.Request{ID: in.RequestID, ServiceID: s.ServiceID, SessionID: s.ID, Prompt: in.Prompt, RequireIdle: true})
 		result.Session = publicSession(result.Session)
 		return result, err
 	case "cancel":

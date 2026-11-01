@@ -60,7 +60,7 @@ func (h historyStore) ensureWebSession(service protocol.Service) (s protocol.Con
 			if err := json.Unmarshal(v, &candidate); err != nil {
 				return err
 			}
-			if candidate.ServiceID == service.ID && (candidate.Kind == "" || candidate.Kind == "web") && (s.ID == "" || candidate.CreatedAt < s.CreatedAt) {
+			if candidate.DeletedAt == 0 && candidate.ServiceID == service.ID && (candidate.Kind == "" || candidate.Kind == "web") && (s.ID == "" || candidate.CreatedAt < s.CreatedAt) {
 				s = candidate
 			}
 			return nil

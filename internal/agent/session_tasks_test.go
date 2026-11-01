@@ -80,12 +80,15 @@ func TestExistingWebTurnsSurvivePeerCloseRunConcurrentlyAndResume(t *testing.T) 
 	if _, err := a.startSessionTask(req); err != nil {
 		t.Fatal("lost-ack retry failed", err)
 	}
-	if _, err := a.startSessionTask(protocol.Request{ID: "overlap", ServiceID: project.ID, SessionID: first.ID, Prompt: "unsafe overlap"}); !errors.Is(err, errSessionRunning) {
-		t.Fatal("same native session overlapped", err)
+	if _, err := a.startSessionTask(protocol.Request{ID: "overlap", ServiceID: project.ID, SessionID: first.ID, Prompt: "queued"}); err != nil {
+		t.Fatal("same-session message was not queued", err)
 	}
 	close(release)
+	if awaitPrompt(t, started) != "queued" {
+		t.Fatal("queued message did not follow the first turn")
+	}
 	waitSessionStatus(t, a, first.ID, "done")
-	if executions.Load() != 2 {
+	if executions.Load() != 3 {
 		t.Fatal("retry replayed execution")
 	}
 	if _, err := a.startSessionTask(protocol.Request{ID: "next-turn", ServiceID: project.ID, SessionID: first.ID, Prompt: "continue"}); err != nil {
@@ -98,7 +101,7 @@ func TestExistingWebTurnsSurvivePeerCloseRunConcurrentlyAndResume(t *testing.T) 
 	if _, err := a.startSessionTask(req); err != nil {
 		t.Fatal(err)
 	}
-	if executions.Load() != 3 {
+	if executions.Load() != 4 {
 		t.Fatal("old acknowledged turn replayed after a newer turn")
 	}
 	if !a.cancelTask("other-turn") {
@@ -115,7 +118,7 @@ func TestExistingWebTurnsSurvivePeerCloseRunConcurrentlyAndResume(t *testing.T) 
 			users++
 		}
 	}
-	if users != 2 {
+	if users != 3 {
 		t.Fatal("retried user messages duplicated", users)
 	}
 }

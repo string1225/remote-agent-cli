@@ -202,6 +202,7 @@ function setRunning(id) {
   $("cancel-run").hidden = !id && !(background && state.session?.taskId);
   $("send-run").disabled = submitting || local || background || !state.session || !service() || !state.peer || state.permissionMode!=="full";
   $("new-session").disabled = !service() || !state.peer || state.permissionMode!=="full";
+  window.updateQueuedComposer?.();
 }
 function resetWorkspace() {
   saveCurrentDraft();
@@ -272,6 +273,9 @@ function rpc(type, fields = {}) {
   });
 }
 function refreshServices(data) {
+  state.taskQueue = !!data.taskQueue;
+  state.sessionManagement = !!data.sessionManagement;
+  state.projectSettings = !!data.projectSettings;
   state.backgroundRuns = !!data.backgroundRuns;
   state.directorySearch = !!data.directorySearch;
   state.sayso = !!data.sayso;
@@ -493,6 +497,7 @@ function renderSessions() {
     im.onclick = () => loadSession({id:channel.sessionId,title:"渠道会话",kind:"im"}).then(closeDrawers).catch(e => notice(e.message)); fragment.append(im);
   }
   for (const s of [...state.sessions].sort((a,b)=>(b.kind==="im")-(a.kind==="im"))) {
+    if (s.archivedAt || s.deletedAt) continue;
     const b = node(
       "button",
       undefined,
@@ -500,6 +505,8 @@ function renderSessions() {
     );
     const title = sessionTitle(s);
     b.title = title;
+    b.oncontextmenu = e => window.openSessionMenu?.(e, s, b);
+    b.onkeydown = e => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") window.openSessionMenu?.(e, s, b); };
     b.append(node("strong", title));
     const meta = node("p");
     meta.append(
@@ -522,6 +529,7 @@ function renderSessions() {
     fragment.append(b);
   }
   $("conversation-list").replaceChildren(fragment);
+  window.renderArchivedSessions?.($("conversation-list"));
 }
 async function loadSession(session) {
   if (closeSayso && !(await closeSayso())) return;
@@ -560,6 +568,7 @@ async function loadSession(session) {
   $("chat-scroll").scrollTop = $("chat-scroll").scrollHeight;
 }
 function sessionTitle(session) {
+  if (session?.customTitle) return session.title;
   if (session?.kind !== "im") return session?.title || "新会话";
   const channel = ({feishu:"飞书",dingtalk:"钉钉"})[session.channelName] || session.channelName || (session.channelProvider === "dingtalk" ? "钉钉" : "飞书");
   return session.channelPeerName ? `${channel} · ${session.channelPeerName}` : session.title || `${channel} · 渠道历史`;
@@ -579,7 +588,7 @@ function toolInvocation(text) {
 function renderChat(live = false) {
   setRunning(state.running);
   updateSessionContext();
-  $("send-run").textContent = state.session?.kind === "im" ? "发送到渠道 ↗" : "发送 ↗";
+  $("send-run").textContent = state.session?.kind === "im" ? "发送到渠道 ↗" : state.taskQueue && ["queued", "running"].includes(state.session?.taskStatus) ? "排队 ↗" : "发送 ↗";
   $("prompt").placeholder = state.session?.kind === "im" ? "向这个项目的 IM 渠道发送消息…" : "输入你的想法，交给项目的执行器…";
   $("sayso-root").hidden = state.mode !== "sayso";
   if (state.mode === "sayso") {
@@ -594,7 +603,7 @@ function renderChat(live = false) {
   $("policy").title = "客户端版本："+(state.clientVersion||"旧客户端未上报");
   $("fix-client").hidden = state.permissionMode==="full";
   $("add-attachment").disabled = !state.peer || !state.attachments || state.session?.kind==="im";
-  $("chat-hint").hidden = state.entries.length > 0;
+  $("chat-hint").hidden = state.entries.length > 0 || !!(state.taskQueue && (state.session?.queuedMessages?.length || ["queued", "running"].includes(state.session?.taskStatus)));
   const container = $("messages"), scroll = $("chat-scroll"),
     atBottom =
       scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <

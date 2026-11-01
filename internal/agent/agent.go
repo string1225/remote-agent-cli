@@ -48,6 +48,12 @@ type Agent struct {
 	tasks             chan queuedTask
 	taskCancels       map[string]context.CancelFunc
 	taskDone          chan struct{}
+	taskRecords       map[string]queuedTask
+	pendingTasks      map[string][]string
+	activeTasks       map[string]string
+	taskWake          chan struct{}
+	taskWorkers       sync.WaitGroup
+	interruptedTasks  map[string]bool
 }
 
 func New(c Config) *Agent {
@@ -310,7 +316,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		for name, provider := range a.Providers {
 			providers[name] = provider
 		}
-		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "attachments": true, "backgroundRuns": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
+		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "attachments": true, "backgroundRuns": true, "taskQueue": true, "sessionManagement": true, "projectSettings": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 		return
@@ -328,6 +334,27 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		a.handleChannel(p, req, send)
 	case "tasks.cancel":
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: a.cancelTask(req.RunID)})
+	case "tasks.promote", "tasks.edit":
+		result, err := a.changeQueuedTask(req)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: result})
+	case "services.update":
+		result, err := a.updateProject(req.Service)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: result})
+	case "sessions.rename", "sessions.archive", "sessions.delete":
+		result, err := a.updateSession(req)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: result})
 	case "tasks.start", "sessions.spawn":
 		a.handleTask(p, req, send)
 	case "sessions.control":
@@ -360,7 +387,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 	case "sayso.call":
 		a.handleSayso(p, req, send)
 	case "sessions.list":
-		page, err := a.historyStore().list(req.ServiceID, req.Search, req.Cursor)
+		page, err := a.historyStore().listArchived(req.ServiceID, req.Search, req.Cursor, req.Archived)
 		if err != nil {
 			fail(err)
 			return
@@ -455,10 +482,9 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		if req.SessionID != "" {
 			conversation, err = history.get(req.SessionID)
 			if err == nil {
-				// Existing histories may retain a symlink spelling (notably
-				// macOS /var -> /private/var). Authorize and compare real roots.
-				root, rootErr := a.Config.Workspace(conversation.Workspace)
-				if rootErr != nil || conversation.ServiceID != service.ID || conversation.Provider != service.Provider || root != service.Workspace {
+				// Project identity is stable after a directory edit. The current
+				// authorized root above is used; the saved workspace is historical.
+				if conversation.DeletedAt != 0 || conversation.ServiceID != service.ID || conversation.Provider != service.Provider {
 					err = errors.New("session does not belong to this project")
 				}
 			}

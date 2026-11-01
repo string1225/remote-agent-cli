@@ -231,7 +231,9 @@ func (h historyStore) channelSession(c ChannelConfig, project protocol.Service, 
 		if session.ChannelPeerName == "" {
 			session.ChannelPeerName = route.ChatID
 		}
-		session.Title = soBound("IM · "+session.ChannelName+" · "+session.ChannelPeerName, 80)
+		if !session.CustomTitle {
+			session.Title = soBound("IM · "+session.ChannelName+" · "+session.ChannelPeerName, 80)
+		}
 		route.SessionID = session.ID
 		return saveSession(tx, session)
 	})
@@ -309,6 +311,14 @@ func (h historyStore) channelIncoming(sessionID, id, text string) (fresh bool, e
 			return e
 		}
 		if _, e = appendHistory(tx, sessionID, protocol.ChatEntry{TurnID: id, Role: "user", Text: text, Kind: "message"}); e != nil {
+			return e
+		}
+		session, e := sessionFrom(tx, sessionID)
+		if e != nil {
+			return e
+		}
+		session.ArchivedAt, session.DeletedAt = 0, 0
+		if e := saveSession(tx, session); e != nil {
 			return e
 		}
 		if e = seen.Put([]byte(id), []byte{1}); e != nil {

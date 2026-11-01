@@ -51,7 +51,7 @@ func (a *Agent) startSessionTask(req protocol.Request) (protocol.TaskStarted, er
 	if service.ID == "" || !a.Providers[service.Provider].Available {
 		return result, errors.New("项目不存在或执行器不可用")
 	}
-	root, err := a.Config.Workspace(service.Workspace)
+	_, err := a.Config.Workspace(service.Workspace)
 	if err != nil {
 		return result, err
 	}
@@ -60,13 +60,21 @@ func (a *Agent) startSessionTask(req protocol.Request) (protocol.TaskStarted, er
 	if err != nil {
 		return result, err
 	}
-	sessionRoot, rootErr := a.Config.Workspace(session.Workspace)
-	if rootErr != nil || session.ServiceID != service.ID || session.Provider != service.Provider || sessionRoot != root || session.Kind == "im" {
+	if session.DeletedAt != 0 || session.ServiceID != service.ID || session.Provider != service.Provider || session.Kind == "im" {
 		return result, errors.New("session does not belong to this Web project")
 	}
 	// A lost acknowledgement can be retried with the same request ID, even
 	// after completion, without replaying a turn that may have side effects.
 	if session.TaskID == req.ID {
+		return protocol.TaskStarted{TaskID: req.ID, Session: session}, nil
+	}
+	if row, found, err := h.queueRecord(req.ID); err != nil || found {
+		if err != nil {
+			return result, err
+		}
+		if row.SessionID != session.ID || row.ServiceID != service.ID {
+			return result, errors.New("任务 ID 已被其他会话使用")
+		}
 		return protocol.TaskStarted{TaskID: req.ID, Session: session}, nil
 	}
 	seen := false
@@ -88,40 +96,24 @@ func (a *Agent) startSessionTask(req protocol.Request) (protocol.TaskStarted, er
 	if seen {
 		return protocol.TaskStarted{TaskID: req.ID, Session: session}, nil
 	}
-	if session.TaskStatus == "queued" || session.TaskStatus == "running" || a.runs[session.ID] != nil {
+	if req.RequireIdle && (session.TaskStatus == "queued" || session.TaskStatus == "running" || a.runs[session.ID] != nil) {
 		return result, errSessionRunning
 	}
 	if len(a.taskCancels) >= maxBackgroundTasks {
 		return result, errors.New("客户端任务队列已满，请稍后重试")
 	}
-	refs, _, _, err := a.resolveAttachments(session.ID, req.Attachments)
-	if err != nil {
-		return result, err
-	}
-	err = h.transact(true, func(tx *bolt.Tx) error {
-		if _, e := appendHistory(tx, session.ID, protocol.ChatEntry{TurnID: req.ID, Role: "user", Kind: "message", Text: req.Prompt, Attachments: refs}); e != nil {
-			return e
-		}
-		var e error
-		session, e = sessionFrom(tx, session.ID)
-		if e != nil {
-			return e
-		}
-		session.TaskID, session.TaskStatus, session.TaskError = req.ID, "queued", ""
-		return saveSession(tx, session)
-	})
+	_, _, _, err = a.resolveAttachments(session.ID, req.Attachments)
 	if err != nil {
 		return result, err
 	}
 	result = protocol.TaskStarted{TaskID: req.ID, Session: session}
 	taskCtx, cancel := context.WithCancel(a.taskCtx)
 	in := protocol.TaskStart{ServiceID: service.ID, Prompt: req.Prompt, Source: "web"}
-	if a.enqueueTaskLocked(queuedTask{ctx: taskCtx, cancel: cancel, recorded: true, attachments: append([]string{}, req.Attachments...), start: in, result: result}) {
+	if a.enqueueTaskLocked(queuedTask{ctx: taskCtx, cancel: cancel, priority: req.Interrupt, attachments: append([]string{}, req.Attachments...), start: in, result: result}) {
+		result.Session, _ = h.get(session.ID)
 		return result, nil
 	}
 	cancel()
 	err = errors.New("客户端任务队列已满，请稍后重试")
-	_ = h.update(session.ID, func(v *protocol.Conversation) { v.TaskStatus, v.TaskError = "failed", err.Error() })
-	_, _ = h.append(session.ID, protocol.ChatEntry{TurnID: req.ID, Role: "system", Kind: "error", Text: err.Error()})
 	return result, err
 }

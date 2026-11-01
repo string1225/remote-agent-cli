@@ -246,6 +246,10 @@ func (r *channelRuntime) receive(in channelMessage) error {
 	result := protocol.TaskStarted{Session: session, TaskID: key}
 	taskCtx, cancel := context.WithCancel(r.ctx)
 	finish := func(err error) {
+		if errors.Is(err, errTaskInterrupted) {
+			r.clearThinking(in.ID, reactionID)
+			return
+		}
 		text, _, resultErr := r.a.historyStore().taskResultText(session.ID, key)
 		if resultErr != nil && err == nil {
 			err = resultErr
@@ -273,7 +277,7 @@ func (r *channelRuntime) receive(in channelMessage) error {
 			_, _ = r.notifyTo(route, text)
 		}
 	}
-	if r.a.enqueueTask(queuedTask{ctx: taskCtx, cancel: cancel, recorded: true, start: protocol.TaskStart{ServiceID: r.config.ServiceID, Prompt: in.Text, Source: "im"}, result: result, complete: finish}) {
+	if r.a.enqueueTask(queuedTask{ctx: taskCtx, cancel: cancel, recorded: true, priority: true, start: protocol.TaskStart{ServiceID: r.config.ServiceID, Prompt: in.Text, Source: "im"}, result: result, complete: finish}) {
 		return nil
 	}
 	cancel()

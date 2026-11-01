@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/string1225/remote-agent-cli/internal/protocol"
@@ -15,6 +14,7 @@ import (
 )
 
 type queuedTask struct {
+	priority    bool
 	attachments []string
 	recorded    bool
 	ctx         context.Context
@@ -40,12 +40,42 @@ func (a *Agent) enqueueTaskLocked(task queuedTask) bool {
 	if a.taskCancels == nil {
 		a.taskCancels = map[string]context.CancelFunc{}
 	}
+	if a.taskCancels[task.result.TaskID] != nil {
+		return false
+	}
+	if err := a.persistQueuedTask(task); err != nil {
+		return false
+	}
+	if a.taskRecords == nil {
+		a.taskRecords = map[string]queuedTask{}
+		a.pendingTasks = map[string][]string{}
+		a.activeTasks = map[string]string{}
+	}
 	a.taskCancels[task.result.TaskID] = task.cancel
+	a.taskRecords[task.result.TaskID] = task
+	sessionID := task.result.Session.ID
+	if task.priority {
+		a.pendingTasks[sessionID] = append([]string{task.result.TaskID}, a.pendingTasks[sessionID]...)
+	} else {
+		a.pendingTasks[sessionID] = append(a.pendingTasks[sessionID], task.result.TaskID)
+	}
 	select {
 	case a.tasks <- task:
+		if task.priority {
+			a.interruptSessionLocked(sessionID)
+		}
 		return true
 	default:
 		delete(a.taskCancels, task.result.TaskID)
+		delete(a.taskRecords, task.result.TaskID)
+		ids := a.pendingTasks[sessionID]
+		for i, id := range ids {
+			if id == task.result.TaskID {
+				a.pendingTasks[sessionID] = append(ids[:i], ids[i+1:]...)
+				break
+			}
+		}
+		_ = a.historyStore().setQueueStatus(task.result.TaskID, "failed")
 		return false
 	}
 }
@@ -68,6 +98,7 @@ func (a *Agent) initTasks(ctx context.Context) {
 		a.mu.Lock()
 		a.tasks = make(chan queuedTask, maxBackgroundTasks)
 		a.taskDone = make(chan struct{})
+		a.taskWake = make(chan struct{}, 1)
 		a.taskCancels = map[string]context.CancelFunc{}
 		a.mu.Unlock()
 		go a.workTasks(ctx)
@@ -160,52 +191,43 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 }
 func (a *Agent) workTasks(ctx context.Context) {
 	defer close(a.taskDone)
-	var workers sync.WaitGroup
-	defer workers.Wait()
-	var mu sync.Mutex
-	tails := map[string]chan struct{}{}
-	start := func(task queuedTask) {
-		sessionID := task.result.Session.ID
-		done := make(chan struct{})
-		mu.Lock()
-		previous := tails[sessionID]
-		tails[sessionID] = done
-		mu.Unlock()
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			defer func() {
-				mu.Lock()
-				if tails[sessionID] == done {
-					delete(tails, sessionID)
-				}
-				close(done)
-				mu.Unlock()
-			}()
-			if previous != nil {
-				<-previous
-			}
-			a.finishTask(task)
-		}()
-	}
 	for {
+		a.dispatchTasks()
 		select {
 		case <-ctx.Done():
 			a.mu.Lock()
 			for _, cancel := range a.taskCancels {
 				cancel()
 			}
-			a.mu.Unlock()
-			for {
-				select {
-				case task := <-a.tasks:
-					start(task)
-				default:
-					return
+			var pending []queuedTask
+			for _, ids := range a.pendingTasks {
+				for _, id := range ids {
+					if task, ok := a.taskRecords[id]; ok {
+						pending = append(pending, task)
+					}
 				}
 			}
-		case task := <-a.tasks:
-			start(task)
+			a.pendingTasks = map[string][]string{}
+			a.mu.Unlock()
+			for _, task := range pending {
+				_ = a.historyStore().setQueueStatus(task.result.TaskID, "paused")
+				_ = a.historyStore().update(task.result.Session.ID, func(s *protocol.Conversation) {
+					if s.TaskID == task.result.TaskID {
+						s.TaskStatus, s.TaskError = "failed", "客户端已停止，排队消息已保留，请检查后继续。"
+					}
+				})
+				a.mu.Lock()
+				delete(a.taskRecords, task.result.TaskID)
+				delete(a.taskCancels, task.result.TaskID)
+				a.mu.Unlock()
+				if task.complete != nil {
+					task.complete(errTaskInterrupted)
+				}
+			}
+			a.taskWorkers.Wait()
+			return
+		case <-a.tasks:
+		case <-a.taskWake:
 		}
 	}
 }
@@ -214,6 +236,12 @@ func (a *Agent) finishTask(task queuedTask) {
 	defer func() {
 		a.mu.Lock()
 		delete(a.taskCancels, task.result.TaskID)
+		delete(a.taskRecords, task.result.TaskID)
+		if a.activeTasks[task.result.Session.ID] == task.result.TaskID {
+			delete(a.activeTasks, task.result.Session.ID)
+		}
+		delete(a.interruptedTasks, task.result.TaskID)
+		a.wakeTasksLocked()
 		a.mu.Unlock()
 	}()
 	err := a.workTask(task.ctx, task)
@@ -225,7 +253,18 @@ func (a *Agent) finishTask(task queuedTask) {
 			status = "cancelled"
 		}
 	}
+	a.mu.Lock()
+	interrupted := a.interruptedTasks[task.result.TaskID]
+	a.mu.Unlock()
+	if interrupted {
+		err = errTaskInterrupted
+		status = "interrupted"
+	}
+	_ = a.historyStore().setQueueStatus(task.result.TaskID, status)
 	_ = a.historyStore().update(task.result.Session.ID, func(v *protocol.Conversation) {
+		if v.TaskID != task.result.TaskID {
+			return
+		}
 		v.TaskStatus = status
 		v.TaskError = ""
 		if err != nil {
@@ -242,6 +281,10 @@ func (a *Agent) workTask(ctx context.Context, task queuedTask) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		_ = a.historyStore().update(task.result.Session.ID, func(s *protocol.Conversation) {
+			s.TaskID, s.TaskStatus, s.TaskError = task.result.TaskID, "running", ""
+		})
+		_ = a.historyStore().setQueueStatus(task.result.TaskID, "running")
 		turnCtx, cancel := context.WithCancel(ctx)
 		p := &peer{ctx: turnCtx, cancel: cancel}
 		finished := make(chan protocol.Event, 1)
@@ -345,4 +388,5 @@ func (a *Agent) recoverTasks() {
 		})
 		_, _ = h.append(v.ID, protocol.ChatEntry{TurnID: v.TaskID, Role: "system", Kind: "error", Text: "客户端重启，之前的任务已中断。请检查已完成内容后再继续。"})
 	}
+	_ = h.recoverQueue()
 }

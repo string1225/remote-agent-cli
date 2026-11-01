@@ -21,6 +21,7 @@
     <script src="./device-maintenance.js" defer></script>
     <script src="./platform.js" defer></script>
     <script src="./channels.js" defer></script>
+    <script src="./workspace-actions.js" defer></script>
   </head>
   <body>
     <div id="notice" class="notice" role="alert" hidden></div>
@@ -220,6 +221,7 @@
             role="log"
             aria-live="polite"
           ></div>
+          <section id="queued-messages" class="queued-messages" aria-label="排队消息" aria-live="polite" hidden></section>
           <p id="chat-hint" class="chat-hint">
             新会话已就绪。输入你的第一个请求。
           </p>
@@ -263,6 +265,19 @@
       <button id="device-menu-delete" role="menuitem" type="button" class="danger-action">删除客户端</button>
     </div>
     <dialog id="attachment-preview" class="attachment-preview"><div class="dialog-head"><h2 id="attachment-preview-title">附件</h2><button class="icon-button close-dialog" aria-label="关闭">×</button></div><div id="attachment-preview-content"></div></dialog>
+    <div id="session-menu" class="context-menu" role="menu" aria-label="会话操作" hidden>
+      <button id="session-menu-rename" role="menuitem" type="button">重命名</button>
+      <button id="session-menu-archive" role="menuitem" type="button">归档</button>
+      <button id="session-menu-delete" role="menuitem" type="button" class="danger-action">删除</button>
+    </div>
+    <dialog id="session-rename-dialog" aria-labelledby="session-rename-title">
+      <div class="dialog-head"><h2 id="session-rename-title">重命名会话</h2><button class="icon-button close-dialog" type="button" aria-label="关闭">×</button></div>
+      <form id="session-rename-form"><label>会话名称<input name="title" required maxlength="80" autocomplete="off"></label><button class="primary full" type="submit">保存名称</button></form>
+    </dialog>
+    <dialog id="project-settings-dialog" aria-labelledby="project-settings-title">
+      <div class="dialog-head"><h2 id="project-settings-title">项目设置</h2><button class="icon-button close-dialog" type="button" aria-label="关闭">×</button></div>
+      <form id="project-settings-form"><label>项目名称<input name="name" required maxlength="80" autocomplete="off"></label><label>工作目录<input name="workspace" required autocomplete="off" spellcheck="false" placeholder="目标客户端上的完整目录"></label><p id="project-settings-roots" class="small muted"></p><p class="small muted">新任务使用更新后的目录；已有会话、原生上下文、IM 绑定和录音保留。修改目录前请完成此项目的任务和排队消息。</p><button class="primary full" type="submit">保存设置</button></form>
+    </dialog>
     <dialog id="device-settings-dialog">
       <div class="dialog-head"><div><h2>设备设置</h2><p id="device-settings-subtitle" class="muted"></p></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
       <form id="device-settings-form"><label>设备名称<input name="name" required maxlength="80" autocomplete="off"></label><label>操作系统<select name="os" required><option value="">请选择系统</option><option value="windows">Windows</option><option value="darwin">macOS</option><option value="linux">Linux</option></select></label><p class="small muted">系统类型选定后保持固定。</p><button class="primary full" type="submit">保存设置</button></form>
