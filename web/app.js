@@ -455,6 +455,16 @@ async function refreshSessions(more = false, quiet = false) {
   if (more) state.listExtended = true;
   else if (!quiet) state.listExtended = false;
   state.listCursor = quiet && state.listExtended ? oldCursor : page.nextCursor || 0;
+  const current = page.sessions.find(row => row.id === state.session?.id);
+  // Completion can arrive after the last output entry. Refresh the controls
+  // from list metadata too, even when the history request is slow or fails.
+  if (current && current.taskId === state.session.taskId &&
+      ["queued", "running"].includes(state.session.taskStatus) &&
+      ["done", "failed", "cancelled"].includes(current.taskStatus)) {
+    state.session = {...state.session, taskStatus:current.taskStatus, taskError:current.taskError};
+    setRunning(state.running);
+    cacheCurrentSession();
+  }
   renderSessions();
 }
 let sessionSignature;
@@ -567,6 +577,7 @@ function toolInvocation(text) {
   return text.startsWith("$ ") || text.startsWith("工具调用：") ? text.split("\n", 1)[0].slice(0, 1200) + "\n" : "";
 }
 function renderChat(live = false) {
+  setRunning(state.running);
   updateSessionContext();
   $("send-run").textContent = state.session?.kind === "im" ? "发送到渠道 ↗" : "发送 ↗";
   $("prompt").placeholder = state.session?.kind === "im" ? "向这个项目的 IM 渠道发送消息…" : "输入你的想法，交给项目的执行器…";
@@ -596,20 +607,26 @@ function renderChat(live = false) {
   for (const e of state.entries) {
     if (e.kind === "done") continue;
     if (e.role === "system" && !["tool", "error"].includes(e.kind)) continue;
-    const key = `${e.turnId}/${e.role}/${e.kind}`;
+    const tool = e.role === "system" && e.kind === "tool";
+    const text = tool ? toolInvocation(e.text) : e.text;
+    if (tool && !text) continue;
+    const role = tool ? "assistant" : e.role;
+    const kind = role === "assistant" ? "stdout" : e.kind;
+    const key = `${e.turnId}/${role}/${kind}`;
     let g = groups.find((g) => g.key === key);
     if (!g) {
-      g = { key, role: e.role, text: "", turnId: e.turnId, kind: e.kind };
+      g = { key, role, text: "", tools: "", turnId: e.turnId, kind };
       groups.push(g);
     }
-    g.text += e.kind === "tool" ? toolInvocation(e.text) : e.text;
+    if (tool) g.tools += text;
+    else g.text += text;
   }
   const existing = new Map(
     [...container.children].map((el) => [el.dataset.key, el]),
   );
   const keep = new Set();
   for (const g of groups) {
-    if (!g.text.trim()) continue;
+    if (!g.text.trim() && !g.tools.trim()) continue;
     keep.add(g.key);
     let el = existing.get(g.key);
     if (!el) {
@@ -627,17 +644,36 @@ function renderChat(live = false) {
             : g.kind === "error"
               ? g.text.includes("任务执行超时") ? "运行超时" : "运行错误"
               : "运行详情";
-      el.append(
-        node(g.role === "system" ? "summary" : "div", label, "message-label"),
-        node("div", "", "message-text"),
-      );
+      const header = node(g.role === "system" ? "summary" : "div", label, "message-label");
+      el.append(header);
+      if (g.role === "assistant") {
+        const toggle = node("button", "运行详情", "run-details-toggle");
+        const details = node("div", "", "run-details");
+        details.id = `run-details-${state.session.id}-${g.turnId}`;
+        details.hidden = true;
+        toggle.type = "button";
+        toggle.setAttribute("aria-controls", details.id);
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.onclick = () => {
+          details.hidden = !details.hidden;
+          toggle.setAttribute("aria-expanded", String(!details.hidden));
+        };
+        header.append(toggle);
+        el.append(details);
+      }
+      el.append(node("div", "", "message-text"));
       if (g.kind === "error") el.open = true;
     }
     // Cache/live output may arrive before the earlier, IM-created user entry.
     // Move existing nodes as well as new nodes into authoritative seq order.
     container.append(el);
     const text = el.querySelector(".message-text");
-    if (g.role === "assistant") renderMarkdown(text, g.text);
+    if (g.role === "assistant") {
+      const toggle = el.querySelector(".run-details-toggle"), details = el.querySelector(".run-details");
+      toggle.hidden = !g.tools.trim();
+      details.textContent = g.tools.trimEnd();
+      renderMarkdown(text, g.text);
+    }
     else text.textContent = g.text;
     window.chatAttachments?.renderHistory(el, state.entries.filter(e=>e.turnId===g.turnId && e.role===g.role).flatMap(e=>e.attachments || []));
     el.classList.toggle(
