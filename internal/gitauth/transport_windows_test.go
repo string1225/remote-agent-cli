@@ -121,7 +121,7 @@ func TestWindowsIdentityRules(t *testing.T) {
 		allowed bool
 	}{
 		{identity{SID: owner}, true}, {identity{SID: "S-1-5-18"}, true}, {identity{SID: "other", Elevated: true}, true},
-		{identity{SID: "S-1-5-19", Service: true}, false}, {identity{SID: "other"}, false},
+		{identity{SID: "S-1-5-19", Service: true}, true}, {identity{SID: "S-1-5-19"}, false}, {identity{SID: "other"}, false},
 	} {
 		if (allowClient(test.peer, owner) == nil) != test.allowed {
 			t.Fatalf("incorrect authorization: %+v", test.peer)

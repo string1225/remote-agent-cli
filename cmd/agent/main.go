@@ -47,6 +47,8 @@ func run() error {
 		}
 	}
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
+		fmt.Println("servers add --name NAME --host IP --user USER | servers list/test/remove：管理后台 SSH，添加时隐藏输入密码，自动生成和验证密钥。")
+		fmt.Println("github login [--username ACCOUNT] [--wait] | github status/accounts/cancel/logout：由常驻客户端完成 GitHub 设备授权，关闭终端后继续等待。")
 		fmt.Println("web-proxy on/off/status/run [--config PATH] [--listen 127.0.0.1:17891]：GitHub/ChatGPT/OpenAI/Google 经 139，其他请求直连；Windows on/off 联动系统代理（默认关闭）。")
 		fmt.Println("files upload --path FILE [--config PATH]：上传文件并返回公开下载链接，最多 100 MiB，下次北京时间凌晨 4 点失效。")
 		fmt.Println("ssh configure --alias NAME --host HOST --user USER --identity PATH --known-hosts PATH：为 Windows 后台服务导入指定 SSH 连接，保留原文件。")
@@ -64,7 +66,13 @@ func run() error {
 		return runSSH(context.Background(), os.Args[2:], os.Stdout)
 	}
 	if os.Args[1] == "git" {
-		return runGitCommand(os.Args[2:], os.Stdout, agent.GitAuthorization)
+		return runGitCommand(os.Args[2:], os.Stdout, agent.ManagedGitAuthorization)
+	}
+	if os.Args[1] == "github" {
+		return runGitHub(context.Background(), os.Args[2:], os.Stdout, agent.CredentialCall)
+	}
+	if os.Args[1] == "servers" {
+		return runServers(context.Background(), os.Args[2:], os.Stdin, os.Stdout, agent.CredentialCall)
 	}
 	if os.Args[1] == "web-proxy" {
 		return runWebProxy(os.Args[2:])

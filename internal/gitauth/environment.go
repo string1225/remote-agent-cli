@@ -1,7 +1,10 @@
 // Package gitauth manages local GitHub authorization for Windows service tasks.
 package gitauth
 
-import "strings"
+import (
+	"runtime"
+	"strings"
+)
 
 // Environment never contains a credential. Git's own -c environment format
 // survives provider filtering of *_KEY_* variables, unlike GIT_CONFIG_COUNT.
@@ -11,6 +14,10 @@ func Environment(base []string, store string, interactive bool) []string {
 		"GCM_CREDENTIAL_STORE": "dpapi", "GCM_DPAPI_STORE_PATH": store,
 		"GCM_INTERACTIVE": "never", "GIT_TERMINAL_PROMPT": "0",
 		"GIT_ASKPASS": "", "SSH_ASKPASS": "",
+	}
+	if runtime.GOOS != "windows" {
+		delete(values, "GCM_CREDENTIAL_STORE")
+		delete(values, "GCM_DPAPI_STORE_PATH")
 	}
 	if interactive {
 		values["GCM_INTERACTIVE"] = "always"
@@ -48,7 +55,9 @@ func Environment(base []string, store string, interactive bool) []string {
 		parameters += " '" + pair + "'"
 	}
 	for _, key := range []string{"GCM_CREDENTIAL_STORE", "GCM_DPAPI_STORE_PATH", "GCM_INTERACTIVE", "GIT_TERMINAL_PROMPT", "GIT_ASKPASS", "SSH_ASKPASS"} {
-		env = append(env, key+"="+values[key])
+		if value, ok := values[key]; ok {
+			env = append(env, key+"="+value)
+		}
 	}
 	return append(env, "GIT_CONFIG_PARAMETERS="+strings.TrimSpace(parameters))
 }

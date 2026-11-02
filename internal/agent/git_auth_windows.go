@@ -38,7 +38,7 @@ func (a *Agent) startGitAuth(ctx context.Context) func() {
 		return func() {}
 	}
 	base := os.Environ()
-	stop, err := gitauth.Listen(ctx, gitauth.PipeName(p.Config), p.OwnerSID, sid, gitauth.Manager{Store: store, Env: base})
+	stop, err := gitauth.Listen(ctx, gitauth.PipeName(p.Config), p.OwnerSID, sid, gitauth.Manager{Store: store, Env: base}, a.credentialManage)
 	if err != nil {
 		log.Printf("service Git authorization unavailable: cannot open the local pipe: %v", err)
 		return func() {}

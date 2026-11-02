@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ import (
 
 func TestMain(m *testing.M) {
 	if os.Getenv("RA_GIT_AUTH_TEST_HELPER") == "1" {
-		if os.Getenv("GCM_CREDENTIAL_STORE") != "dpapi" || os.Getenv("GCM_DPAPI_STORE_PATH") == "" {
+		if runtime.GOOS == "windows" && (os.Getenv("GCM_CREDENTIAL_STORE") != "dpapi" || os.Getenv("GCM_DPAPI_STORE_PATH") == "") {
 			os.Exit(9)
 		}
 		args := strings.Join(os.Args[1:], " ")
@@ -102,12 +103,16 @@ func TestManagedEnvironmentIsPrivateAndPreservesGitSettings(t *testing.T) {
 	base := []string{"PATH=fixture", "GCM_CREDENTIAL_STORE=wincredman", "gcm_dpapi_store_path=desktop", "GCM_INTERACTIVE=always", "GIT_CONFIG_PARAMETERS='user.name=Fixture User'", "UNCHANGED=yes", "GCM_TRACE=fixture.log", "GCM_TRACE_SECRETS=1", "GIT_TRACE_CURL=1"}
 	env := Environment(base, root, false)
 	joined := strings.Join(env, "\n")
-	for _, want := range []string{"GCM_CREDENTIAL_STORE=dpapi", "GCM_DPAPI_STORE_PATH=" + root, "GCM_INTERACTIVE=never", "GIT_TERMINAL_PROMPT=0", "'user.name=Fixture User'", "UNCHANGED=yes"} {
+	wants := []string{"GCM_INTERACTIVE=never", "GIT_TERMINAL_PROMPT=0", "'user.name=Fixture User'", "UNCHANGED=yes"}
+	if runtime.GOOS == "windows" {
+		wants = append(wants, "GCM_CREDENTIAL_STORE=dpapi", "GCM_DPAPI_STORE_PATH="+root)
+	}
+	for _, want := range wants {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %s", want)
 		}
 	}
-	if strings.Contains(joined, "wincredman") || strings.Contains(joined, "=desktop") {
+	if runtime.GOOS == "windows" && (strings.Contains(joined, "wincredman") || strings.Contains(joined, "=desktop")) {
 		t.Fatal("desktop credential store leaked into service environment")
 	}
 	if strings.Contains(joined, "TRACE") {

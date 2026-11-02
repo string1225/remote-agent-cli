@@ -1,5 +1,7 @@
 # Windows 后台服务的 Git 与 SSH
 
+新增网页与 CLI 的直接管理入口见 [服务器连接与 GitHub 授权](connection-management.md)：`servers add` 隐藏输入密码并自动准备 SSH；`github login` 返回由常驻客户端持续轮询的设备码。下面的 `ssh configure` 保留为导入已有密钥的入口。
+
 Windows Service 的自动启动与运行账号是两个独立配置。本项目继续使用 LocalService + RemoteAgent 服务 SID，开机启动、退出登录继续运行。把普通用户设为服务账号通常需要提供其账号密码，以便 Windows 在无人登录时执行服务登录；UAC 同意只授权修改系统配置，不提供这种可供以后使用的登录凭据。使用 Windows Hello PIN 的账号不能把 PIN 当作服务登录密码。普通用户账号的服务仍位于 Session 0，不自动接入桌面的 ssh-agent 或交互窗口。
 
 以下方案不用在 Remote Agent 中保存 Windows 用户密码，保留原设备、配置、历史与录音。

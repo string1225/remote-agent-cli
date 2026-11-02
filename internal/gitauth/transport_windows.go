@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -108,13 +109,13 @@ func serviceWorker(conn net.Conn, servicePID uint32) error {
 }
 
 func allowClient(i identity, ownerSID string) error {
-	if i.SID == ownerSID || i.SID == "S-1-5-18" || i.Elevated {
+	if i.SID == ownerSID || i.SID == "S-1-5-18" || i.Elevated || i.Service {
 		return nil
 	}
-	return errors.New("only the configured device user or an administrator may manage service Git authorization")
+	return errors.New("only the configured device user, RemoteAgent service or an administrator may manage credentials")
 }
 
-func Listen(parent context.Context, name, ownerSID, serviceSID string, manager Manager) (func(), error) {
+func Listen(parent context.Context, name, ownerSID, serviceSID string, manager Manager, handlers ...func(context.Context, json.RawMessage) (any, error)) (func(), error) {
 	for _, sid := range []string{ownerSID, serviceSID} {
 		if _, err := windows.StringToSid(sid); err != nil {
 			return nil, errors.New("invalid Git authorization owner identity")
@@ -133,6 +134,9 @@ func Listen(parent context.Context, name, ownerSID, serviceSID string, manager M
 		}
 		return allowClient(i, ownerSID)
 	}}
+	if len(handlers) > 0 {
+		server.Manage = handlers[0]
+	}
 	slots := make(chan struct{}, 4)
 	var workers sync.WaitGroup
 	workers.Add(1)

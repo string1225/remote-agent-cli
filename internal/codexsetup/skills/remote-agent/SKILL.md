@@ -56,6 +56,10 @@ curl --proxy http://127.0.0.1:17891 https://chatgpt.com/
 
 ## 本机维护
 
+用户可在网页“服务器与 GitHub”或 CLI `servers add --name NAME --host IP --user USER` 隐藏输入密码，客户端自动生成密钥、追加远端公钥并验证 SSH。不要让用户把服务器密码放进聊天、模型提示或命令参数；需要初始化时指引用户使用该表单或本机终端。`servers list/test/remove` 查询、测试或归档连接；列表仅有目标、指纹及 `ssh -F CONFIG ALIAS` 配置路径，不返回私钥。连接属于所选客户端，不跨设备复制私钥。
+
+GitHub 可用 `github login [--username ACCOUNT] [--wait]` 发起，`github status/accounts/cancel/logout` 管理；`git login/status/logout` 保留。常驻客户端独立轮询，终端或网页关闭不取消授权，用户须在官方页面确认设备码。不要把 GitHub 密码或 Token 放进模型上下文。凭据管理不属于 MCP 会话工具；旧客户端需先更新 core。
+
 Windows 后台 GitHub 授权用 `remote-agent git login [--username ACCOUNT]`，由用户在桌面终端发起并自行完成浏览器设备码确认。SSH 新增 `remote-agent ssh configure --alias NAME --host HOST --user USER --identity PATH --known-hosts PATH [--port 22]`：用户在桌面终端选择无口令私钥及已核对的 known_hosts，UAC 后导入服务专用副本，原文件保留；后台使用命令返回的显式 `ssh -F CONFIG ALIAS`。不要自行导入其他密钥、改信任记录或更换服务账号；真实连接与授权需对应环境验证。
 
 分享文件也可用 `remote-agent files upload --path FILE [--config PATH]`，JSON 输出包含下载链接和失效时间。上传会公开文件内容，核对用户的分享范围，勿上传凭据；链接无需登录，不会自动发送消息。清理只影响 139 的临时分享副本，不删除客户端原文件或会话附件。

@@ -2,6 +2,7 @@ package gitauth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,12 +14,13 @@ import (
 
 const Version = 1
 
-// Request intentionally cannot carry passwords, arbitrary URLs or commands.
+// Requests contain a fixed authorization action or a bounded management body.
 type Request struct {
-	Version  int    `json:"version"`
-	Action   string `json:"action"`
-	Username string `json:"username,omitempty"`
-	Force    bool   `json:"force,omitempty"`
+	Version  int             `json:"version"`
+	Action   string          `json:"action"`
+	Username string          `json:"username,omitempty"`
+	Force    bool            `json:"force,omitempty"`
+	Body     json.RawMessage `json:"body,omitempty"`
 }
 
 func (r Request) Validate() error {
@@ -26,6 +28,11 @@ func (r Request) Validate() error {
 		return errors.New("unsupported Git authorization protocol")
 	}
 	switch r.Action {
+	case "manage":
+		if len(r.Body) == 0 || len(r.Body) > 16<<10 || r.Username != "" || r.Force {
+			return errors.New("invalid credential management request")
+		}
+		return nil
 	case "login":
 	case "status":
 		if r.Username != "" || r.Force {
@@ -37,6 +44,9 @@ func (r Request) Validate() error {
 		}
 	default:
 		return errors.New("use git login/status/logout")
+	}
+	if len(r.Body) != 0 {
+		return errors.New("unexpected authorization body")
 	}
 	if len(r.Username) > 39 {
 		return errors.New("invalid GitHub username")
@@ -76,6 +86,9 @@ func findGCM(ctx context.Context) (string, error) {
 }
 
 func (m Manager) Run(ctx context.Context, request Request, output io.Writer) error {
+	if request.Action == "manage" {
+		return errors.New("management requires the authenticated local endpoint")
+	}
 	if err := request.Validate(); err != nil {
 		return err
 	}

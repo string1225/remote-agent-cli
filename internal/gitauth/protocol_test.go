@@ -47,6 +47,33 @@ func TestProtocolStreamsOnlyToAuthorizedClients(t *testing.T) {
 	}
 }
 
+func TestManagementUsesAuthenticatedEndpointAndNeverEchoesRequest(t *testing.T) {
+	for _, allowed := range []bool{false, true} {
+		called := false
+		server := &Server{Authorize: func(net.Conn) error {
+			if !allowed {
+				return errors.New("denied")
+			}
+			return nil
+		}, Manage: func(_ context.Context, raw json.RawMessage) (any, error) {
+			called = true
+			return map[string]string{"name": "fixture"}, nil
+		}}
+		conn := startFixtureServer(t, server)
+		var output bytes.Buffer
+		err := Exchange(context.Background(), conn, Request{Version: Version, Action: "manage", Body: json.RawMessage(`{"action":"servers.add","password":"mock-secret"}`)}, &output)
+		if allowed && (err != nil || !called || !json.Valid(output.Bytes())) {
+			t.Fatal("authorized management failed", err)
+		}
+		if !allowed && (err == nil || called) {
+			t.Fatal("unauthorized management reached handler")
+		}
+		if strings.Contains(output.String(), "mock-secret") {
+			t.Fatal("password echoed")
+		}
+	}
+}
+
 func TestProtocolRejectsUnknownFieldsAndVersions(t *testing.T) {
 	for _, input := range []string{`{"version":1,"action":"login","password":"must-not-echo"}`, `{"version":200,"action":"login"}`} {
 		server := &Server{Manager: fixtureManager(t), Authorize: func(net.Conn) error { return nil }}

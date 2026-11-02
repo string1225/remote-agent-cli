@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/string1225/remote-agent-cli/internal/access"
 	"github.com/string1225/remote-agent-cli/internal/buildinfo"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 	"github.com/string1225/remote-agent-cli/internal/store"
@@ -22,6 +23,9 @@ import (
 
 type Runner func(context.Context, Provider, protocol.Service, string, bool, func(protocol.Event) error, string) error
 type Agent struct {
+	accessOnce        sync.Once
+	access            *access.Manager
+	accessErr         error
 	remoteOnce        sync.Once
 	remote            *maintenanceState
 	toolInstalling    bool
@@ -74,6 +78,12 @@ func (a *Agent) catalogServices() []protocol.Service {
 }
 func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if a.Config.Path != "" {
+		if _, err := a.accessManager(ctx); err != nil {
+			return err
+		}
+	}
 	stopGitAuth := a.startGitAuth(ctx)
 	defer stopGitAuth()
 	stopWebProxy := a.startWebProxy(ctx)
@@ -309,6 +319,10 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 	return p, nil
 }
 func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) error) {
+	if req.Type == "access.call" {
+		a.handleAccess(p, req, send)
+		return
+	}
 	if req.Type == "maintenance.start" || req.Type == "maintenance.status" {
 		a.handleMaintenance(req, send)
 		return
@@ -319,7 +333,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		for name, provider := range a.Providers {
 			providers[name] = provider
 		}
-		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "directoryCreate": true, "attachments": true, "backgroundRuns": true, "taskQueue": true, "sessionManagement": true, "projectSettings": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
+		data := map[string]any{"credentialManagement": true, "services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "directoryCreate": true, "attachments": true, "backgroundRuns": true, "taskQueue": true, "sessionManagement": true, "projectSettings": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 		return

@@ -20,6 +20,7 @@ type Event struct {
 
 type Server struct {
 	Manager   Manager
+	Manage    func(context.Context, json.RawMessage) (any, error)
 	Authorize func(net.Conn) error
 	busy      sync.Mutex
 }
@@ -64,7 +65,7 @@ func (s *Server) Serve(parent context.Context, conn net.Conn) {
 		_ = encoder.Encode(event)
 	}
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	d := json.NewDecoder(io.LimitReader(conn, 4096))
+	d := json.NewDecoder(io.LimitReader(conn, 32<<10))
 	d.DisallowUnknownFields()
 	var request Request
 	if err := d.Decode(&request); err != nil || request.Version != Version {
@@ -82,6 +83,23 @@ func (s *Server) Serve(parent context.Context, conn net.Conn) {
 		return
 	}
 	if err := request.Validate(); err != nil {
+		finish(err)
+		return
+	}
+	if request.Action == "manage" {
+		if s.Manage == nil {
+			finish(errors.New("请升级客户端以启用服务器和 GitHub 管理"))
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(90 * time.Second))
+		result, err := s.Manage(ctx, request.Body)
+		if err == nil {
+			raw, e := json.Marshal(result)
+			err = e
+			if err == nil {
+				_, err = (&eventWriter{encoder: encoder}).Write(raw)
+			}
+		}
 		finish(err)
 		return
 	}
