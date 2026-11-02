@@ -14,7 +14,7 @@
     <p id="access-message" role="status"></p><div id="access-content" hidden>
     <section aria-labelledby="access-servers-title"><h3 id="access-servers-title">SSH 服务器</h3><div id="access-servers"></div>
     <form id="access-server-form" autocomplete="off"><div class="access-fields">
-    <label>连接别名<input name="name" placeholder="deploy-139" required maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.-]*"></label>
+    <label>连接别名（选填）<input name="name" placeholder="留空自动生成" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.-]*"></label>
     <label>服务器 IP<input name="host" placeholder="192.0.2.1" required maxlength="64"></label>
     <label>SSH 账号<input name="user" placeholder="root" required maxlength="64" autocomplete="off"></label>
     <label>端口<input name="port" type="number" min="1" max="65535" value="22" required></label>

@@ -22,7 +22,7 @@ type credentialCaller func(context.Context, string, access.Request) (json.RawMes
 
 func runServers(ctx context.Context, args []string, input io.Reader, out io.Writer, call credentialCaller) error {
 	if len(args) == 0 {
-		return errors.New("用法：remote-agent servers add --name NAME --host IP --user USER [--port 22] [--password-stdin] | list | test --name NAME | remove --name NAME")
+		return errors.New("用法：remote-agent servers add [--name NAME] --host IP --user USER [--port 22] [--password-stdin] | list | test --name NAME | remove --name NAME")
 	}
 	flags := newCLIFlagSet("servers " + args[0])
 	flags.SetOutput(out)
@@ -48,8 +48,8 @@ func runServers(ctx context.Context, args []string, input io.Reader, out io.Writ
 		return errors.New("使用 servers add/list/test/remove")
 	}
 	if args[0] == "add" {
-		if r.Name == "" || r.Host == "" || r.User == "" {
-			return errors.New("请提供 --name、--host 和 --user")
+		if r.Host == "" || r.User == "" {
+			return errors.New("请提供 --host 和 --user；连接别名可留空自动生成")
 		}
 		if *stdin {
 			value, err := bufio.NewReader(io.LimitReader(input, 4098)).ReadString('\n')

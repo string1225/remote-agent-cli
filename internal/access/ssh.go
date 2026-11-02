@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -136,6 +138,16 @@ func (m *Manager) AddServer(ctx context.Context, r Request) (Server, error) {
 	}
 	if r.Port < 1 || r.Port > 65535 {
 		return Server{}, errors.New("SSH 端口须为 1–65535")
+	}
+	if r.Name == "" {
+		r.Name = "ssh-" + strings.ReplaceAll(r.Host, ":", "-") + "-" + r.User
+		if r.Port != 22 {
+			r.Name += "-" + strconv.Itoa(r.Port)
+		}
+		if len(r.Name) > 64 {
+			digest := sha256.Sum256([]byte(r.Name))
+			r.Name = r.Name[:51] + "-" + hex.EncodeToString(digest[:6])
+		}
 	}
 	dir, err := m.serverDir(r.Name)
 	if err != nil {

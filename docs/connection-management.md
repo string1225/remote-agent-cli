@@ -4,7 +4,7 @@
 
 ## SSH 服务器
 
-网页输入连接别名、IP、SSH 用户、端口和密码。命令行默认隐藏输入密码：
+网页只需输入 IP、SSH 用户和密码；连接别名可留空自动生成，端口默认 22。命令行默认隐藏输入密码：
 
 ```powershell
 remote-agent servers add --name deploy-139 --host 139.224.12.141 --user junte

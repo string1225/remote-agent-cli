@@ -140,7 +140,7 @@ func fixtureSSH(t *testing.T) *sshFixture {
 func TestSSHBootstrapPreservesAuthorizationAndWorksWithNativeOpenSSH(t *testing.T) {
 	fixture := fixtureSSH(t)
 	m, _ := testManager(t)
-	request := Request{Name: "fixture", Host: fixture.host, Port: fixture.port, User: "fixture", Password: "mock-password-never-persist"}
+	request := Request{Host: fixture.host, Port: fixture.port, User: "fixture", Password: "mock-password-never-persist"}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	server, err := m.AddServer(ctx, request)
@@ -220,7 +220,7 @@ func TestSSHBootstrapPreservesAuthorizationAndWorksWithNativeOpenSSH(t *testing.
 	if !bytes.Equal(raw, recovered) {
 		t.Fatal("recovery duplicated or changed remote authorization")
 	}
-	if ok, err := m.RemoveServer("fixture"); err != nil || !ok {
+	if ok, err := m.RemoveServer(server.Name); err != nil || !ok {
 		t.Fatal(err)
 	}
 	listed, err = m.ListServers()
