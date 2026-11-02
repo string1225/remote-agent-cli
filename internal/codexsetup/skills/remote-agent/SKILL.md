@@ -15,6 +15,7 @@ Remote Agent 是本机常驻客户端，属于一个平台账号，管理多个�
 
 | 工具 | 能力与参数 |
 | --- | --- |
+| `upload_file` | `path` 为当前机器文件的绝对路径；上传至 139 后返回公开随机下载链接、大小、SHA-256 和 `expiresAt`。最多 100 MiB，下次北京时间凌晨 4 点清理失效。可把链接附到回复或已获授权的消息中。 |
 | `list_clients_projects` | 按需查询同账号客户端、在线状态和项目 ID，不返回凭据。 |
 | `start_web_session` | prompt 必填，可传 clientId、projectId、title；创建直接子 Web 会话，返回 session/task ID 仅表示已接收。 |
 | `list_child_sessions` | 按 clientId 查询直接子会话，使用 cursor 分页；跨客户端分别查询。 |
@@ -54,6 +55,8 @@ curl --proxy http://127.0.0.1:17891 https://chatgpt.com/
 支持普通 HTTP 转发和 HTTPS CONNECT：`github.com`、`githubusercontent.com`、`githubassets.com`、`chatgpt.com`、`openai.com`、`google.com` 及其子域的 80/443 经已绑定站点的鉴权 WebSocket 到 139，其他目标直接放行。重定向后按新目标重新选择路由。中转失败报错，不回退直连；其他目标不依赖 139 在线。139 遇 Fake-IP DNS 会使用固定公网解析器的 HTTPS 查询并继续拒绝非公网地址。CONNECT 中目标 TLS/WSS 透传，由应用正常校验证书，不要关闭证书验证。旧 `.github-proxy.json` 开关保留，新 `.web-proxy.json` 优先。按用户要求使用 `on/off` 管理系统代理，不额外改全局 Git、环境变量或证书验证。
 
 ## 本机维护
+
+分享文件也可用 `remote-agent files upload --path FILE [--config PATH]`，JSON 输出包含下载链接和失效时间。上传会公开文件内容，核对用户的分享范围，勿上传凭据；链接无需登录，不会自动发送消息。清理只影响 139 的临时分享副本，不删除客户端原文件或会话附件。
 
 - `remote-agent start/stop/status`：客户端启停与绑定/项目/工具状态；Windows 正式版本使用 MSI 安装的 Windows Service，开机运行且退出登录后持续在线，不创建计划任务。
 - `remote-agent service status`：检查 Windows 服务配置与状态。启动前先确认绑定，避免重复实例。

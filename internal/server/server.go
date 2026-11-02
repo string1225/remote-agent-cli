@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 )
 
 type Config struct {
+	SharedFiles       string
 	PublicURL         string
 	Downloads         string
 	AllowSignup       bool
@@ -28,17 +30,18 @@ type Config struct {
 	GatewayModel      string
 }
 type Server struct {
-	todoLocks     sync.Map
-	webProxyPool  webproxy.Pool
-	Store         *store.Store
-	Config        Config
-	hub           *hub
-	mu            sync.Mutex
-	attempts      map[string]limit
-	gatewayClient *http.Client
-	gatewaySlots  chan struct{}
-	gatewayMu     sync.Mutex
-	gatewayCalls  map[string]map[*inferenceCall]struct{}
+	sharedFileSlots chan struct{}
+	todoLocks       sync.Map
+	webProxyPool    webproxy.Pool
+	Store           *store.Store
+	Config          Config
+	hub             *hub
+	mu              sync.Mutex
+	attempts        map[string]limit
+	gatewayClient   *http.Client
+	gatewaySlots    chan struct{}
+	gatewayMu       sync.Mutex
+	gatewayCalls    map[string]map[*inferenceCall]struct{}
 }
 type limit struct {
 	Count int
@@ -57,8 +60,16 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	if err := validateGateway(cfg); err != nil {
 		return nil, nil, err
 	}
+	if cfg.SharedFiles != "" {
+		if err := os.MkdirAll(cfg.SharedFiles, 0700); err != nil {
+			return nil, nil, fmt.Errorf("SHARED_FILES_DIR: %w", err)
+		}
+	}
 	s := &Server{Store: db, Config: cfg, hub: newHub(), attempts: map[string]limit{}, gatewayClient: newGatewayClient(), gatewaySlots: make(chan struct{}, maxConcurrentInference), gatewayCalls: map[string]map[*inferenceCall]struct{}{}}
 	mux := http.NewServeMux()
+	s.sharedFileSlots = make(chan struct{}, 4)
+	mux.HandleFunc("POST /api/agent/files", s.uploadSharedFile)
+	mux.HandleFunc("GET /files/{id}", s.downloadSharedFile)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, map[string]bool{"ok": true}) })
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, map[string]bool{"allowSignup": false})
@@ -184,11 +195,16 @@ func (s *Server) protect(next http.Handler) http.Handler {
 			fail(w, 403, "origin denied")
 			return
 		}
+		// Public download capabilities must work when opened from other sites/IM.
+		if (r.Method == "GET" || r.Method == "HEAD") && strings.HasPrefix(r.URL.Path, "/files/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 			fail(w, 403, "cross-site request denied")
 			return
 		}
-		if r.Method == "POST" && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		if r.Method == "POST" && r.URL.Path != "/api/agent/files" && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 			fail(w, 415, "application/json required")
 			return
 		}

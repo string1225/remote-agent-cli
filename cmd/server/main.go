@@ -55,6 +55,7 @@ func run() error {
 	httpServer := &http.Server{Addr: env("LISTEN_ADDR", "127.0.0.1:8080"), Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 16384}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	go s.RunFileCleanup(ctx)
 	go func() {
 		ticker := time.NewTicker(time.Hour)
 		defer ticker.Stop()
@@ -84,6 +85,7 @@ func run() error {
 
 func configFromEnv() (server.Config, error) {
 	cfg := server.Config{PublicURL: env("PUBLIC_URL", "http://localhost:8080"), Downloads: env("DOWNLOADS_DIR", "dist"), GatewayURL: strings.TrimSpace(os.Getenv("CODEX_GATEWAY_URL")), GatewayModel: env("CODEX_MODEL", "gpt-6.1-sol")}
+	cfg.SharedFiles = env("SHARED_FILES_DIR", filepath.Join(filepath.Dir(env("DATABASE_PATH", "data/remote-agent.db")), "shared-files"))
 	if cfg.GatewayURL == "" {
 		return cfg, nil
 	}

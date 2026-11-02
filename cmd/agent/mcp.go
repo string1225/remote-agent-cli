@@ -67,6 +67,7 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 			var call struct {
 				Name      string `json:"name"`
 				Arguments struct {
+					Path        string `json:"path"`
 					AgentID     string `json:"clientId"`
 					ProjectID   string `json:"projectId"`
 					Prompt      string `json:"prompt"`
@@ -98,6 +99,12 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 			}
 			var data json.RawMessage
 			switch call.Name {
+			case "upload_file":
+				var file protocol.SharedFile
+				file, err = agent.UploadFile(ctx, c, call.Arguments.Path)
+				if err == nil {
+					data, err = json.Marshal(file)
+				}
 			case "list_clients_projects":
 				data, err = agent.ClientAPI(ctx, c, "GET", "/api/agent/catalog", nil)
 			case "list_todos", "publish_todo", "update_todo":
@@ -186,6 +193,7 @@ func clientTools() []any {
 	send := target()
 	send["prompt"] = str("发送给子会话的新指令，最多 32000 字节；忙碌时需先等待")
 	return []any{
+		tool("upload_file", "上传当前机器上的文件到 139，返回无需登录即可下载的随机链接、SHA-256 和 expiresAt。最多 100 MiB，下次北京时间凌晨 4 点失效；可在回复或已获授权的消息中附带链接。上传会公开文件内容，先核对分享范围。", false, map[string]any{"path": str("当前机器上要分享的普通文件的绝对路径")}, "path"),
 		tool("list_todos", "查询本账号唯一待办清单，存于默认主机；默认主机离线时返回明确错误。", true, map[string]any{"status": str("筛选 open、completed 或 cancelled；省略表示全部"), "search": str("搜索标题和正文"), "pageCursor": str("返回的 nextCursor，继续分页")}),
 		tool("publish_todo", "工作需要人判断、选择或补充信息时发布待办。写清问题、可选方案和建议，然后结束本轮等待人工回复。待办自动关联当前客户端、项目和会话；人的回复将在原会话继续执行。", false, map[string]any{"title": str("问题标题，最多 480 字节"), "body": str("背景、问题、选项和建议，最多 8000 字节")}, "title", "body"),
 		tool("update_todo", "维护本账号待办。先读取最新 version，避免覆盖其他人的修改；编辑时同时传 title 和 body。", false, map[string]any{"todoId": str("待办 ID"), "operation": str("update、complete、cancel 或 reopen"), "version": number("读取到的 version"), "title": str("编辑后的标题"), "body": str("编辑后的正文")}, "todoId", "operation", "version"),
