@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"sort"
 	"time"
 
@@ -262,6 +263,36 @@ func (a *Agent) changeQueuedTask(req protocol.Request) (protocol.QueuedMessage, 
 }
 
 func (h historyStore) recoverQueue() error {
+	// A read-only startup must preserve existing database bytes when no queued
+	// work needs recovery. Even an empty Bolt write transaction changes metadata.
+	db, err := bolt.Open(h.path, 0600, &bolt.Options{ReadOnly: true, Timeout: 5 * time.Second})
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	pending := false
+	err = db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("task_queue"))
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(_, data []byte) error {
+			var row queueRecord
+			if err := json.Unmarshal(data, &row); err != nil {
+				return err
+			}
+			if row.Status == "queued" || row.Status == "running" {
+				pending = true
+			}
+			return nil
+		})
+	})
+	err = errors.Join(err, db.Close())
+	if err != nil || !pending {
+		return err
+	}
 	return h.transact(true, func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("task_queue"))
 		if b == nil {
