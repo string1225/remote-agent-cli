@@ -32,7 +32,7 @@ const root = path.resolve(process.env.NAVIGATION_ROOT || '.');
       window.fixture = {agents:[a,b],sockets:[],requests:[],pending:[],delay:true,session,entries,meta};
       const prefix = 'remote-agent:workspace:v2:/agents/:';
       const write = (kind,scope,data) => localStorage.setItem(prefix+JSON.stringify([kind,...scope]),JSON.stringify({version:2,at:Date.now(),data}));
-      write('agents',['owner'],[a,b]);
+      write('agents',['owner'],new URL(location.href).searchParams.has('offline') ? [{...a,online:false},b] : [a,b]);
       write('selection',['owner'],{client:'a',project:'p1',session:'s1'});
       for (const [agent,pid,sid] of [[a,'p1','s1'],[a,'p2','s2'],[b,'p3','s3']]) {
         write('client',['owner',agent.id],meta(agent));
@@ -121,6 +121,12 @@ const root = path.resolve(process.env.NAVIGATION_ROOT || '.');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     assert.deepEqual(await page.evaluate(()=>emptyRenders),[],'switching among loaded views must never render an empty transcript');
     assert.deepEqual(errors,[]);
-    console.log('PASS: cached startup before catalog/relay, instant project/client switches, background reconciliation, late response isolation, latest-message scroll, reader position, disconnect drafts, full memory history, mobile/offline');
+    // A refreshed online catalog reconnects even if startup used stale offline metadata.
+    await page.goto('https://workspace.test/agents/?offline=1',{waitUntil:'domcontentloaded'});
+    await page.waitForFunction(()=>fixture.sockets.length>0);
+    assert((await page.locator('#messages').textContent()).includes('s1 message 34'),'an online catalog must reconnect a cached offline selection without losing history');
+    assert.equal(await page.evaluate(()=>fixture.sockets.at(-1).client),'a');
+    assert.deepEqual(errors,[]);
+    console.log('PASS: cached startup before catalog/relay, instant project/client switches, background reconciliation, late response isolation, latest-message scroll, reader position, disconnect drafts, full memory history, mobile/offline and stale offline recovery');
   } finally { await browser.close(); }
 })().catch(error=>{console.error(error);process.exitCode=1;});

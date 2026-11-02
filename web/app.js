@@ -133,6 +133,12 @@ async function refresh() {
     state.agents = agents;
     WorkspaceCache.write("agents", [state.user.id], agents);
     if (changed) renderDevices();
+    const selected = agents.find(agent => agent.id === state.selected?.id);
+    if (selected?.online && !state.peer) {
+      connectDevice(selected).catch(error => {
+        if (state.user?.id === account && state.selected?.id === selected.id) notice(error.message);
+      });
+    }
   } catch (e) {
     notice(e.message);
   }
