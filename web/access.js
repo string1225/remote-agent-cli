@@ -103,7 +103,7 @@
     const stamp = ++revision; ready = false; clearTimeout(timer); rpc?.close(); form.elements.password.value = ""; $("access-content").hidden = true;
     client = state.agents.find(d => d.id === $("access-client").value); if (!client) { message("请先添加并连接一个客户端。"); return; } if (!client.online) { message("请等待所选客户端上线。"); return; }
     rpc = new AccessRPC(client.id); message("正在读取客户端的服务器与账号状态……");
-    try { const info = await rpc.call("authenticate"); if (!current(stamp)) return; if (!info.credentialManagement) { message("请先升级所选客户端，以启用服务器与 GitHub 管理。"); return; } ready = true; $("access-content").hidden = false; message(""); const results = await Promise.allSettled([loadServers(stamp), loadAccounts(stamp), watch(stamp)]); if (current(stamp)) for (const result of results) if (result.status === "rejected") message(result.reason.message); }
+    try { const info = await rpc.call("authenticate"); if (!current(stamp)) return; if (!info.credentialManagement) { message(info.credentialManagementError || "请先升级所选客户端，以启用服务器与 GitHub 管理。"); return; } ready = true; $("access-content").hidden = false; message(""); const results = await Promise.allSettled([loadServers(stamp), loadAccounts(stamp), watch(stamp)]); if (current(stamp)) for (const result of results) if (result.status === "rejected") message(result.reason.message); }
     catch (e) { if (current(stamp)) message(e.message); }
   }
   async function open(next = state.selected) {

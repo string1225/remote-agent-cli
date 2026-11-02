@@ -158,6 +158,9 @@ func realDirectoryPath(path string) error {
 			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 				return errors.New("credential directory contains a link or non-directory")
 			}
+			// Existing store parents are the trust boundary. Service tokens may
+			// traverse a private profile without enumerating its outer ancestors.
+			return nil
 		} else if !os.IsNotExist(err) {
 			return err
 		}

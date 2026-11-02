@@ -81,7 +81,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer cancel()
 	if a.Config.Path != "" {
 		if _, err := a.accessManager(ctx); err != nil {
-			return err
+			log.Print("credential management unavailable: cannot prepare protected storage")
 		}
 	}
 	stopGitAuth := a.startGitAuth(ctx)
@@ -333,7 +333,10 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		for name, provider := range a.Providers {
 			providers[name] = provider
 		}
-		data := map[string]any{"credentialManagement": true, "services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "directoryCreate": true, "attachments": true, "backgroundRuns": true, "taskQueue": true, "sessionManagement": true, "projectSettings": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
+		data := map[string]any{"credentialManagement": a.accessErr == nil, "services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "directoryCreate": true, "attachments": true, "backgroundRuns": true, "taskQueue": true, "sessionManagement": true, "projectSettings": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
+		if a.accessErr != nil {
+			data["credentialManagementError"] = "凭据目录暂不可用，请在本机修复客户端权限并重启服务"
+		}
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 		return
