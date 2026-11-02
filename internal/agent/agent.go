@@ -319,7 +319,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		for name, provider := range a.Providers {
 			providers[name] = provider
 		}
-		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "attachments": true, "backgroundRuns": true, "taskQueue": true, "sessionManagement": true, "projectSettings": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
+		data := map[string]any{"services": append([]protocol.Service{}, a.Config.Services...), "providers": providers, "allowedRoots": append([]string{}, a.Config.AllowedRoots...), "allowWrite": true, "permissionMode": "full", "sayso": true, "directorySearch": true, "directoryCreate": true, "attachments": true, "backgroundRuns": true, "taskQueue": true, "sessionManagement": true, "projectSettings": true, "clientVersion": buildinfo.Current(), "remoteMaintenance": true, "remoteClientUpdate": remoteClientUpdateSupported()}
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 		return
@@ -375,6 +375,13 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		a.handleSessionControl(p.ctx, req, send)
 	case "tasks.run":
 		result, err := a.startSessionTask(req)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: result})
+	case "directories.create":
+		result, err := a.createDirectory(p.ctx, req.Path, req.Title)
 		if err != nil {
 			fail(err)
 			return

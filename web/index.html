@@ -429,6 +429,7 @@
           <div class="directory-toolbar">
             <button id="directory-roots" type="button">授权根目录</button>
             <button id="directory-parent" type="button" hidden>↑ 上一级</button>
+            <button id="directory-create" type="button" hidden disabled title="先进入父目录，再新建文件夹">＋ 新建文件夹</button>
             <span id="directory-base"></span>
           </div>
           <div
@@ -442,6 +443,16 @@
         <button id="service-submit" class="primary full" type="submit">
           注册服务 ↗
         </button>
+      </form>
+    </dialog>
+    <dialog id="directory-create-dialog" aria-labelledby="directory-create-title">
+      <div class="dialog-head"><h2 id="directory-create-title">新建文件夹</h2><button class="icon-button close-dialog" type="button" aria-label="关闭新建文件夹">×</button></div>
+      <p class="small muted">将在目标电脑的以下目录中新建：</p>
+      <p id="directory-create-parent" class="small"></p>
+      <form id="directory-create-form">
+        <label>文件夹名称<input id="directory-create-name" required maxlength="80" autocomplete="off" spellcheck="false" placeholder="例如：my-project" /></label>
+        <p id="directory-create-error" class="small" role="alert"></p>
+        <div class="directory-create-actions"><button id="directory-create-cancel" class="secondary" type="button">取消</button><button id="directory-create-submit" class="primary" type="submit">创建并选择</button></div>
       </form>
     </dialog>
   </body>

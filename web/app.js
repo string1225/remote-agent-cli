@@ -278,6 +278,8 @@ function refreshServices(data) {
   state.projectSettings = !!data.projectSettings;
   state.backgroundRuns = !!data.backgroundRuns;
   state.directorySearch = !!data.directorySearch;
+  state.directoryCreate = !!data.directoryCreate;
+  $("directory-create").hidden = !state.directoryCreate;
   state.sayso = !!data.sayso;
   state.services = data.services || [];
   state.providers = data.providers || {};
@@ -1231,6 +1233,7 @@ async function findDirectories(path = "", query = $("workspace-input").value) {
   directoryItems = [];
   directoryActive = -1;
   directoryPage = null;
+  $("directory-create").disabled = true;
   $("directory-parent").hidden = true;
   $("directory-base").textContent = "正在查找…";
   $("directory-options").replaceChildren();
@@ -1248,6 +1251,7 @@ async function findDirectories(path = "", query = $("workspace-input").value) {
     )
       return;
     directoryPage = result;
+    $("directory-create").disabled = !result.base;
     directoryItems = result.directories;
     $("directory-parent").hidden = !result.parent;
     $("directory-base").textContent = result.base || "根目录与已注册项目";
@@ -1353,6 +1357,43 @@ $("directory-roots").onclick = () => {
 $("directory-parent").onclick = () => {
   if (directoryPage?.parent) browseDirectory(directoryPage.parent);
 };
+let directoryCreateTarget;
+$("directory-create").onclick = () => {
+  if (!state.directoryCreate || !state.peer || !directoryPage?.base) return;
+  directoryCreateTarget = {peer:state.peer, path:directoryPage.base};
+  $("directory-create-parent").textContent = directoryCreateTarget.path;
+  $("directory-create-name").value = "";
+  $("directory-create-error").textContent = "";
+  $("directory-create-submit").disabled = false;
+  $("directory-create-dialog").showModal();
+  $("directory-create-name").focus();
+};
+$("directory-create-form").onsubmit = async event => {
+  event.preventDefault();
+  const target = directoryCreateTarget;
+  if (!target || $("directory-create-submit").disabled) return;
+  $("directory-create-submit").disabled = true;
+  $("directory-create-error").textContent = "";
+  try {
+    const result = await rpc("directories.create", {path:target.path, title:$("directory-create-name").value});
+    if (state.peer !== target.peer) return;
+    if (directoryCreateTarget !== target || !$("directory-create-dialog").open || !$("service-dialog").open) {
+      notice((result.created ? "文件夹已创建：" : "文件夹已存在：") + result.path);
+      return;
+    }
+    $("directory-create-dialog").close();
+    chooseDirectory(result);
+    $("directory-status").textContent = result.created ? "文件夹已创建并选中，可以注册项目。" : "文件夹已存在并选中，原有内容保留。";
+  } catch (error) {
+    if (directoryCreateTarget === target && state.peer === target.peer) $("directory-create-error").textContent = error.message;
+  } finally {
+    if (directoryCreateTarget === target) $("directory-create-submit").disabled = false;
+  }
+};
+$("directory-create-dialog").addEventListener("close", () => { if (!$("directory-create-dialog").open) directoryCreateTarget = null; });
+$("directory-create-cancel").onclick = () => $("directory-create-dialog").close();
+$("service-dialog").addEventListener("close", () => { if ($("directory-create-dialog").open) $("directory-create-dialog").close(); });
+window.addEventListener("remote-agent-disconnected", () => { if ($("directory-create-dialog").open) $("directory-create-dialog").close(); });
 $("service-dialog").addEventListener("close", closeDirectoryPicker);
 document.addEventListener("pointerdown", (event) => {
   if (
