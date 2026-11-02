@@ -103,20 +103,35 @@ async function signedIn() {
   window.platformSignedIn?.(state.user);
   $("auth").hidden = true;
   $("app").hidden = false;
+  state.agents = WorkspaceCache.read("agents", [state.user.id]) || [];
+  renderDevices();
+  const revision = state.navigationRevision;
+  const restore = () => {
+    if (location.hash.startsWith("#client=")) {
+      const route = new URLSearchParams(location.hash.slice(1));
+      const client = state.agents.find(a => a.id === route.get("client"));
+      return client && openWorkspace(client, route.get("project"), route.get("session"));
+    }
+    const saved = WorkspaceCache.read("selection", [state.user.id]);
+    const client = state.agents.find(a => a.id === saved?.client);
+    return client && openWorkspace(client, saved.project, saved.session);
+  };
+  // Paint the saved workspace while the catalog and relay load independently.
+  const restored = restore();
+  if (restored) restored.catch(error => notice(error.message));
   await refresh();
-  await openLinkedSession();
-  if(!location.hash.startsWith("#client=")){
-    const saved=WorkspaceCache.read("selection",[state.user.id]),client=state.agents.find(a=>a.id===saved?.client);
-    if(client){try{await connectDevice(client);await selectProject(saved.project);if(saved.session)await loadSession({id:saved.session})}catch(error){notice(error.message)}}
-  }
+  if (!restored && revision === state.navigationRevision) await restore();
 }
 async function refresh() {
   if ($("app").hidden) return;
+  const account = state.user?.id;
   try {
     const agents = await api("/api/agents");
     const signature = rows => JSON.stringify(rows.map(a => [a.id,a.name,a.os,a.online,a.enrolled,a.services]));
     const changed = signature(agents) !== signature(state.agents);
+    if (!account || state.user?.id !== account || $("app").hidden) return;
     state.agents = agents;
+    WorkspaceCache.write("agents", [state.user.id], agents);
     if (changed) renderDevices();
   } catch (e) {
     notice(e.message);
@@ -169,14 +184,14 @@ function renderDevices() {
     row.onkeydown = e => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") window.openDeviceMenu(e, a, menu); };
     row.append(status, add, menu); card.append(row);
     const children = node("div", undefined, "device-children");
-    const services = selected ? state.services : a.services || [];
+    const services = selected ? state.services : a.services || WorkspaceCache.read("client", [state.user?.id, a.id])?.services || [];
     for (const project of services) {
       const button = node("button", undefined, "project-button" + (selected && state.serviceId === project.id ? " active" : ""));
       button.title = project.workspace;
       const provider = node("span", project.provider === "qoder" ? "◇" : "◈", "project-provider");
       provider.title = project.provider === "qoder" ? "Qoder" : "Codex"; provider.setAttribute("aria-label", provider.title);
       button.append(provider, node("span", project.name || folderName(project.workspace)));
-      button.onclick = async () => { try { await connectDevice(a); await selectProject(project.id); closeDrawers(); } catch (e) { notice(e.message); } };
+      button.onclick = async () => { try { await openWorkspace(a, project.id); } catch (e) { notice(e.message); } };
       const projectRow = node("div", undefined, "project-row");
       const settings = node("button", "⚙", "project-settings");
       settings.title = "项目操作"; settings.setAttribute("aria-label", `${project.name} 的项目操作`);
@@ -200,8 +215,8 @@ function setRunning(id) {
   const local = !!id && state.runSession === state.session?.id;
   const background = ["queued","running"].includes(state.session?.taskStatus);
   $("cancel-run").hidden = !id && !(background && state.session?.taskId);
-  $("send-run").disabled = submitting || local || background || !state.session || !service() || !state.peer || state.permissionMode!=="full";
-  $("new-session").disabled = !service() || !state.peer || state.permissionMode!=="full";
+  $("send-run").disabled = submitting || local || background || !state.session || !service() || !state.peer || state.peer.connecting || state.permissionMode!=="full";
+  $("new-session").disabled = !service() || !state.peer || state.peer.connecting || state.permissionMode!=="full";
   window.updateQueuedComposer?.();
 }
 function resetWorkspace() {
@@ -222,8 +237,9 @@ function resetWorkspace() {
   $("selected-name").textContent =
     state.selected?.name || "连接设备，打开一个项目";
 }
-function disconnect(reason) {
+function disconnect(reason, preserveWorkspace = false) {
   saveCurrentDraft();
+  cacheCurrentSession();
   closeDirectoryPicker();
   window.dispatchEvent(new Event("remote-agent-disconnected"));
   const peer = state.peer;
@@ -239,16 +255,26 @@ function disconnect(reason) {
     entry.reject(Error(reason || "连接已断开"));
   }
   state.pending.clear();
-  state.selected = null;
-  state.services = [];
-  state.providers = {};
-  state.permissionMode="";state.clientVersion="";state.attachments=false;
-  state.roots = [];
-  state.runSession = null;
-  resetWorkspace();
-  setRunning(null);
+  state.readRevision++;
+  state.listRevision++;
+  state.navigationRevision = (state.navigationRevision || 0) + 1;
+  state.loadingSession = null;
+  if (!preserveWorkspace) {
+    state.selected = null;
+    state.services = [];
+    state.providers = {};
+    state.permissionMode = ""; state.clientVersion = ""; state.attachments = false;
+    state.roots = [];
+    state.runSession = null;
+    resetWorkspace();
+    setRunning(null);
+    renderDevices();
+  } else {
+    state.historyLocal = !!state.session;
+    setRunning(state.running);
+    updateSessionContext();
+  }
   connectionStatus(reason || "未连接");
-  renderDevices();
 }
 function rpc(type, fields = {}) {
   return new Promise((resolve, reject) => {
@@ -370,35 +396,63 @@ function receiveEvent(msg) {
             refreshSessions().catch((e) => notice(e.message));
           }
 }
-async function connectDevice(agent) {
-  if (state.selected?.id === agent.id && state.peer) return state.peer.ready;
-  if (!agent.online) {
-    const cached=WorkspaceCache.read("client",[state.user?.id,agent.id]);
-    if(!cached)throw Error("客户端离线，尚无本地会话缓存");
-    if(closeSayso && !(await closeSayso()))throw Error("请先保存录音");
-    disconnect();state.selected=agent;state.expanded.add(agent.id);refreshServices(cached);connectionStatus("离线 · 本地缓存");return cached;
+async function openWorkspace(agent, projectId, sessionId) {
+  const ready = connectDevice(agent, {projectId, sessionId});
+  closeDrawers();
+  return ready;
+}
+async function connectDevice(agent, selection = {}) {
+  if (state.selected?.id === agent.id && state.peer) {
+    const peer = state.peer;
+    if (selection.projectId) await selectProject(selection.projectId, {localOnly:peer.connecting, sessionId:selection.sessionId});
+    return peer.ready;
   }
   if (closeSayso && !(await closeSayso())) throw Error("请先保存 SaySo 录音");
-  disconnect();
+  const sameClient = state.selected?.id === agent.id;
+  const cached = WorkspaceCache.read("client", [state.user?.id, agent.id]);
+  const saved = WorkspaceCache.read("client-selection", [state.user?.id, agent.id]);
+  const projectId = selection.projectId || (sameClient && state.serviceId) || saved?.project;
+  disconnect(undefined, true);
+  const revision = state.navigationRevision;
+  if (!sameClient) {
+    state.serviceId = null; state.session = null; state.sessions = []; state.entries = [];
+    $("prompt").value = "";
+    window.chatAttachments?.restore([]);
+  }
   state.selected = agent;
   state.expanded.add(agent.id);
-  renderDevices();
-  connectionStatus("正在连接设备…");
-  const ws = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${basePath}/api/agents/${agent.id}/connect`);
-  const peer = { ws, lastPong: Date.now() };
+  refreshServices(cached || {services:agent.services || []});
+  const initialProject = state.services.find(s => s.id === projectId) || state.services[0];
+  if (initialProject) await selectProject(initialProject.id, {localOnly:true, sessionId:selection.sessionId});
+  else { resetWorkspace(); renderDevices(); }
+  if (revision !== state.navigationRevision) return;
+  if (!agent.online) {
+    connectionStatus("离线 · 本地缓存");
+    return cached;
+  }
+  connectionStatus("正在后台连接…");
+  const ws = new WebSocket(
+    `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}${basePath}/api/agents/${agent.id}/connect`,
+  );
+  const peer = {ws, connecting:true, lastPong:Date.now()};
   peer.ready = new Promise((resolve, reject) => { peer.resolve = resolve; peer.reject = reject; });
   state.peer = peer;
-  const fail = (msg) => { if (state.peer === peer) { notice(msg); disconnect(msg); } };
-  peer.timeout = setTimeout(() => fail("连接超时，请检查客户端是否在线并已更新"), 20000);
-  ws.onclose = () => fail("设备连接已断开，请重新连接");
-  ws.onerror = () => fail("连接暂时不可用，请刷新设备状态");
+  setRunning(state.running);
+  const fail = msg => {
+    if (state.peer !== peer) return;
+    notice(msg);
+    disconnect(msg, true);
+  };
+  peer.timeout = setTimeout(() => fail("连接超时，已保留本地内容；点击项目可重连"), 20000);
+  ws.onclose = () => fail("设备连接已断开，已保留本地内容");
+  ws.onerror = () => fail("连接暂时不可用，已保留本地内容");
   ws.onopen = () => {
     peer.ping = setInterval(() => {
-      if (Date.now() - peer.lastPong > 65000) { fail("设备连接超时，请重新连接"); return; }
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
+      if (Date.now() - peer.lastPong > 65000) { fail("设备连接超时，已保留本地内容"); return; }
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"ping"}));
     }, 20000);
   };
-  ws.onmessage = async (event) => {
+  ws.onmessage = async event => {
     if (state.peer !== peer) return;
     try {
       const msg = JSON.parse(event.data);
@@ -408,56 +462,92 @@ async function connectDevice(agent) {
         if (state.peer !== peer) return;
         clearTimeout(peer.timeout);
         refreshServices(data);
-        $("selected-name").textContent = agent.name;
+        peer.connecting = false;
         connectionStatus("已连接", true);
+        updateSessionContext();
+        setRunning(state.running);
         peer.resolve(data);
         peer.reject = null;
+        const project = state.services.find(s => s.id === state.serviceId) || state.services.find(s => s.id === projectId) || state.services[0];
+        if (project) {
+          if (project.id !== state.serviceId) await selectProject(project.id, {sessionId:selection.sessionId});
+          else await refreshProjectView();
+        } else resetWorkspace();
       } else if (msg.type === "event" && msg.event) receiveEvent(msg.event);
       else if (msg.type === "pong") peer.lastPong = Date.now();
       else if (msg.type === "error") fail(msg.error || "连接失败");
-    } catch (e) { fail(e.message); }
+    } catch (error) {
+      if (peer.connecting) fail(error.message);
+      else if (state.peer === peer) notice(error.message);
+    }
   };
   return peer.ready;
 }
-async function selectProject(id) {
-  if (!state.services.some((s) => s.id === id))
-    throw Error("项目已被移除，请刷新设备");
-  if (id === state.serviceId) return;
+async function selectProject(id, {localOnly = false, sessionId} = {}) {
+  if (!state.services.some(s => s.id === id)) throw Error("项目已被移除，请刷新设备");
+  if (id === state.serviceId) {
+    if (sessionId && sessionId !== state.session?.id) await loadSession({id:sessionId}, {localOnly});
+    return;
+  }
   saveCurrentDraft();
+  cacheCurrentSession();
   if (closeSayso && !(await closeSayso())) throw Error("请先保存 SaySo 录音");
   state.mode = "web";
   state.serviceId = id;
   state.session = null;
   state.entries = [];
+  const scope = [state.user?.id, state.selected?.id, id];
+  state.sessions = WorkspaceCache.read("sessions", scope) || [];
+  state.listCursor = 0;
+  state.listExtended = false;
+  state.listRevision++;
   state.readRevision++;
+  state.historyLocal = false;
+  $("prompt").value = "";
+  window.chatAttachments?.restore([]);
   $("session-search").value = "";
-  const s = service();
-  $("project-label").textContent = `${s.provider.toUpperCase()} / ${s.name}`;
-  $("project-label").title = s.workspace;
-  $("selected-name").textContent =
-    `${state.selected.name} · ${s.provider} · ${folderName(s.workspace)}`;
-  setRunning(state.running);
+  const project = service();
+  $("project-label").textContent = `${project.provider.toUpperCase()} / ${project.name}`;
+  $("project-label").title = project.workspace;
+  WorkspaceCache.write("client-selection", scope.slice(0, 2), {project:id});
+  WorkspaceCache.write("selection", scope.slice(0, 1), {client:state.selected?.id, project:id});
+  const saved = WorkspaceCache.read("project-selection", scope);
+  const current = sessionId || saved?.session || state.sessions.find(s => !s.archivedAt && !s.deletedAt)?.id;
+  if (current) await loadSession(state.sessions.find(s => s.id === current) || {id:current}, {localOnly:true});
+  else { renderSessions(); renderChat(); }
   renderDevices();
-  renderChat();
-  await refreshSessions();
+  setRunning(state.running);
+  if (!localOnly) await refreshProjectView();
+}
+async function refreshProjectView() {
+  const peer = state.peer, project = state.serviceId, revision = state.readRevision;
+  if (!peer || peer.connecting || !project) return;
+  const results = await Promise.allSettled([
+    refreshSessions(),
+    state.session ? loadSession(state.session, {refreshOnly:true}) : Promise.resolve(),
+  ]);
+  if (peer !== state.peer || project !== state.serviceId || revision !== state.readRevision) return;
+  if (!state.session && state.sessions.length) await loadSession(state.sessions.find(s => !s.archivedAt && !s.deletedAt) || state.sessions[0]);
+  const failed = results.find(result => result.status === "rejected");
+  if (failed) throw failed.reason;
 }
 async function refreshSessions(more = false, quiet = false) {
   if (!state.serviceId) return;
   const cacheScope=[state.user?.id,state.selected?.id,state.serviceId];
   if (!more && !quiet && !state.sessions.length) {const cached=WorkspaceCache.read("sessions",cacheScope);if(cached){state.sessions=cached;renderSessions();}}
-  if(!state.peer)return;
+  if(!state.peer || state.peer.connecting)return;
   const revision = ++state.listRevision;
-  const sid = state.serviceId;
+  const sid = state.serviceId, peer = state.peer, search = $("session-search").value.trim();
   const page = await rpc("sessions.list", {
     serviceId: sid,
-    search: $("session-search").value.trim(),
+    search,
     cursor: more ? state.listCursor : 0,
   });
-  if (revision !== state.listRevision || sid !== state.serviceId) return;
+  if (revision !== state.listRevision || sid !== state.serviceId || peer !== state.peer) return;
   const oldCursor = state.listCursor;
   const rows = more ? [...state.sessions,...page.sessions] : quiet ? [...page.sessions,...state.sessions.filter(s => !page.sessions.some(n => n.id === s.id))] : page.sessions;
   state.sessions = [...new Map(rows.map(s => [s.id,s])).values()];
-  WorkspaceCache.write("sessions",cacheScope,state.sessions);
+  if (!search) WorkspaceCache.write("sessions",cacheScope,state.sessions);
   if (more) state.listExtended = true;
   else if (!quiet) state.listExtended = false;
   state.listCursor = quiet && state.listExtended ? oldCursor : page.nextCursor || 0;
@@ -483,7 +573,7 @@ function renderSessions() {
       ? "没有找到匹配的会话。"
       : "还没有会话。\n点击右上角 ＋ 开始。"
     : "连接设备，选择项目，\n从一个新会话开始。";
-  const signature = JSON.stringify([state.serviceId,state.mode,state.session?.id,state.runSession,state.sessions,service()?.channel]);
+  const signature = JSON.stringify([state.selected?.id,state.serviceId,state.mode,state.session?.id,state.runSession,state.sessions,service()?.channel]);
   if (signature === sessionSignature) return;
   sessionSignature = signature;
   const fragment = document.createDocumentFragment();
@@ -533,40 +623,55 @@ function renderSessions() {
   $("conversation-list").replaceChildren(fragment);
   window.renderArchivedSessions?.($("conversation-list"));
 }
-async function loadSession(session) {
+async function loadSession(session, {localOnly = false, refreshOnly = false} = {}) {
   if (closeSayso && !(await closeSayso())) return;
   state.mode = "web";
-  const revision = ++state.readRevision;
-  saveCurrentDraft();
-  const context=draftContext(session.id), cached=WorkspaceCache.read("history",context);
-  state.historyLocal=!!cached;
-  state.session = cached?.session?.serviceId===state.serviceId ? cached.session : session;
-  state.entries = cached?.entries || [];
-  WorkspaceCache.write("selection",[state.user?.id],{client:state.selected?.id,project:state.serviceId,session:session.id});
-  restoreCurrentDraft();
-  renderSessions();
-  renderChat();
-  $("chat-scroll").scrollTop = 0;
+  const peer = state.peer, project = state.serviceId;
+  if (!refreshOnly) {
+    saveCurrentDraft();
+    cacheCurrentSession();
+    const cached = WorkspaceCache.read("history", draftContext(session.id));
+    const valid = cached?.session?.serviceId === project;
+    state.historyLocal = !!valid;
+    state.session = valid ? {...cached.session, ...session} : session;
+    state.entries = valid ? [...cached.entries] : [];
+    const scope = [state.user?.id, state.selected?.id, project];
+    WorkspaceCache.write("project-selection", scope, {session:session.id});
+    WorkspaceCache.write("selection", scope.slice(0, 1), {client:state.selected?.id, project, session:session.id});
+    restoreCurrentDraft();
+    renderSessions();
+    renderChat();
+    scrollChatToLatest();
+  }
+  const revision = refreshOnly ? state.readRevision : ++state.readRevision;
   setRunning(state.running);
-  if(!state.peer)return;
-  let cursor = 0,
-    entries = [];
-  do {
-    const page = await rpc("sessions.get", { sessionId: session.id, cursor });
-    if (revision !== state.readRevision) return;
-    if (page.session.serviceId !== state.serviceId) throw Error("会话不属于当前项目");
-    state.session = page.session;
-    entries.push(...page.entries);
-    cursor = page.nextCursor || 0;
-  } while (cursor);
-  if (revision !== state.readRevision) return;
-  const seq = new Set(entries.map((e) => e.seq));
-  entries.push(...state.entries.filter((e) => e.turnId===state.running && e.seq > 0 && !seq.has(e.seq)));
-  state.entries = entries.sort((a, b) => a.seq - b.seq);
-  state.historyLocal=false;
-  reconcilePendingDraft(); cacheCurrentSession();
-  setRunning(state.running);
-  renderChat();
+  if (localOnly || !peer || peer.connecting) return;
+  state.loadingSession = revision;
+  try {
+    let cursor = 0, current, entries = [];
+    do {
+      const page = await rpc("sessions.get", {sessionId:session.id, cursor});
+      if (revision !== state.readRevision || peer !== state.peer || project !== state.serviceId || session.id !== state.session?.id || state.mode === "sayso") return;
+      if (page.session.serviceId !== project) throw Error("会话不属于当前项目");
+      current = page.session;
+      entries.push(...page.entries);
+      cursor = page.nextCursor || 0;
+    } while (cursor);
+    state.session = current;
+    state.entries = entries.sort((a, b) => a.seq - b.seq);
+    state.historyLocal = false;
+    reconcilePendingDraft();
+    cacheCurrentSession();
+    setRunning(state.running);
+    state.sessions = state.sessions.map(row => row.id === current.id ? current : row);
+    renderSessions();
+    renderChat();
+  } finally {
+    if (state.loadingSession === revision) state.loadingSession = null;
+  }
+}
+function scrollChatToLatest() {
+  state.chatAtBottom = true;
   $("chat-scroll").scrollTop = $("chat-scroll").scrollHeight;
 }
 function sessionTitle(session) {
@@ -693,8 +798,17 @@ function renderChat(live = false) {
     );
   }
   for (const [key, el] of existing) if (!keep.has(key)) el.remove();
-  if (atBottom) scroll.scrollTop = scroll.scrollHeight;
+  state.chatAtBottom = atBottom;
+  if (atBottom) scrollChatToLatest();
 }
+
+$("chat-scroll").addEventListener("scroll", () => {
+  const scroll = $("chat-scroll");
+  state.chatAtBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 90;
+}, {passive:true});
+new ResizeObserver(() => {
+  if (state.chatAtBottom && state.session && state.mode !== "sayso") scrollChatToLatest();
+}).observe($("messages"));
 
 function initPaneResizers() {
   const app = $("app"),
@@ -1408,13 +1522,12 @@ async function openLinkedSession() {
   if (!location.hash.startsWith("#client=") || $("app").hidden) return;
   const route = new URLSearchParams(location.hash.slice(1));
   const client = state.agents.find(a => a.id === route.get("client"));
-  if (!client || !client.online) { notice("链接中的客户端不在线或不属于当前账号"); return; }
-  try { await connectDevice(client); await selectProject(route.get("project")); if (route.get("session")) await loadSession({id:route.get("session")}); }
-  catch (e) { notice(e.message); }
+  if (!client) return;
+  return openWorkspace(client, route.get("project"), route.get("session"));
 }
-
 async function pollSession() {
   const session = state.session, peer = state.peer, revision = state.readRevision;
+  if (!session || !peer || peer.connecting || state.loadingSession === revision) return;
   let cursor = state.entries.at(-1)?.seq || 0;
   do {
     const page = await rpc("sessions.get", {sessionId:session.id,cursor});

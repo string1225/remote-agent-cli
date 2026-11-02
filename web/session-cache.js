@@ -27,6 +27,9 @@
     history(context, session, entries) {
       let rows=entries.slice(-250);while(rows.length && JSON.stringify(rows).length>180000) rows=rows.slice(Math.max(1,Math.floor(rows.length/5)));
       write("history",context,{session,entries:rows});
+      // Keep the full loaded transcript in this page; only disk storage is bounded.
+      const name = key("history", context), saved = memory.get(name);
+      if (saved) memory.set(name, {...saved, data:{session:{...session}, entries:[...entries]}});
     },
   };
 })();
