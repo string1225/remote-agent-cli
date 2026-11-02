@@ -70,7 +70,18 @@ func runWebProxy(args []string) error {
 	if action == "on" || action == "off" {
 		address := ""
 		if action == "on" {
-			address = *listen
+			preferred := ""
+			flags.Visit(func(f *flag.Flag) {
+				if f.Name == "listen" {
+					preferred = *listen
+				}
+			})
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			address, err = configureWebProxyListener(ctx, cfg, preferred, os.Stdout)
+			cancel()
+			if err != nil {
+				return fmt.Errorf("%w；请检查客户端服务，系统代理保持原设置", err)
+			}
 		}
 		if action == "off" && systemSupported {
 			previous, err := agent.WebProxyAddress(*path)
@@ -84,22 +95,9 @@ func runWebProxy(args []string) error {
 				return err
 			}
 		}
-		backup, err := agent.SetWebProxy(*path, address)
-		if err != nil {
-			return err
-		}
-		if backup != "" {
-			fmt.Printf("原配置备份：%s\n", backup)
-		}
 		if action == "on" {
-			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-			err := agent.WaitWebProxy(ctx, cfg, address)
-			cancel()
-			if err != nil {
-				return fmt.Errorf("%w；请升级并启动客户端服务，系统代理保持原设置", err)
-			}
 			probeCtx, stop := context.WithTimeout(context.Background(), 22*time.Second)
-			err = agent.ProbeWebProxyTunnel(probeCtx, address, "github.com:443")
+			err := agent.ProbeWebProxyTunnel(probeCtx, address, "github.com:443")
 			stop()
 			if err != nil {
 				return err
@@ -113,6 +111,13 @@ func runWebProxy(args []string) error {
 				fmt.Printf("Web 代理已就绪：http://%s；请在应用中选择该代理。\n", address)
 			}
 		} else {
+			backup, err := agent.SetWebProxy(*path, "")
+			if err != nil {
+				return err
+			}
+			if backup != "" {
+				fmt.Printf("原配置备份：%s\n", backup)
+			}
 			if systemSupported {
 				fmt.Println("Web 代理已关闭；Windows 系统代理原设置已恢复（外部修改的设置会保留）。")
 			} else {

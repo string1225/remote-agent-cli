@@ -41,9 +41,9 @@ remote-agent web-proxy on
 remote-agent web-proxy off
 ```
 
-`on` 默认监听 `127.0.0.1:17891`，可用 `--listen 127.0.0.1:PORT` 改端口。它先等待健康检查核对本机客户端，再验证 GitHub 中转 CONNECT；成功后自动开启 Windows 当前用户系统代理，无需管理员权限。未就绪/中转失败会报错且不改系统代理，先检查或升级客户端服务。`off` 先恢复系统代理原设置，再关闭监听；原设置私有备份至 `~/.remote-agent/web-proxy-system.json`，外部后来修改的代理会保留。`status` 区分配置、监听就绪、系统代理启用及归属。macOS/Linux 需在应用中选择代理。临时前台运行用 `remote-agent web-proxy run`，Ctrl+C 停止，此模式不自动改系统代理。
+`on` 优先沿用已配置地址，首次默认 `127.0.0.1:17891`；`--listen 127.0.0.1:PORT` 指定优先尝试的端口。端口被占用或不可绑定时自动选择相同回环 IP 的空闲端口，提示新地址并保存；不停止占用端口的其他程序。健康的本客户端监听直接复用，不能复用其他客户端或普通代理；绑定竞争最多重试三次。它先等待健康检查核对本机客户端，再验证 GitHub 中转 CONNECT；成功后自动开启 Windows 当前用户系统代理，无需管理员权限。未就绪/中转失败会报错且不改系统代理，先检查或升级客户端服务。`off` 先恢复系统代理原设置，再关闭监听；原设置私有备份至 `~/.remote-agent/web-proxy-system.json`，外部后来修改的代理会保留。`status` 区分配置、监听就绪、系统代理启用及归属。macOS/Linux 需在应用中选择代理。临时前台运行用 `remote-agent web-proxy run`，Ctrl+C 停止，此模式仍严格绑定指定端口，不自动改系统代理。
 
-开启后按单次请求显式选择代理，例如：
+开启后按单次请求显式选择代理；先读取 `remote-agent web-proxy status` 的 `listen`，以下 `17891` 仅为默认端口示例，自动换端口后须使用实际地址：
 
 ```text
 git -c http.proxy=http://127.0.0.1:17891 ls-remote https://github.com/OWNER/REPO.git
