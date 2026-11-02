@@ -20,7 +20,7 @@ func TestMain(m *testing.M) {
 		args := strings.Join(os.Args[1:], " ")
 		switch {
 		case strings.Contains(args, "login"):
-			if os.Getenv("GCM_INTERACTIVE") != "always" || !strings.Contains(args, "--device --no-ui") {
+			if os.Getenv("GCM_INTERACTIVE") != "always" || os.Getenv("GIT_TERMINAL_PROMPT") != "1" || !strings.Contains(args, "--device --no-ui") {
 				os.Exit(8)
 			}
 			fmt.Println("Open https://github.com/login/device and enter TEST-CODE")
@@ -54,6 +54,9 @@ func fixtureManager(t *testing.T) Manager {
 
 func TestManagerRunsFixedCommandsAndStreamsDeviceCode(t *testing.T) {
 	m := fixtureManager(t)
+	// The service launches background jobs with prompting disabled. Explicit
+	// login must override that inherited policy for the device-code flow.
+	m.Env = Environment(m.Env, m.Store, false)
 	for _, req := range []Request{{Action: "login"}, {Action: "status"}, {Action: "logout", Username: "fixture-user"}} {
 		var output bytes.Buffer
 		if err := m.Run(context.Background(), req, &output); err != nil {

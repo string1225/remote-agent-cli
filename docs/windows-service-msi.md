@@ -49,6 +49,8 @@ Codex App 商店页面等桌面操作仍应在登录用户会话中进行，不�
 
 ## 后台 GitHub 授权
 
+Git 登录修复及 `remote-agent ssh configure` 的一次性本机授权、回滚与验证见 [后台 Git 与 SSH](service-credentials.md)。
+
 客户端初始化（connect，含已有绑定、修复和恢复）、enroll、service configure 完成后会提示后台 GitHub 授权。桌面 Git Credential Manager 的登录凭据不会自动供 LocalService 使用；后台任务读取私有仓库或推送前，在设备属主的普通 PowerShell 运行：
 
 ```powershell

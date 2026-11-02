@@ -56,6 +56,8 @@ curl --proxy http://127.0.0.1:17891 https://chatgpt.com/
 
 ## 本机维护
 
+Windows 后台 GitHub 授权用 `remote-agent git login [--username ACCOUNT]`，由用户在桌面终端发起并自行完成浏览器设备码确认。SSH 新增 `remote-agent ssh configure --alias NAME --host HOST --user USER --identity PATH --known-hosts PATH [--port 22]`：用户在桌面终端选择无口令私钥及已核对的 known_hosts，UAC 后导入服务专用副本，原文件保留；后台使用命令返回的显式 `ssh -F CONFIG ALIAS`。不要自行导入其他密钥、改信任记录或更换服务账号；真实连接与授权需对应环境验证。
+
 分享文件也可用 `remote-agent files upload --path FILE [--config PATH]`，JSON 输出包含下载链接和失效时间。上传会公开文件内容，核对用户的分享范围，勿上传凭据；链接无需登录，不会自动发送消息。清理只影响 139 的临时分享副本，不删除客户端原文件或会话附件。
 
 - `remote-agent start/stop/status`：客户端启停与绑定/项目/工具状态；Windows 正式版本使用 MSI 安装的 Windows Service，开机运行且退出登录后持续在线，不创建计划任务。

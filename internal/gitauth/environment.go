@@ -14,6 +14,9 @@ func Environment(base []string, store string, interactive bool) []string {
 	}
 	if interactive {
 		values["GCM_INTERACTIVE"] = "always"
+		// GCM checks this independently of GCM_INTERACTIVE, including when
+		// --device --no-ui is used. Only the explicit local login may prompt.
+		values["GIT_TERMINAL_PROMPT"] = "1"
 	} else {
 		// Git executes askpass through its bundled shell. A fixed failing command
 		// replaces desktop GUI helpers and provides an actionable service error.

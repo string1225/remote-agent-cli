@@ -2,6 +2,7 @@
 param(
     [string]$SSHHost = 'junte@139.224.12.141',
     [string]$IdentityFile = '',
+    [string]$SSHConfig = '',
     [switch]$BuildOnly,
     [string]$UploadFile = '',
     [string]$ConfigPath = ''
@@ -13,7 +14,7 @@ function Invoke-Checked([string]$Command, [string[]]$Arguments) {
     & $Command @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Command exited with code $LASTEXITCODE" }
 }
-if ($SSHHost -notmatch '^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+$') { throw 'SSHHost must be user@host.' }
+if ($SSHHost -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*(@[A-Za-z0-9][A-Za-z0-9_.-]*)?$') { throw 'SSHHost must be a host alias or user@host.' }
 $revision = (& git -c "safe.directory=$safeRoot" -C $root rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') { throw 'Cannot read committed revision.' }
 $label = "$revision-$(Get-Date -Format yyyyMMddHHmmss)"
@@ -45,6 +46,7 @@ Invoke-Checked tar @('-czf',"$work/server.tar.gz",'-C',$bundle,'.')
 Write-Output "Prepared committed revision $revision in $work"
 if ($BuildOnly) { return }
 $sshOptions = @('-o','BatchMode=yes','-o','ConnectTimeout=15')
+if ($SSHConfig) { $sshOptions += @('-F',[IO.Path]::GetFullPath($SSHConfig)) }
 if ($IdentityFile) { $sshOptions += @('-i',[IO.Path]::GetFullPath($IdentityFile)) }
 $stage = "/tmp/remote-agent-$label"
 Invoke-Checked ssh ($sshOptions + @($SSHHost,"umask 077; mkdir '$stage'"))

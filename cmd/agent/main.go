@@ -46,6 +46,7 @@ func run() error {
 	if len(os.Args) < 2 || os.Args[1] == "--help" || os.Args[1] == "-h" {
 		fmt.Println("web-proxy on/off/status/run [--config PATH] [--listen 127.0.0.1:17891]：GitHub/ChatGPT/OpenAI/Google 经 139，其他请求直连；Windows on/off 联动系统代理（默认关闭）。")
 		fmt.Println("files upload --path FILE [--config PATH]：上传文件并返回公开下载链接，最多 100 MiB，下次北京时间凌晨 4 点失效。")
+		fmt.Println("ssh configure --alias NAME --host HOST --user USER --identity PATH --known-hosts PATH：为 Windows 后台服务导入指定 SSH 连接，保留原文件。")
 		fmt.Println(tr("Windows service GitHub authorization: remote-agent git login | git status | git logout --username ACCOUNT"))
 		fmt.Println(tr("remote-agent: connect --server URL --token-prompt | enroll | run | start | stop | status | version | mcp | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup [--server URL --token-prompt] | app install/upgrade\nUse <command> --help for options.\nWindows: install the MSI first, then run a token/setup command in a new PowerShell. The MSI installs PATH and an automatic Windows Service."))
 		return nil
@@ -55,6 +56,9 @@ func run() error {
 	}
 	if os.Args[1] == "files" {
 		return runFiles(context.Background(), os.Args[2:], os.Stdout)
+	}
+	if os.Args[1] == "ssh" {
+		return runSSH(context.Background(), os.Args[2:], os.Stdout)
 	}
 	if os.Args[1] == "git" {
 		return runGitCommand(os.Args[2:], os.Stdout, agent.GitAuthorization)
