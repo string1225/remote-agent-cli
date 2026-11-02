@@ -1,22 +1,21 @@
 # Windows Service 与 MSI
 
-Windows 正式客户端由 MSI 安装到 `%ProgramFiles%\Remote Agent`，注册自动启动的 `RemoteAgent` Windows Service。SCM 负责开机启动和进程恢复，用户退出登录不会停止服务。正式 MSI 路径不创建计划任务。
+Windows 正式客户端由 MSI 安装到 `%ProgramFiles%\Remote Agent`，默认注册自动启动的 `RemoteAgent` Windows Service；支持激活页的新版本可选择手动启动。SCM 负责服务启动和进程恢复，用户退出登录不会停止正在运行的服务。正式 MSI 路径不创建计划任务。
 
 ## 安装与原安装迁移
 
-先从网页“Codex 接入与帮助”下载 x64 或 ARM64 MSI，双击安装。MSI 安装自动 Windows Service，并将 `%ProgramFiles%\Remote Agent` 加到系统 PATH 首位，保留其他 PATH 项。完成页按“网页绑定 → Codex 配置”显示入口，点击“完成”才关闭。无需 Windows 安装脚本；原 `windows.ps1`、`cli-windows.ps1`、`codex-windows.ps1` 返回 410 和迁移说明。
+网页新增 Windows 设备后复制绑定码，再下载 x64 或 ARM64 MSI。支持激活页的新版本在原向导的完成页接受绑定码，并提供随系统启动、网页代理、配置 Codex、安装 Codex CLI 四个选项；除网页代理外默认勾选。复制安装指令可自动下载对应架构 MSI 并预填绑定码。MSI 将 `%ProgramFiles%\Remote Agent` 加到系统 PATH 首位，保留其他 PATH 项。流程、恢复和验收限制见 [MSI 设备激活](msi-activation.md)。旧 `windows.ps1`、`cli-windows.ps1`、`codex-windows.ps1` 返回 410 和迁移说明。
 
 安装器通过 Windows Installer 的相关产品检测选择页面：首次显示“安装”，找到旧版显示“升级”，当前产品已安装时显示“修复”。升级/修复说明明确保留原绑定和业务数据；修复设置 `REINSTALL=ALL`。磁盘判断必须比较 `OutOfDiskSpace = 1`；属性值为字符串 `0` 时表示空间充足，不能仅检查属性是否存在。
 
-新开 PowerShell（Windows Terminal 请完全退出后重新打开），先执行已登录网页中生成的设备绑定命令，再运行：
+在 MSI 内完成激活后，如需使用终端，新开 PowerShell（Windows Terminal 请完全退出后重新打开）运行：
 
 ```powershell
 remote-agent version
-remote-agent codex setup
 codex
 ```
 
-网页生成的一次性绑定命令确定平台账号。connect 自动幂等申请设备关联 Token、备份并更新 Codex 配置，终端显示所属账号；codex setup 使用同一绑定刷新，并补装缺少的 Codex CLI。手动 --token-prompt 仍兼容，账号由粘贴的 Token 决定，先验证并显示账号信息。网页不再把模型 Token 拼入命令行。connect 捕获原用户环境后请求管理员授权配置服务，只有路径信息进入 UAC 参数。
+绑定码确定设备所属账号；选择配置 Codex 时才申请设备关联 Token、备份并更新配置。CLI 的 connect 绑定命令继续兼容，旧版 MSI 仍可使用该路径；remote-agent codex setup 使用同一绑定刷新配置并补装缺少的 CLI。手动 --token-prompt 仍兼容，先验证并显示账号信息。模型 Token 不拼入命令行；服务配置在原用户环境捕获后请求管理员授权，只有路径信息进入 UAC 参数。
 
 MSI 按 Windows 系统语言设置 `HKLM\SOFTWARE\RemoteAgent\Language`：中文（含繁体）为 `zh`，其他语言为 `en`。CLI 的帮助、输入提示、配置结果和已知操作错误统一读取该设置，JSON/MCP 协议不翻译。`REMOTE_AGENT_LANGUAGE=zh/en` 可临时覆盖用于诊断；尚未安装语言设置时使用系统语言。MSI 界面的语言与 CLI 设置相互独立。
 

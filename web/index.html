@@ -323,7 +323,7 @@
         <h3>绑定后，启动 Codex</h3><p class="small muted" id="setup-install-description">设备绑定会自动申请当前账号的 Token。再次刷新时，使用本机绑定识别所属账号。</p>
         <div id="setup-git-auth" class="platform-note" hidden><strong>Windows 后台 GitHub 授权</strong><p>绑定并启动客户端后，请在这台电脑的 PowerShell 运行 <code>remote-agent git login</code>，按设备码在浏览器确认，再用 <code>remote-agent git status</code> 核对。桌面 Git 登录不会自动供后台服务使用；使用私有仓库或推送前需要单独授权。</p><p class="small muted">凭据加密保存在这台客户端，退出 Windows 登录或重启后仍可使用。使用自定义配置时，请添加与绑定命令一致的 <code>--config</code>。仅在本地终端使用 Codex 时不需要这一步。</p></div>
         <label id="local-command-label">刷新已绑定设备的 Codex 配置<textarea id="local-cli-command" rows="2" readonly></textarea></label><button class="secondary" id="copy-local-cli">复制配置命令</button>
-        <ol class="setup-steps"><li>安装客户端。Windows 下载 MSI；macOS / Linux 使用设备绑定页上的安装命令。</li><li>在当前账号下添加设备，将绑定命令复制到这台电脑执行。设备会自动申请所属账号的 Token，并备份和更新配置。</li><li>终端会显示 Token 所属的平台账号。运行 remote-agent codex setup 可刷新配置并补装缺少的 Codex CLI，再运行 codex，或重启 Codex App 并新建本地会话。</li><li>在左侧客户端添加项目，会自动打开一个新的 Web 会话。</li></ol>
+          <ol class="setup-steps"><li>在当前账号下添加设备，取得绑定码或安装命令。</li><li>Windows 安装 MSI，在向导最后一页输入绑定码并选择配置；macOS / Linux 在目标电脑运行安装命令。</li><li>激活后检查设备在线状态。配置 Codex 后可运行 codex，或重启 Codex App 并新建本地会话；需要刷新时运行 remote-agent codex setup。</li><li>在左侧客户端添加项目，会自动打开一个新的 Web 会话。</li></ol>
         <h3>本地 CLI 命令</h3>
         <p class="small muted">Windows 程序安装到 %ProgramFiles%\Remote Agent，由 MSI 加入系统 PATH；用户数据继续保存在原目录。macOS / Linux 程序位于 ~/.remote-agent/bin。</p>
         <div id="cli-help" class="cli-help"></div>
