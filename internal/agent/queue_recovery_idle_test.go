@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 	bolt "go.etcd.io/bbolt"
 	"os"
@@ -31,6 +32,7 @@ func TestIdleQueueRecoveryPreservesHistoryDatabaseBytes(t *testing.T) {
 				t.Fatal(err)
 			}
 			a.recoverTasks()
+			a.initNotifications(context.Background())
 			after, err := os.ReadFile(h.path)
 			if err != nil {
 				t.Fatal(err)

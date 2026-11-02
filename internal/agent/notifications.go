@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/string1225/remote-agent-cli/internal/store"
 	bolt "go.etcd.io/bbolt"
@@ -16,6 +17,45 @@ import (
 // bytes in a recovery bucket, but never send them after a session-managed upgrade.
 func (h historyStore) retireAutomaticNotifications() error {
 	if _, err := os.Stat(h.path); os.IsNotExist(err) {
+		return nil
+	}
+	// Opening the migration must not itself change a history database when no
+	// legacy automatic delivery needs archiving.
+	db, err := bolt.Open(h.path, 0600, &bolt.Options{ReadOnly: true, Timeout: 5 * time.Second})
+	if err != nil {
+		return err
+	}
+	pending := false
+	err = db.View(func(tx *bolt.Tx) error {
+		for _, name := range []string{"remote_notifications", "channel_outbox"} {
+			b := tx.Bucket([]byte(name))
+			if b == nil {
+				continue
+			}
+			if err := b.ForEach(func(_, data []byte) error {
+				if name == "remote_notifications" {
+					pending = true
+					return nil
+				}
+				var item channelDelivery
+				if json.Unmarshal(data, &item) == nil && automaticCompletionID(item.ID) {
+					pending = true
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	closeErr := db.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if !pending {
 		return nil
 	}
 	return h.transact(true, func(tx *bolt.Tx) error {
