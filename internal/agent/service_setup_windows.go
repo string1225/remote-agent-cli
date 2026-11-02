@@ -19,13 +19,27 @@ import (
 // Capture the original user's environment before elevation. Only a private
 // profile path crosses UAC; device/model credentials never appear in argv.
 func SetupWindowsService(config string, noStart bool) error {
+	return setupWindowsService(config, noStart, false, false)
+}
+
+func SetupWindowsServiceWithStartup(config string, automatic bool) error {
+	return setupWindowsService(config, false, !automatic, true)
+}
+
+func setupWindowsService(config string, noStart, manual, activation bool) error {
 	p, err := CaptureServiceProfile(config)
 	if err != nil {
 		return err
 	}
+	p.ManualStart = manual
 	exe, err := installedServiceExecutable()
 	if err != nil {
 		return err
+	}
+	// An older signed business runtime may still be selected after an MSI
+	// upgrade. Use this MSI's seed for activation so it understands ManualStart.
+	if activation {
+		exe = filepath.Join(filepath.Dir(exe), "seed", "remote-agent-core.exe")
 	}
 	if windows.GetCurrentProcessToken().IsElevated() {
 		return ConfigureWindowsService(p, noStart)

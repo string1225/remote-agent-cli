@@ -96,11 +96,14 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("GET /api/token/account", s.tokenAccount)
 	mux.HandleFunc("GET /api/agents", s.agents)
 	mux.HandleFunc("POST /api/agents", s.enroll)
+	mux.HandleFunc("POST /api/agents/{id}/binding-code", s.bindingCode)
 	mux.HandleFunc("POST /api/agents/{id}/repair", s.repairAgent)
 	mux.HandleFunc("POST /api/agents/{id}/rebind", s.rebindAgent)
 	mux.HandleFunc("PATCH /api/agents/{id}", s.renameAgent)
 	mux.HandleFunc("DELETE /api/agents/{id}", s.revoke)
 	mux.HandleFunc("POST /api/enroll", s.redeem)
+	mux.HandleFunc("GET /api/agent/activation-status", s.activationStatus)
+	mux.HandleFunc("GET /api/activation-capabilities", s.activationCapabilities)
 	mux.HandleFunc("POST /api/repair/inspect", s.inspectClientRepair)
 	mux.HandleFunc("POST /api/repair/claim", s.claimClientRepair)
 	mux.HandleFunc("POST /api/agent/channel", s.agentChannel)
@@ -368,8 +371,11 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := s.Config.PublicURL + "/install/"
+	w.Header().Set("Cache-Control", "no-store")
 	reply(w, 201, map[string]any{
-		"agent": a, "expiresAt": time.Now().Add(15 * time.Minute).Unix(),
+		"bindingCode":    token,
+		"windowsInstall": windowsActivationCommand(s.Config.PublicURL, token),
+		"agent":          a, "expiresAt": time.Now().Add(15 * time.Minute).Unix(),
 		"windows":         "'" + token + "' | remote-agent connect --server '" + strings.ReplaceAll(s.Config.PublicURL, "'", "''") + "' --token-stdin",
 		"windowsMsi":      s.Config.PublicURL + "/downloads/remote-agent-windows-amd64.msi",
 		"windowsArm64Msi": s.Config.PublicURL + "/downloads/remote-agent-windows-arm64.msi",
@@ -402,6 +408,9 @@ func (s *Server) redeem(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if in.Rebind {
 		a, err = s.Store.RedeemRebind(in.Token, in.ExpectedID, in.OS, in.Arch, in.Credential)
+		credential = in.Credential
+	} else if in.Credential != "" {
+		a, err = s.Store.RedeemActivation(in.Token, in.OS, in.Arch, in.Credential)
 		credential = in.Credential
 	} else {
 		a, credential, err = s.Store.Redeem(in.Token, in.OS, in.Arch)

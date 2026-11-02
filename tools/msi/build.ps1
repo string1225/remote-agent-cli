@@ -6,6 +6,7 @@ param(
     [string]$WixDirectory = '',
     [string]$UpdatePublicKey = '',
     [switch]$SkipGoBuild,
+    [switch]$PackageOnly,
     [switch]$InjectFailure
 )
 $ErrorActionPreference = 'Stop'
@@ -32,6 +33,14 @@ New-Item -ItemType Directory -Force -Path $dist,$objects | Out-Null
 Push-Location $root
 $previousOS, $previousArch, $previousCGO = $env:GOOS, $env:GOARCH, $env:CGO_ENABLED
 try {
+    $compiler = Join-Path $env:SystemRoot 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+    $actions = Join-Path $objects 'ActivationActions.dll'
+    $nativeActions = Join-Path $objects 'ActivationActions.CA.dll'
+    $actionSource = Join-Path $root 'packaging/windows/ActivationActions.cs'
+    & $compiler /nologo /codepage:65001 /target:library /platform:anycpu "/out:$actions" "/reference:$wix/sdk/Microsoft.Deployment.WindowsInstaller.dll" /reference:System.Web.Extensions.dll $actionSource
+    if ($LASTEXITCODE -ne 0) { throw 'Activation action compilation failed.' }
+    & (Join-Path $wix 'sdk/MakeSfxCA.exe') $nativeActions (Join-Path $wix 'sdk/x86/SfxCA.dll') $actions (Join-Path $wix 'sdk/Microsoft.Deployment.WindowsInstaller.dll') (Join-Path $root 'packaging/windows/CustomAction.config')
+    if ($LASTEXITCODE -ne 0) { throw 'Activation action packaging failed.' }
     foreach ($arch in $Architectures) {
         $binary = Join-Path $dist "remote-agent-windows-$arch.exe"
 		$coreBinary = Join-Path $dist "remote-agent-core-windows-$arch.exe"
@@ -49,14 +58,16 @@ try {
         $package = Join-Path $dist "remote-agent-windows-$arch.msi"
         $testDefine = @()
         if ($InjectFailure) { $testDefine = @('-dInjectFailure=1') }
-        & (Join-Path $wix 'candle.exe') -nologo -arch $platform "-dPlatform=$platform" "-dPackageVersion=$PackageVersion" "-dAgentBinary=$binary" "-dCoreBinary=$coreBinary" "-dSourceRoot=$root" @testDefine -out $object packaging/windows/agent.wxs
+        & (Join-Path $wix 'candle.exe') -nologo -arch $platform "-dPlatform=$platform" "-dPackageVersion=$PackageVersion" "-dAgentBinary=$binary" "-dCoreBinary=$coreBinary" "-dActivationActions=$nativeActions" "-dSourceRoot=$root" @testDefine -out $object packaging/windows/agent.wxs
         if ($LASTEXITCODE -ne 0) { throw 'WiX compilation failed.' }
-        & (Join-Path $wix 'light.exe') -nologo -ext (Join-Path $wix 'WixUIExtension.dll') -cultures:zh-CN -out $package $object
+        $validationArgs = @()
+        if ($PackageOnly) { $validationArgs = @('-sval'); Write-Warning 'PackageOnly: ICE execution and installer session checks require a separate Windows runner.' }
+        & (Join-Path $wix 'light.exe') -nologo @validationArgs -ext (Join-Path $wix 'WixUIExtension.dll') -cultures:zh-CN -out $package $object
         if ($LASTEXITCODE -ne 0) { throw 'WiX linking/validation failed.' }
         # These checks open a read-only MSI session and only run costing/property
         # actions. They never install files or touch the machine service.
         if ($arch -eq 'amd64' -and [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'X64') {
-            & (Join-Path $PSScriptRoot 'verify-ui.ps1') -PackagePath $package
+            & (Join-Path $PSScriptRoot 'verify-ui.ps1') -PackagePath $package -TablesOnly:$PackageOnly
         }
         foreach ($artifact in @($binary,$coreBinary,$package)) {
             $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()

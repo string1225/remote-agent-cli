@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$PackagePath)
+param([Parameter(Mandatory=$true)][string]$PackagePath,[switch]$TablesOnly)
 
 # Read-only package/session checks. Never executes InstallInitialize,
 # ExecuteAction, file/service actions, or any custom EXE action.
@@ -30,10 +30,25 @@ function Format-ControlText([string]$Control) {
 }
 try {
     $database = $installer.OpenDatabase($package,0)
-    if ((Read-Scalar 'SELECT `Value` FROM `Property` WHERE `Property`=''TOKEN_SETUP_COMMAND''') -ne 'remote-agent codex setup') { throw 'Default Codex setup must use the enrolled account.' }
-    if ((Read-Scalar 'SELECT `Property` FROM `Control` WHERE `Dialog_`=''AgentComplete'' AND `Control`=''TokenCommand''') -ne 'DEVICE_SETUP_COMMAND') { throw 'Completion must show website binding before Token setup.' }
-    if ((Read-Scalar 'SELECT `Property` FROM `Control` WHERE `Dialog_`=''AgentComplete'' AND `Control`=''DeviceCommand''') -ne 'TOKEN_SETUP_COMMAND') { throw 'Completion must show account-scoped Codex setup after binding.' }
+    if ((Read-Scalar 'SELECT `Property` FROM `Control` WHERE `Dialog_`=''AgentComplete'' AND `Control`=''BindingCode''') -ne 'BINDING_CODE') { throw 'Completion must accept a device binding code in the MSI.' }
+    foreach ($choice in @('AUTO_START','CONFIGURE_CODEX','INSTALL_CODEX')) {
+        if ((Read-Scalar "SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$choice'") -ne '1') { throw "Default option must be enabled: $choice" }
+    }
+    $proxy = Read-Scalar 'SELECT `Property` FROM `Control` WHERE `Dialog_`=''AgentComplete'' AND `Control`=''WebProxy'''
+    if ($proxy -ne 'WEB_PROXY') { throw 'Missing independent web proxy choice.' }
+    $hidden = Read-Scalar 'SELECT `Value` FROM `Property` WHERE `Property`=''MsiHiddenProperties'''
+    if ($hidden -notmatch '(^|;)BINDING_CODE(;|$)') { throw 'Binding code must be hidden from MSI logs.' }
+    $activate = Read-Scalar 'SELECT `Argument` FROM `ControlEvent` WHERE `Dialog_`=''AgentComplete'' AND `Control_`=''Activate'' AND `Event`=''DoAction'''
+    if ($activate -ne 'ActivateDevice') { throw 'Activation must execute inside the existing MSI UI.' }
+    if ($TablesOnly) {
+        $view = $database.OpenView('SELECT `Value` FROM `Property` WHERE `Property`=''WEB_PROXY''')
+        try { $null=$view.Execute(); $row=$view.Fetch(); if ($row -and $row.StringData(1)) { throw 'Web proxy must default to off.' } }
+        finally { $null=$view.Close(); [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) | Out-Null }
+        Write-Output 'MSI tables verified: inline activation, default choices, hidden binding code. Installer session / ICE checks not run.'
+        return
+    }
     $session = $installer.OpenPackage($package,0)
+    if ($session.GetType().InvokeMember('Property', [Reflection.BindingFlags]::GetProperty, $null, $session, @('WEB_PROXY'))) { throw 'Web proxy must default to off.' }
     foreach ($action in @('FindRelatedProducts','CostInitialize','FileCost','CostFinalize')) {
         if ($session.DoAction($action) -ne 1) { throw "Read-only MSI action failed: $action" }
     }

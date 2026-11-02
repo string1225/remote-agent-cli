@@ -284,6 +284,9 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) (resultErr error) {
 	stage = "configure service identity and recovery"
 	sc.SidType = windows.SERVICE_SID_TYPE_UNRESTRICTED
 	sc.StartType = mgr.StartAutomatic
+	if p.ManualStart {
+		sc.StartType = mgr.StartManual
+	}
 	if noStart {
 		sc.StartType = mgr.StartDisabled
 	}

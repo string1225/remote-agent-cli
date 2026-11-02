@@ -49,9 +49,10 @@ type Agent struct {
 	Services       []protocol.Service `json:"services"`
 }
 type enrollment struct {
-	AgentID   string `json:"agentId"`
-	ExpiresAt int64  `json:"expiresAt"`
-	Recovery  bool   `json:"recovery,omitempty"`
+	ActivationHash string `json:"activationHash,omitempty"`
+	AgentID        string `json:"agentId"`
+	ExpiresAt      int64  `json:"expiresAt"`
+	Recovery       bool   `json:"recovery,omitempty"`
 }
 type Store struct {
 	db          *bolt.DB
@@ -192,7 +193,11 @@ func (s *Store) Enroll(userID, name string, selectedOS ...string) (a Agent, toke
 		if e := put(tx, "agents", a.ID, a); e != nil {
 			return e
 		}
-		return put(tx, "enrollments", Hash(token), enrollment{AgentID: a.ID, ExpiresAt: time.Now().Add(15 * time.Minute).Unix()})
+		expires := time.Now().Add(15 * time.Minute).Unix()
+		if err := put(tx, "enrollments", Hash(token), enrollment{AgentID: a.ID, ExpiresAt: expires}); err != nil {
+			return err
+		}
+		return s.saveBindingCode(tx, a.ID, token, expires)
 	})
 	return
 }
@@ -220,6 +225,9 @@ func (s *Store) Redeem(token, osName, arch string) (a Agent, credential string, 
 		a.Arch = arch
 		a.TokenHash = Hash(credential)
 		if err := put(tx, "agents", a.ID, a); err != nil {
+			return err
+		}
+		if err := tx.Bucket([]byte("codex_secrets")).Delete([]byte("binding:" + a.ID)); err != nil {
 			return err
 		}
 		return tx.Bucket([]byte("enrollments")).Delete([]byte(Hash(token)))

@@ -27,6 +27,9 @@ func main() {
 	}
 }
 func run() error {
+	if len(os.Args) > 1 && os.Args[1] == "activation" {
+		return runActivation(os.Args[2:], os.Stdin, os.Stdout)
+	}
 	if len(os.Args) == 3 && os.Args[1] == "internal-update-probe" {
 		return agent.ProbeRemoteUpdate(os.Args[2], os.Stdout)
 	}

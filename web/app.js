@@ -1011,6 +1011,7 @@ function showInstallCommands(result) {
     : "一次性设备绑定凭证 · 15 分钟有效 · 请勿分享";
   $("enroll-form").hidden = true;
   $("install-result").hidden = false;
+  window.renderDeviceBindingCode?.(result);
 }
 $("enroll-form").onsubmit = async (e) => {
   e.preventDefault();

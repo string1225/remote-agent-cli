@@ -22,6 +22,7 @@
     <script src="./device-maintenance.js" defer></script>
     <script src="./platform.js" defer></script>
     <script src="./channels.js" defer></script>
+    <script src="./binding-code.js" defer></script>
     <script src="./workspace-actions.js" defer></script>
     <script src="./todos.js" defer></script>
     <script src="./android-app.js" defer></script>
@@ -303,6 +304,7 @@
         ><label>操作系统<select name="os" required><option value="">请选择这台客户端的系统</option><option value="windows">Windows</option><option value="darwin">macOS</option><option value="linux">Linux</option></select></label><button class="primary full" type="submit">生成设备绑定命令 ↗</button>
       </form>
       <div id="install-result" hidden>
+        <section id="device-binding-code-box" class="repair-section" hidden><label>设备绑定码<input id="device-binding-code" readonly autocomplete="off" spellcheck="false"></label><p id="device-binding-code-expiry" class="small muted"></p><button id="copy-device-binding-code" type="button" class="secondary">复制绑定码</button> <button id="renew-device-binding-code" type="button" class="secondary">重新生成绑定码</button></section>
         <div class="repair-summary"><span id="enroll-os-badge"></span><p id="repair-project-info" class="small muted" hidden></p></div>
         <section class="repair-section"><h3>1. 安装或更新客户端</h3><p id="install-guide" class="muted"></p><div id="enroll-msi-downloads" class="download-actions"><a id="enroll-msi-x64" class="secondary">下载 x64 MSI</a><a id="enroll-msi-arm64" class="secondary">下载 ARM64 MSI</a></div></section>
         <section class="repair-section"><h3 id="binding-step-title">2. 绑定这台设备</h3><p class="expiry" id="enroll-command-note"></p><label id="install-command-label">在目标客户端执行<textarea id="install-command" readonly rows="4"></textarea></label><button class="secondary copy" data-copy="install-command">复制命令</button></section>

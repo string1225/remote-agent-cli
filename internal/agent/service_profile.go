@@ -10,6 +10,7 @@ import (
 // ServiceProfile contains paths and an explicit tool environment, never device
 // or model credentials. Business data stays beside the original configuration.
 type ServiceProfile struct {
+	ManualStart  bool              `json:"manualStart,omitempty"`
 	OwnerSID     string            `json:"ownerSid,omitempty"`
 	UpdateServer string            `json:"updateServer,omitempty"`
 	Config       string            `json:"config"`

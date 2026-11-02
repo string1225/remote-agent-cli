@@ -27,6 +27,7 @@ type Event struct {
 	Error   string `json:"error,omitempty"`
 }
 type Profile struct {
+	ManualStart  bool   `json:"manualStart,omitempty"`
 	OwnerSID     string `json:"ownerSid"`
 	UpdateServer string `json:"updateServer"`
 }

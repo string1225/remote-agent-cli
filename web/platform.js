@@ -53,7 +53,7 @@
     $("copy-local-cli").textContent = "复制配置命令";
     $("setup-install-description").textContent = "设备绑定会自动申请所属账号的 Token 并配置 Codex。再次刷新时，使用本机绑定识别账号，终端会显示账号名称。";
     $("remote-install-help").textContent = windows
-      ? "首次安装 MSI（x64 / ARM64），再打开新的 PowerShell 执行当前账号的设备绑定命令。以后用 remote-agent update 更新业务程序，无需重复安装 MSI 或管理员授权。"
+      ? "首次安装 MSI（x64 / ARM64），在安装向导最后一页粘贴网页设备绑定码即可激活，可选择随系统启动、网页代理和 Codex 配置。以后用 remote-agent update 更新业务程序。"
       : platform() === "macos" ? "macOS 使用 LaunchAgent，登录后自动启动。请在目标用户的终端运行绑定命令。" : "Linux 使用 systemd 用户服务；启用 linger 后可开机启动并在退出登录后继续在线。请勿在整条安装命令前加 sudo。";
     $("msi-downloads").replaceChildren();
     if (windows) for (const arch of ["amd64", "arm64"]) {

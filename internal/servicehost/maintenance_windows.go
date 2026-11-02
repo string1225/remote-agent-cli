@@ -78,6 +78,11 @@ func prepare() error {
 			return err
 		}
 		cfg.SidType = windows.SERVICE_SID_TYPE_UNRESTRICTED
+		if name == ServiceName {
+			if profile, e := readProfile(); e == nil && profile.ManualStart {
+				cfg.StartType = mgr.StartManual
+			}
+		}
 		if err = s.UpdateConfig(cfg); err == nil {
 			err = s.SetRecoveryActions([]mgr.RecoveryAction{{Type: mgr.ServiceRestart, Delay: 5 * time.Second}}, 86400)
 		}
