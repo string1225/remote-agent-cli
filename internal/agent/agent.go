@@ -240,12 +240,13 @@ func (a *Agent) connect(ctx context.Context) error {
 }
 
 type peer struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	once     sync.Once
-	mu       sync.Mutex
-	runs     map[string]context.CancelFunc
-	requests chan protocol.Request
+	accountTools bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	once         sync.Once
+	mu           sync.Mutex
+	runs         map[string]context.CancelFunc
+	requests     chan protocol.Request
 }
 
 func (p *peer) close() { p.once.Do(p.cancel) }
@@ -261,7 +262,7 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(parent, lifetime)
-	p := &peer{ctx: ctx, cancel: cancel, requests: make(chan protocol.Request, 16)}
+	p := &peer{ctx: ctx, cancel: cancel, requests: make(chan protocol.Request, 16), accountTools: msg.AccountTools}
 	send := func(event protocol.Event) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -330,6 +331,17 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 	}
 	defer a.endOperation()
 	switch req.Type {
+	case "todos.call", "todos.validate", "todos.deliver":
+		if !p.accountTools {
+			fail(errors.New("待办操作必须通过账号入口"))
+			return
+		}
+		result, err := a.handleTodos(req)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: result})
 	case "attachments.write", "attachments.read":
 		a.handleAttachment(req, send)
 	case "channels.get", "channels.configure", "channels.notify":

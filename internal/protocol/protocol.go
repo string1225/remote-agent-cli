@@ -31,12 +31,14 @@ const MaxRelayBytes = 256 * 1024
 // Signal is a relay envelope. The authenticated server assigns PeerID; requests
 // and streaming events travel over the same TLS WebSocket as device heartbeats.
 type Signal struct {
-	MachineID string `json:"machineId,omitempty"`
-	Hostname  string `json:"hostname,omitempty"`
-	Type      string `json:"type"`
-	PeerID    string `json:"peerId,omitempty"`
-	Transport string `json:"transport,omitempty"`
-	ExpiresAt int64  `json:"expiresAt,omitempty"`
+	// AccountTools is stamped only on server-owned account operations.
+	AccountTools bool   `json:"accountTools,omitempty"`
+	MachineID    string `json:"machineId,omitempty"`
+	Hostname     string `json:"hostname,omitempty"`
+	Type         string `json:"type"`
+	PeerID       string `json:"peerId,omitempty"`
+	Transport    string `json:"transport,omitempty"`
+	ExpiresAt    int64  `json:"expiresAt,omitempty"`
 	// LeaseSeconds is stamped by the authenticated control server, not the browser.
 	// It avoids comparing wall clocks on different machines.
 	LeaseSeconds int64     `json:"leaseSeconds,omitempty"`
@@ -50,6 +52,7 @@ type Signal struct {
 }
 
 type Request struct {
+	AllowIM       bool            `json:"-"`
 	RequireIdle   bool            `json:"-"`
 	Archived      bool            `json:"archived,omitempty"`
 	Interrupt     bool            `json:"interrupt,omitempty"`

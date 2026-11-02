@@ -28,6 +28,7 @@ type Config struct {
 	GatewayModel      string
 }
 type Server struct {
+	todoLocks     sync.Map
 	webProxyPool  webproxy.Pool
 	Store         *store.Store
 	Config        Config
@@ -95,6 +96,12 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("POST /api/agent/channels/{sync}", s.agentChannel)
 	mux.HandleFunc("GET /api/agent/catalog", s.agentCatalog)
 	mux.HandleFunc("POST /api/agent/tools", s.agentToolCall)
+	mux.HandleFunc("GET /api/default-host", s.defaultHost)
+	mux.HandleFunc("PUT /api/default-host", s.defaultHost)
+	mux.HandleFunc("GET /api/todos", s.todos)
+	mux.HandleFunc("POST /api/todos", s.todos)
+	mux.HandleFunc("GET /api/agent/todos", s.todos)
+	mux.HandleFunc("POST /api/agent/todos", s.todos)
 	mux.HandleFunc("GET /api/agent/connect", s.agentSocket)
 	mux.HandleFunc("GET /api/agent/web-proxy", s.webProxy)
 	// Keep installed clients' old relay endpoint usable during upgrades.
@@ -397,7 +404,13 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	unlock := s.lockTodos(v.UserID)
+	defer unlock()
 	if err := s.Store.Revoke(v.UserID, r.PathValue("id")); err != nil {
+		if err == store.ErrDefaultHost {
+			fail(w, 409, err.Error())
+			return
+		}
 		fail(w, 404, "agent not found")
 		return
 	}

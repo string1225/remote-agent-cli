@@ -276,6 +276,15 @@ func (s *Store) Heartbeat(id string, msg protocol.Signal) error {
 }
 func (s *Store) Revoke(userID, id string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
+		var host DefaultHost
+		if raw := tx.Bucket([]byte("meta")).Get([]byte("todo-host:" + userID)); raw != nil {
+			if err := json.Unmarshal(raw, &host); err != nil {
+				return err
+			}
+			if host.AgentID == id {
+				return ErrDefaultHost
+			}
+		}
 		var a Agent
 		if err := get(tx, "agents", id, &a); err != nil || a.UserID != userID {
 			return ErrDenied

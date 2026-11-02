@@ -32,6 +32,10 @@ jobs:
       - run: go vet ./...
       - run: node --check web/app.js
       - run: node --check web/platform.js
+      - run: node --check web/todos.js
+      - run: node --check web/android-app.js
+      - run: node --check tools/android/configure-signing.cjs
+      - run: node --check tools/android/release-manifest.cjs
       - run: node --check web/channels.js
       - run: node --check web/device-maintenance.js
       - if: runner.os == 'Linux'

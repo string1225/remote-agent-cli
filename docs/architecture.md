@@ -95,3 +95,11 @@ SaySo 仅接受预定义的 state/settings/projects/sessions/actions/runs/audio 
 | `internal/codexsetup` | 官方 Codex 安装校验与配置备份/合并 |
 | `web`、`sayso-ui` | 内嵌工作台与 SaySo React 源码/产物 |
 | `tools`、`packaging`、`deploy`、`.github/workflows` | 六平台构建、MSI、系统服务、部署与验证 |
+
+## 账号待办与 Android
+
+账号待办采用默认主机单一存储：服务器 `meta/todo-host:<userId>` 只保存客户端及代次指向，清单与回复回执位于该主机 `history.db/account_todos/<userId>/<generation>`。网页与客户端 API 均由服务器按已认证账号路由，客户端凭据不能选择其他账号。存储、迁移和回复投递使用服务器在 `open` 上标记的 `accountTools` 连接；网页无法自行构造该标记。待办变更及迁移按账号互斥；新主机代次复制完毕后 CAS 切换指向，旧代次保留。
+
+回复先持久保存 pending 回执，再以待办 ID 和回复 ID 派生的稳定任务 ID 调用来源客户端 `todos.deliver`，进入原项目/会话的持久任务队列；目标接收后确认 delivered，丢失确认可去重重试。普通网页不能直接向 IM 会话提交 `tasks.run`，待办投递由受限账号工具连接授予内部 IM 继续能力。新 API、MCP 工具及故障恢复见 [todos-android.md](todos-android.md)。
+
+`android/` 通过 WebView 复用工作台，原生层仅管理站点、文件/音频授权和更新，不存客户端执行凭据。发布工作流使用持久签名，版本化 Release 和固定 `android-latest` 更新入口；更新经 gh-proxy 下载并验证 APK 哈希、应用身份、版本与已安装签名。发布凭据和真实手机覆盖更新需单独验收。

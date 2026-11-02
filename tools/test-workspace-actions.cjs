@@ -16,6 +16,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         const file = new URL(route.request().url()).pathname.slice(1) || 'index.html';
         if (file === 'api/me') return route.fulfill({json:{id:'tester', username:'测试账号'}});
         if (file === 'api/agents') return route.fulfill({json:[]});
+        if (file === 'api/default-host') return route.fulfill({json:{agentId:'',online:false}});
         const filename = file === 'app.js' && process.env.UI_TEST_APP_SOURCE ? process.env.UI_TEST_APP_SOURCE : path.join('web', file);
         return route.fulfill({contentType:file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/html', body:fs.readFileSync(filename)});
       });

@@ -76,6 +76,13 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 					Cursor      uint64 `json:"cursor"`
 					WaitSeconds int    `json:"waitSeconds"`
 					SessionID   string `json:"sessionId"`
+					TodoID      string `json:"todoId"`
+					Body        string `json:"body"`
+					Status      string `json:"status"`
+					Operation   string `json:"operation"`
+					Version     uint64 `json:"version"`
+					PageCursor  string `json:"pageCursor"`
+					Search      string `json:"search"`
 				} `json:"arguments"`
 			}
 			if json.Unmarshal(request.Params, &call) != nil {
@@ -93,6 +100,22 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 			switch call.Name {
 			case "list_clients_projects":
 				data, err = agent.ClientAPI(ctx, c, "GET", "/api/agent/catalog", nil)
+			case "list_todos", "publish_todo", "update_todo":
+				operation := map[string]string{"list_todos": "list", "publish_todo": "create", "update_todo": call.Arguments.Operation}[call.Name]
+				if call.Name == "publish_todo" && (*session == "" || *project == "") {
+					err = errors.New("发布待办需要真实的当前项目和会话 ID")
+					break
+				}
+				if call.Name == "update_todo" && operation != "update" && operation != "complete" && operation != "cancel" && operation != "reopen" {
+					err = errors.New("待办操作应为 update、complete、cancel 或 reopen")
+					break
+				}
+				requestID := store.Hash(*session + "\x00" + *turn + "\x00" + string(request.ID))
+				command := protocol.TodoCommand{Operation: operation, RequestID: requestID, ID: call.Arguments.TodoID, Title: call.Arguments.Title, Body: call.Arguments.Body, Status: call.Arguments.Status, Search: call.Arguments.Search, Cursor: call.Arguments.PageCursor, Version: call.Arguments.Version}
+				if call.Name == "publish_todo" {
+					command.ProjectID, command.SessionID = *project, *session
+				}
+				data, err = agent.ClientAPI(ctx, c, "POST", "/api/agent/todos", command)
 			case "start_web_session":
 				if *session == "" || *project == "" {
 					err = errors.New("创建子会话需要真实的当前项目和会话 ID")
@@ -163,6 +186,9 @@ func clientTools() []any {
 	send := target()
 	send["prompt"] = str("发送给子会话的新指令，最多 32000 字节；忙碌时需先等待")
 	return []any{
+		tool("list_todos", "查询本账号唯一待办清单，存于默认主机；默认主机离线时返回明确错误。", true, map[string]any{"status": str("筛选 open、completed 或 cancelled；省略表示全部"), "search": str("搜索标题和正文"), "pageCursor": str("返回的 nextCursor，继续分页")}),
+		tool("publish_todo", "工作需要人判断、选择或补充信息时发布待办。写清问题、可选方案和建议，然后结束本轮等待人工回复。待办自动关联当前客户端、项目和会话；人的回复将在原会话继续执行。", false, map[string]any{"title": str("问题标题，最多 480 字节"), "body": str("背景、问题、选项和建议，最多 8000 字节")}, "title", "body"),
+		tool("update_todo", "维护本账号待办。先读取最新 version，避免覆盖其他人的修改；编辑时同时传 title 和 body。", false, map[string]any{"todoId": str("待办 ID"), "operation": str("update、complete、cancel 或 reopen"), "version": number("读取到的 version"), "title": str("编辑后的标题"), "body": str("编辑后的正文")}, "todoId", "operation", "version"),
 		tool("list_clients_projects", "查询同账号客户端、在线状态和项目 ID；按需查询。", true, map[string]any{}),
 		tool("start_web_session", "按需要在目标项目创建直接子 Web 会话并执行。返回仅代表已接收；可由当前会话用读取、等待、继续和取消工具管理，完成后不会自动发 IM 通知。", false, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "title": str("子会话标题，最多 80 字"), "prompt": str("任务内容，最多 32000 字节")}, "prompt"),
 		tool("list_child_sessions", "列出当前会话在指定客户端直接创建的子会话；跨客户端分别查询。", true, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "cursor": number("子会话列表分页游标")}),

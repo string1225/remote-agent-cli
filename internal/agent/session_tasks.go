@@ -60,7 +60,7 @@ func (a *Agent) startSessionTask(req protocol.Request) (protocol.TaskStarted, er
 	if err != nil {
 		return result, err
 	}
-	if session.DeletedAt != 0 || session.ServiceID != service.ID || session.Provider != service.Provider || session.Kind == "im" {
+	if session.DeletedAt != 0 || session.ServiceID != service.ID || session.Provider != service.Provider || (session.Kind == "im" && !req.AllowIM) {
 		return result, errors.New("session does not belong to this Web project")
 	}
 	// A lost acknowledgement can be retried with the same request ID, even
@@ -109,7 +109,23 @@ func (a *Agent) startSessionTask(req protocol.Request) (protocol.TaskStarted, er
 	result = protocol.TaskStarted{TaskID: req.ID, Session: session}
 	taskCtx, cancel := context.WithCancel(a.taskCtx)
 	in := protocol.TaskStart{ServiceID: service.ID, Prompt: req.Prompt, Source: "web"}
-	if a.enqueueTaskLocked(queuedTask{ctx: taskCtx, cancel: cancel, priority: req.Interrupt, attachments: append([]string{}, req.Attachments...), start: in, result: result}) {
+	var complete func(error)
+	if session.Kind == "im" {
+		in.Source = "im"
+		complete = func(runErr error) {
+			if errors.Is(runErr, errTaskInterrupted) {
+				return
+			}
+			text, _, readErr := h.taskResultText(session.ID, req.ID)
+			if runErr != nil || readErr != nil {
+				text = "待办回复对应的执行未完成，请检查会话后继续。"
+			}
+			for _, part := range notificationParts(text) {
+				_, _ = a.notifyProjectSession(service.ID, session.ID, part)
+			}
+		}
+	}
+	if a.enqueueTaskLocked(queuedTask{ctx: taskCtx, cancel: cancel, priority: req.Interrupt, attachments: append([]string{}, req.Attachments...), start: in, result: result, complete: complete}) {
 		result.Session, _ = h.get(session.ID)
 		return result, nil
 	}

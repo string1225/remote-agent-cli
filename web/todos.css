@@ -1,0 +1,20 @@
+.todo-dialog { width: min(820px, calc(100vw - 24px)); max-height: 88dvh; overflow: auto; }
+.todo-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.todo-heading h2, .todo-heading h3 { margin: 8px 0; overflow-wrap: anywhere; }
+.todo-toolbar, .todo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+.todo-toolbar input { flex: 1; min-width: 120px; }
+.todo-toolbar select { width: auto; }
+.todo-card { border: 1px solid #dce4d6; border-radius: 12px; padding: 16px; margin: 12px 0; background: #fff; }
+.todo-body, .todo-reply { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.todo-reply { background: #f2f6ef; border-radius: 8px; padding: 12px; }
+.todo-route { overflow-wrap: anywhere; }
+.todo-error { color: #a33427; white-space: pre-wrap; }
+.todo-host-dialog, .todo-editor { width: min(560px, calc(100vw - 24px)); }
+.todo-editor form, .todo-host-dialog form { display: grid; gap: 12px; }
+.todo-dialog textarea, .todo-editor textarea { width: 100%; min-height: 100px; resize: vertical; }
+.todo-editor input[type=checkbox] { width: auto; margin-right: 8px; }
+.default-host-badge { display: inline-block; margin-left: 5px; padding: 1px 4px; color: #48633a; background: #e8efdf; border-radius: 4px; font-size: 10px; vertical-align: middle; }
+html.android-app #new-agent, html.android-app #empty-add { display: none; }
+html.android-app .tree-empty p { font-size: 0; }
+html.android-app .tree-empty p::after { content: "请在电脑上绑定客户端，再在这里选择项目。"; font-size: 13px; }
+@media (max-width: 600px) { .todo-dialog { padding: 16px; } .todo-card { padding: 12px; } .todo-heading h3 { font-size: 16px; } .todo-toolbar { display: grid; grid-template-columns: 1fr 1fr; } .todo-toolbar input { min-width: 0; } }
