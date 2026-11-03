@@ -218,8 +218,9 @@ func (h historyStore) channelSession(c ChannelConfig, project protocol.Service, 
 		}
 		session.Kind, session.Source = "im", "im"
 		session.ChannelProvider, session.ChannelChatID, session.ChannelChatType = c.Provider, route.ChatID, route.ChatType
-		session.ChannelName = c.Name
-		if session.ChannelName == "" {
+		if c.Name != "" {
+			session.ChannelName = c.Name
+		} else if in.Name != "" {
 			session.ChannelName = in.Name
 		}
 		if session.ChannelName == "" {
@@ -228,11 +229,18 @@ func (h historyStore) channelSession(c ChannelConfig, project protocol.Service, 
 		if in.PeerName != "" {
 			session.ChannelPeerName = soBound(strings.TrimSpace(in.PeerName), 160)
 		}
-		if session.ChannelPeerName == "" {
-			session.ChannelPeerName = route.ChatID
+		if session.ChannelPeerName == route.ChatID {
+			session.ChannelPeerName = ""
 		}
 		if !session.CustomTitle {
-			session.Title = soBound("IM · "+session.ChannelName+" · "+session.ChannelPeerName, 80)
+			peer := session.ChannelPeerName
+			if peer == "" {
+				peer = "私聊"
+				if route.ChatType == "group" {
+					peer = "群聊"
+				}
+			}
+			session.Title = soBound(session.ChannelName+" · "+peer, 80)
 		}
 		route.SessionID = session.ID
 		return saveSession(tx, session)

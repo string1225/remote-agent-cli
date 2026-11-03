@@ -429,7 +429,7 @@ async function connectDevice(agent, selection = {}) {
   state.expanded.add(agent.id);
   refreshServices(cached || {services:agent.services || []});
   const initialProject = state.services.find(s => s.id === projectId) || state.services[0];
-  if (initialProject) await selectProject(initialProject.id, {localOnly:true, sessionId:selection.sessionId});
+  if (initialProject) await selectProject(initialProject.id, {localOnly:true, sessionId:selection.sessionId || (!selection.projectId && sameClient ? state.session?.id : undefined)});
   else { resetWorkspace(); renderDevices(); }
   if (revision !== state.navigationRevision) return;
   if (!agent.online) {
@@ -489,10 +489,17 @@ async function connectDevice(agent, selection = {}) {
   };
   return peer.ready;
 }
+function latestWebSession(sessions = state.sessions) {
+  return sessions.filter(s => (!s.kind || s.kind === "web") && !s.archivedAt && !s.deletedAt)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0) || (b.createdAt || 0) - (a.createdAt || 0) || a.id.localeCompare(b.id))[0];
+}
 async function selectProject(id, {localOnly = false, sessionId} = {}) {
   if (!state.services.some(s => s.id === id)) throw Error("项目已被移除，请刷新设备");
   if (id === state.serviceId) {
-    if (sessionId && sessionId !== state.session?.id) await loadSession({id:sessionId}, {localOnly});
+    state.preferLatestWeb = !sessionId;
+    const current = sessionId ? {id:sessionId} : latestWebSession();
+    if (current && current.id !== state.session?.id) await loadSession(current, {localOnly, automatic:!sessionId});
+    if (!localOnly && !sessionId) await refreshProjectView();
     return;
   }
   saveCurrentDraft();
@@ -517,9 +524,9 @@ async function selectProject(id, {localOnly = false, sessionId} = {}) {
   $("project-label").title = project.workspace;
   WorkspaceCache.write("client-selection", scope.slice(0, 2), {project:id});
   WorkspaceCache.write("selection", scope.slice(0, 1), {client:state.selected?.id, project:id});
-  const saved = WorkspaceCache.read("project-selection", scope);
-  const current = sessionId || saved?.session || state.sessions.find(s => !s.archivedAt && !s.deletedAt)?.id;
-  if (current) await loadSession(state.sessions.find(s => s.id === current) || {id:current}, {localOnly:true});
+  state.preferLatestWeb = !sessionId;
+  const current = sessionId || latestWebSession()?.id;
+  if (current) await loadSession(state.sessions.find(s => s.id === current) || {id:current}, {localOnly:true, automatic:!sessionId});
   else { renderSessions(); renderChat(); }
   renderDevices();
   setRunning(state.running);
@@ -533,7 +540,14 @@ async function refreshProjectView() {
     state.session ? loadSession(state.session, {refreshOnly:true}) : Promise.resolve(),
   ]);
   if (peer !== state.peer || project !== state.serviceId || revision !== state.readRevision) return;
-  if (!state.session && state.sessions.length) await loadSession(state.sessions.find(s => !s.archivedAt && !s.deletedAt) || state.sessions[0]);
+  // IM rows precede Web rows on older clients. Continue only until the newest
+  // Web row is available, keeping the cached view visible throughout.
+  while (state.preferLatestWeb && !latestWebSession() && state.listCursor) {
+    await refreshSessions(true);
+    if (peer !== state.peer || project !== state.serviceId || revision !== state.readRevision) return;
+  }
+  const latest = latestWebSession();
+  if (state.preferLatestWeb && latest && latest.id !== state.session?.id) await loadSession(latest, {automatic:true});
   const failed = results.find(result => result.status === "rejected");
   if (failed) throw failed.reason;
 }
@@ -588,12 +602,6 @@ function renderSessions() {
     sayso.append(node("strong", "♫ SaySo"), node("p", "置顶 · 讨论、录音与 Action"));
     sayso.onclick = () => openSayso().catch(e => notice(e.message)); fragment.append(sayso);
   }
-  const channel = service()?.channel;
-  if (channel && !state.sessions.some(s => s.kind === "im")) {
-    const im = node("button", undefined, "conversation-card pinned" + (state.session?.id === channel.sessionId && state.mode !== "sayso" ? " active" : ""));
-    im.append(node("strong", channel.provider === "feishu" ? "飞书 · 渠道" : "钉钉 · 渠道"), node("p", "等待第一条消息"));
-    im.onclick = () => loadSession({id:channel.sessionId,title:"渠道会话",kind:"im"}).then(closeDrawers).catch(e => notice(e.message)); fragment.append(im);
-  }
   for (const s of [...state.sessions].sort((a,b)=>(b.kind==="im")-(a.kind==="im"))) {
     if (s.archivedAt || s.deletedAt) continue;
     const b = node(
@@ -629,11 +637,12 @@ function renderSessions() {
   $("conversation-list").replaceChildren(fragment);
   window.renderArchivedSessions?.($("conversation-list"));
 }
-async function loadSession(session, {localOnly = false, refreshOnly = false} = {}) {
+async function loadSession(session, {localOnly = false, refreshOnly = false, automatic = false} = {}) {
   if (closeSayso && !(await closeSayso())) return;
   state.mode = "web";
   const peer = state.peer, project = state.serviceId;
   if (!refreshOnly) {
+    if (!automatic) state.preferLatestWeb = false;
     saveCurrentDraft();
     cacheCurrentSession();
     const cached = WorkspaceCache.read("history", draftContext(session.id));
@@ -683,8 +692,11 @@ function scrollChatToLatest() {
 function sessionTitle(session) {
   if (session?.customTitle) return session.title;
   if (session?.kind !== "im") return session?.title || "新会话";
-  const channel = ({feishu:"飞书",dingtalk:"钉钉"})[session.channelName] || session.channelName || (session.channelProvider === "dingtalk" ? "钉钉" : "飞书");
-  return session.channelPeerName ? `${channel} · ${session.channelPeerName}` : session.title || `${channel} · 渠道历史`;
+  const configured = service()?.channel;
+  const channel = configured?.name || ({feishu:"飞书",dingtalk:"钉钉"})[session.channelName] || session.channelName || (session.channelProvider === "dingtalk" ? "钉钉" : "飞书");
+  const peer = session.channelPeerName;
+  if (peer && peer !== session.channelChatId && !/^(?:oc_|ou_|on_|cid)[A-Za-z0-9_-]+$/.test(peer)) return channel + " · " + peer;
+  return channel + " · " + (session.channelChatType === "group" ? "群聊" : session.channelChatType === "user" ? "私聊" : "旧渠道历史");
 }
 function mergeEntries(entries, live = false) {
   const seq = new Set(state.entries.map((e) => e.seq));

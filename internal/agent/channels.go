@@ -533,7 +533,19 @@ func (a *Agent) channelView(serviceID string) any {
 	for _, s := range all {
 		conversations = append(conversations, map[string]string{"sessionId": s.ID, "chatType": s.ChannelChatType, "name": s.ChannelName, "peerName": s.ChannelPeerName})
 	}
-	return map[string]any{"configured": true, "provider": c.Provider, "name": c.Name, "accessPolicy": "everyone", "appId": c.AppID, "chatId": c.ChatID, "chatType": c.ChatType, "robotCode": c.RobotCode, "sessionId": c.SessionID, "state": state, "stateStage": stage, "error": lastError, "updatedAt": updatedAt, "conversations": conversations, "waitingForMessage": len(conversations) == 0, "thinkingReactionSupported": c.Provider == "feishu", "reactionError": reactionError, "secretConfigured": c.AppSecret != ""}
+	name := c.Name
+	if display, ok := r.adapter.(interface{ DisplayName() string }); name == "" && ok {
+		name = display.DisplayName()
+	}
+	if name == "" {
+		for _, session := range all {
+			if session.ChannelName != "" && session.ChannelName != c.Provider {
+				name = session.ChannelName
+				break
+			}
+		}
+	}
+	return map[string]any{"configured": true, "provider": c.Provider, "name": name, "accessPolicy": "everyone", "appId": c.AppID, "chatId": c.ChatID, "chatType": c.ChatType, "robotCode": c.RobotCode, "sessionId": c.SessionID, "state": state, "stateStage": stage, "error": lastError, "updatedAt": updatedAt, "conversations": conversations, "waitingForMessage": len(conversations) == 0, "thinkingReactionSupported": c.Provider == "feishu", "reactionError": reactionError, "secretConfigured": c.AppSecret != ""}
 }
 func (a *Agent) configureChannel(ctx context.Context, in ChannelConfig) error {
 	a.initTasks(ctx)
@@ -672,7 +684,7 @@ func (a *Agent) configureChannel(ctx context.Context, in ChannelConfig) error {
 		if next.Services[i].ID == in.ServiceID {
 			next.Services[i].Channel = nil
 			if in.Provider != "" {
-				next.Services[i].Channel = &protocol.ChannelInfo{Provider: in.Provider, SessionID: in.SessionID}
+				next.Services[i].Channel = &protocol.ChannelInfo{Provider: in.Provider, SessionID: in.SessionID, Name: in.Name}
 			}
 		}
 	}

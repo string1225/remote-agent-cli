@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IM 渠道设置 · 设计预览</title>
+<style>
+:root{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#202b3d;background:#eef2f7;font-synthesis:none}*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button{cursor:pointer}[hidden]{display:none!important}button:focus-visible,a:focus-visible{outline:3px solid #a6bcff;outline-offset:2px}button{border:0}.primary{background:#315ee9;color:#fff}.primary:hover{background:#244ccc}.secondary{background:#fff;border:1px solid #d7dfeb;color:#4d5c72}.dialog-head{display:flex;justify-content:space-between}.icon-button{background:transparent;font-size:23px}dialog{color:#202b3d;background:#fff;box-shadow:0 25px 100px #152b4a33}dialog::backdrop{background:#17294545}label,input,select{display:block}button,input,select{touch-action:manipulation}.preview-bar{padding:24px 32px;display:flex;gap:12px;align-items:center}.preview-bar h1{font-size:16px;margin:0}.preview-bar span{font-size:12px;color:#66748a}.preview-bar button{margin-left:auto;border-radius:8px;padding:10px 18px}.preview-stage{height:calc(100dvh - 80px);display:grid;place-items:center}details{max-width:650px;padding:24px;margin:auto;font-size:13px;line-height:2}details a{color:#315ee9}.preview-status{color:#617089;font-size:13px;text-align:center}
+#channel-dialog { width:min(480px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); padding:0; border:0; border-radius:16px; overflow:auto; overscroll-behavior:contain; }
+#channel-dialog .channel-header { align-items:flex-start; margin:0; padding:26px 28px 0; gap:16px; }
+#channel-dialog h2 { font-size:21px; line-height:1.4; font-weight:650; margin:0; }
+#channel-dialog .channel-project { margin:5px 0 0; font-size:13px; line-height:1.5; color:#617089; overflow-wrap:anywhere; }
+#channel-dialog form { margin:0; }
+#channel-dialog .icon-button { width:36px; height:36px; min-height:36px; padding:0; margin:-5px -8px 0 0; border-radius:8px; color:#617089; }
+#channel-dialog .icon-button:hover { background:#f0f3f8; }
+.channel-fields { display:grid; gap:18px; padding:18px 28px 26px; }
+.channel-fields label { display:grid; gap:8px; margin:0; color:#40516a; font-size:13px; font-weight:550; }
+.channel-fields input,.channel-fields select { width:100%; min-width:0; min-height:44px; padding:10px 12px; margin:0; border:1px solid #d7dfeb; border-radius:8px; background:#fff; color:#24334a; font-size:14px; font-weight:400; }
+.channel-fields input::placeholder { color:#6a788b; }
+.channel-fields input:focus-visible,.channel-fields select:focus-visible { outline:3px solid #dce7ff; outline-offset:1px; border-color:#315ee9; }
+.channel-state { display:flex; align-items:center; gap:7px; justify-self:start; margin:0 0 2px; padding:0; font-size:12px; line-height:1.6; color:#617089; }
+.channel-state::before { content:""; width:6px; height:6px; flex:none; border-radius:50%; background:#8d98aa; }
+.channel-state[data-state="connected"] { color:#276849; }
+.channel-state[data-state="connected"]::before { background:#328359; }
+.channel-state[data-state="error"] { color:#ac3037; }
+.channel-state[data-state="error"]::before { background:#bd4148; }
+.channel-error { margin:0; color:#a52e36; background:#fff3f3; border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.channel-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; border-top:1px solid #e9edf3; padding:20px 28px 24px; }
+.channel-actions button { width:100%; min-width:0; min-height:44px; padding:10px 8px; margin:0; border-radius:8px; font-size:14px; font-weight:600; text-align:center; }
+.channel-actions .secondary { background:#fff; color:#4d5c72; border:1px solid #d7dfeb; }
+.channel-actions .secondary:hover { color:#a52e36; border-color:#d9b8bc; background:#fff8f8; }
+.channel-actions:has(#channel-unbind[hidden]) { grid-template-columns:1fr; }
+@media(max-width:480px) {
+ #channel-dialog .channel-header { padding:24px 22px 0; }
+ .channel-fields { padding:18px 22px 24px; gap:17px; }
+ .channel-fields input,.channel-fields select { font-size:16px; }
+ .channel-actions { padding:18px 22px 22px; gap:10px; }
+}
+
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+</style></head><body>
+<header class="preview-bar"><h1>IM 渠道设置</h1><span>设计预览 · 示例数据</span><button class="primary" id="open-preview">查看设计稿</button></header>
+<main class="preview-stage"><div><p class="preview-status">此预览不连接机器人，也不保存任何凭据。</p><details><summary>设计参考与交互</summary>
+<p>在原工作台的蓝白色系内整理表单。单列字段、紧凑连接状态、44 像素输入与按钮；底部两列等宽，无说明块。渠道名称直接回填；私聊标题使用“渠道名称 · 用户名”。</p>
+<ul><li><a href="https://github.com/anthropics/skills/tree/main/skills/frontend-design">Frontend Design</a>：视觉层级与克制。</li><li><a href="https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines">Web Interface Guidelines</a>：可访问性与表单状态。</li><li><a href="https://github.com/nextlevelbuilder/ui-ux-pro-max-skill">UI/UX Pro Max</a>：触控尺寸与响应式表单。</li><li><a href="https://github.com/pbakaus/impeccable">Impeccable</a>：Operate 模式与精简。</li><li><a href="https://github.com/google-labs-code/stitch-skills/tree/main/plugins/stitch-utilities/skills/design-md">Stitch Design MD</a>：色彩、字体与组件规则的语义整理；本稿直接从现有代码提取，未调用 Stitch 服务。</li></ul>
+</details></div></main>
+    <dialog id="channel-dialog" aria-labelledby="channel-title">
+      <div class="dialog-head channel-header">
+        <div class="channel-heading"><h2 id="channel-title">IM 渠道</h2><p id="channel-project" class="channel-project"></p></div>
+        <button type="button" class="icon-button close-dialog" aria-label="关闭渠道设置">×</button>
+      </div>
+      <form id="channel-form">
+        <div class="channel-fields">
+          <p id="channel-state" class="channel-state" role="status"></p>
+          <p id="channel-error" class="channel-error" role="alert" hidden></p>
+          <label>消息平台<select name="provider"><option value="feishu">飞书</option><option value="dingtalk">钉钉</option></select></label>
+          <label>渠道名称<input name="name" maxlength="80" placeholder="例如：研发助理" autocomplete="off"></label>
+          <label>应用 ID / Client ID<input name="appId" required maxlength="200" autocomplete="off" spellcheck="false"></label>
+          <label>应用 Secret<input name="appSecret" type="password" maxlength="500" autocomplete="new-password" spellcheck="false"></label>
+          <label id="channel-robot-code">机器人 Code<input name="robotCode" maxlength="200" autocomplete="off" spellcheck="false" placeholder="默认使用应用 ID"></label>
+        </div>
+        <div class="channel-actions">
+          <button class="primary" type="submit">保存并连接</button>
+          <button class="secondary" type="button" id="channel-unbind" hidden>解绑渠道</button>
+        </div>
+      </form>
+    </dialog>
+
+<script>
+const dialog=document.getElementById('channel-dialog'),form=document.getElementById('channel-form');
+document.getElementById('channel-project').textContent='remote-agent-cli';document.getElementById('channel-state').textContent='已连接';document.getElementById('channel-state').dataset.state='connected';form.elements.namedItem('name').value='研发助理';form.elements.appId.value='cli_example_app';form.elements.appSecret.placeholder='已保存；留空保留原 Secret';document.getElementById('channel-robot-code').hidden=true;document.getElementById('channel-unbind').hidden=false;
+document.querySelector('.close-dialog').onclick=()=>dialog.close();document.getElementById('open-preview').onclick=()=>dialog.showModal();form.elements.provider.onchange=()=>{document.getElementById('channel-robot-code').hidden=form.elements.provider.value==='feishu'};form.onsubmit=e=>{e.preventDefault();document.getElementById('channel-state').textContent='预览：已保存';form.elements.appSecret.value=''};document.getElementById('channel-unbind').onclick=()=>{if(confirm('预览：解绑渠道？实际产品会保留会话历史。')){document.getElementById('channel-state').textContent='尚未连接';document.getElementById('channel-state').dataset.state='unconfigured'}};dialog.showModal();
+</script></body></html>

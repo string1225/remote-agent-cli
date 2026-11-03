@@ -174,6 +174,14 @@ func (m *imAdapter) Validate(ctx context.Context) error {
 
 // Names improve the session list, while a missing optional directory permission
 // must never prevent a user from talking to the bot.
+func (m *imAdapter) DisplayName() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.c.Name != "" {
+		return m.c.Name
+	}
+	return m.botName
+}
 func (m *imAdapter) ResolveConversation(ctx context.Context, in channelMessage) channelMessage {
 	if m.c.Provider != "feishu" || in.ChatID == "" {
 		return in
@@ -201,7 +209,7 @@ func (m *imAdapter) ResolveConversation(ctx context.Context, in channelMessage) 
 				Name string `json:"name"`
 			} `json:"data"`
 		}
-		if json.Unmarshal(data, &info) == nil {
+		if json.Unmarshal(data, &info) == nil && in.ChatType != "user" {
 			in.PeerName = info.Data.Name
 		}
 	}
@@ -220,6 +228,33 @@ func (m *imAdapter) ResolveConversation(ctx context.Context, in channelMessage) 
 			}
 		}
 	}
+	// Private chat metadata is often unnamed and directory access is optional.
+	// The IM member API can supply the peer's display name without relying on
+	// organization-wide directory access. Never substitute a chat ID for a name.
+	if in.ChatType == "user" && strings.TrimSpace(in.PeerName) == "" {
+		data, err = m.request(ctx, "GET", "https://open.feishu.cn/open-apis/im/v1/chats/"+url.PathEscape(in.ChatID)+"/members?member_id_type=open_id&page_size=100", token, nil)
+		if err == nil {
+			var info struct {
+				Data struct {
+					Items []struct {
+						MemberID string `json:"member_id"`
+						Name     string `json:"name"`
+					} `json:"items"`
+				} `json:"data"`
+			}
+			if json.Unmarshal(data, &info) == nil {
+				m.mu.Lock()
+				botID := m.botID
+				m.mu.Unlock()
+				for _, member := range info.Data.Items {
+					if (in.PeerID != "" && member.MemberID == in.PeerID || in.PeerID == "" && botID != "" && member.MemberID != botID) && strings.TrimSpace(member.Name) != "" {
+						in.PeerName = member.Name
+						break
+					}
+				}
+			}
+		}
+	}
 	m.mu.Lock()
 	if m.names == nil {
 		m.names = map[string]channelIdentity{}
@@ -227,7 +262,11 @@ func (m *imAdapter) ResolveConversation(ctx context.Context, in channelMessage) 
 	if len(m.names) > 2000 {
 		m.names = map[string]channelIdentity{}
 	}
-	m.names[in.ChatID] = channelIdentity{Name: in.Name, PeerName: in.PeerName, Until: time.Now().Add(15 * time.Minute)}
+	cacheFor := 15 * time.Minute
+	if in.PeerName == "" {
+		cacheFor = time.Minute
+	}
+	m.names[in.ChatID] = channelIdentity{Name: in.Name, PeerName: in.PeerName, Until: time.Now().Add(cacheFor)}
 	m.mu.Unlock()
 	return in
 }

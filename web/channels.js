@@ -5,7 +5,6 @@
   const update = () => {
     const feishu = form.elements.provider.value === "feishu";
     $("channel-robot-code").hidden = feishu;
-    $("channel-reaction-help").textContent = feishu ? "收到消息后显示思考中，回复完成后撤下。" : "钉钉以 Markdown 回复；该平台的机器人暂不支持消息思考表情。";
   };
   form.elements.provider.onchange = update;
   window.openChannelSetup = async (client, nextProject) => {
@@ -21,13 +20,21 @@
     if (state.peer !== openingPeer) throw Error("客户端连接已改变");
     form.reset();
     for (const key of ["provider","name","appId","robotCode"]) if (config[key]) form.elements[key].value = config[key];
+    if (!form.elements.namedItem("name").value) {
+      const savedName = config.name || service()?.channel?.name || nextProject.channel?.name || config.conversations?.find(s => s.name && !["feishu", "dingtalk"].includes(s.name))?.name;
+      form.elements.namedItem("name").value = savedName || "";
+    }
     form.elements.appSecret.value = "";
     form.elements.appSecret.placeholder = config.secretConfigured ? "已保存；留空保留原 Secret" : "填写机器人应用 Secret";
     form.elements.appSecret.required = !config.secretConfigured;
-    $("channel-title").textContent = project.name + " · IM 渠道";
+    $("channel-title").textContent = "IM 渠道";
+    $("channel-project").textContent = project.name;
     $("channel-state").textContent = config.configured
-      ? (({connected:"已连接，可以发消息了",connecting:"正在连接",retrying:"正在重试连接",stopped:"已停止",error:"连接或消息处理遇到问题"})[config.state] || "等待连接") + (config.error ? "。" + config.error : config.waitingForMessage ? "。收到消息后，会自动显示对应的私聊或群聊会话。" : "") + (config.reactionError ? "。" + config.reactionError : "")
-      : "保存后会连接机器人，私聊与群聊自动识别。";
+      ? ({connected:"已连接",connecting:"正在连接…",retrying:"正在重连…",stopped:"已停止",error:"连接异常"})[config.state] || "等待连接"
+      : "尚未连接";
+    $("channel-state").dataset.state = config.configured ? config.state || "connecting" : "unconfigured";
+    $("channel-error").textContent = [config.error, config.reactionError].filter(Boolean).join("。");
+    $("channel-error").hidden = !$("channel-error").textContent;
     $("channel-unbind").hidden = !config.configured;
     update(); closeDrawers(); dialog.showModal();
   };
@@ -76,9 +83,9 @@
     }
   }
   form.onsubmit = async e => {
-    e.preventDefault(); const button = form.querySelector("button[type=submit]"); button.disabled = true;
+    e.preventDefault(); const button = form.querySelector("button[type=submit]"); button.disabled = true; button.textContent = "正在保存…";
     try { await save(Object.fromEntries(new FormData(form))); }
-    catch (e) { notice(e.message); } finally { button.disabled = false; }
+    catch (e) { notice(e.message); } finally { button.disabled = false; button.textContent = "保存并连接"; }
   };
   $("channel-unbind").onclick = async e => {
     if (!confirm("解绑这个项目的 IM 渠道？本机渠道会话与历史会保留。")) return;
@@ -86,6 +93,6 @@
     try { await save({provider:""}); } catch (e) { notice(e.message); } finally { e.target.disabled = false; }
   };
   $("channel-progress-close").onclick = () => progress.close();
-  progress.addEventListener("close", () => { progressRevision++; clearTimeout(pollTimer); });
-  dialog.addEventListener("close", () => { revision++; form.reset(); form.elements.appSecret.value = ""; project = null; peer = null; });
+  progress.addEventListener("close", () => { if (progress.open) return; progressRevision++; clearTimeout(pollTimer); });
+  dialog.addEventListener("close", () => { if (dialog.open) return; revision++; form.reset(); form.elements.appSecret.value = ""; project = null; peer = null; });
 })();

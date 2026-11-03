@@ -96,6 +96,17 @@ func (h historyStore) listArchived(serviceID, search string, offset uint64, arch
 			if err := json.Unmarshal(v, &s); err != nil {
 				return err
 			}
+			// Configuring a robot used to create an unused fixed IM session.
+			// Hide only empty placeholders; existing messages and direct links
+			// remain readable and no stored session is deleted or rewritten.
+			if s.Kind == "im" && s.ChannelChatID == "" {
+				entries := tx.Bucket([]byte("entries")).Bucket([]byte(s.ID))
+				if entries != nil {
+					if first, _ := entries.Cursor().First(); first == nil {
+						return nil
+					}
+				}
+			}
 			if s.DeletedAt == 0 && (s.ArchivedAt != 0) == archived && s.ServiceID == serviceID && strings.Contains(strings.ToLower(s.Title), strings.ToLower(search)) {
 				s.NativeID = ""
 				all = append(all, s)

@@ -370,21 +370,26 @@
         <section id="admin-tokens-panel" class="platform-panel" role="tabpanel" aria-labelledby="admin-tokens-tab" hidden><h3>全部代理 Token</h3><div id="admin-token-list" class="platform-list"></div></section>
       </section>
     </dialog>
-    <dialog id="channel-dialog">
-      <div class="dialog-head"><div><p class="eyebrow">PROJECT / IM CHANNEL</p><h2 id="channel-title">项目渠道</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
-      <p class="muted">每个项目绑定一个机器人。私聊或群聊会自动识别，每个会话独立保留上下文。应用凭据只保存在客户端。</p>
-      <p id="channel-state" class="platform-note" role="status"></p>
+    <dialog id="channel-dialog" aria-labelledby="channel-title">
+      <div class="dialog-head channel-header">
+        <div class="channel-heading"><h2 id="channel-title">IM 渠道</h2><p id="channel-project" class="channel-project"></p></div>
+        <button type="button" class="icon-button close-dialog" aria-label="关闭渠道设置">×</button>
+      </div>
       <form id="channel-form">
-        <label>渠道<select name="provider"><option value="feishu">飞书 · 应用机器人</option><option value="dingtalk">钉钉 · Stream 机器人</option></select></label>
-        <label>渠道名称<input name="name" maxlength="80" placeholder="例如：研发助理" autocomplete="off"></label>
-        <label>应用 ID / Client ID<input name="appId" required maxlength="200" autocomplete="off"></label>
-        <label>应用 Secret<input name="appSecret" type="password" maxlength="500" autocomplete="new-password"></label>
-        <label id="channel-robot-code">机器人 Code（钉钉，可选，默认应用 ID）<input name="robotCode" maxlength="200" autocomplete="off"></label>
-        <div class="channel-access"><strong>所有人都可以聊</strong>无需填写用户或群聊 ID。私聊直接发送消息，群聊 @ 机器人。<span id="channel-reaction-help">收到消息后显示思考中，回复完成后撤下。</span></div>
-        <p class="small muted">飞书：发布应用，启用消息接收事件与机器人收发权限；思考表情需要消息表情权限。钉钉：启用 Stream 模式与消息发送权限。</p>
-        <button class="primary full" type="submit">保存并连接渠道</button>
+        <div class="channel-fields">
+          <p id="channel-state" class="channel-state" role="status"></p>
+          <p id="channel-error" class="channel-error" role="alert" hidden></p>
+          <label>消息平台<select name="provider"><option value="feishu">飞书</option><option value="dingtalk">钉钉</option></select></label>
+          <label>渠道名称<input name="name" maxlength="80" placeholder="例如：研发助理" autocomplete="off"></label>
+          <label>应用 ID / Client ID<input name="appId" required maxlength="200" autocomplete="off" spellcheck="false"></label>
+          <label>应用 Secret<input name="appSecret" type="password" maxlength="500" autocomplete="new-password" spellcheck="false"></label>
+          <label id="channel-robot-code">机器人 Code<input name="robotCode" maxlength="200" autocomplete="off" spellcheck="false" placeholder="默认使用应用 ID"></label>
+        </div>
+        <div class="channel-actions">
+          <button class="primary" type="submit">保存并连接</button>
+          <button class="secondary" type="button" id="channel-unbind" hidden>解绑渠道</button>
+        </div>
       </form>
-      <button class="secondary" id="channel-unbind" hidden>解绑渠道，保留会话历史</button>
     </dialog>
     <dialog id="channel-progress-dialog" class="connection-progress">
       <div class="dialog-head"><h2 id="channel-progress-title">正在连接渠道</h2><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
