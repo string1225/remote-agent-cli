@@ -33,6 +33,7 @@ type Conversation struct {
 }
 
 type ChatEntry struct {
+	Report      *WorkReport  `json:"report,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 	Seq         uint64       `json:"seq"`
 	TurnID      string       `json:"turnId"`

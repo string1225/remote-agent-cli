@@ -112,7 +112,18 @@ func prepare() error {
 		}
 	}
 	healthACL := "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)(A;OICI;GRGWGXSD;;;" + sid.String() + ")"
-	return protectDirectory(filepath.Join(root, "health"), healthACL)
+	if err = protectDirectory(filepath.Join(root, "health"), healthACL); err != nil {
+		return err
+	}
+	store, err := runtimeStore()
+	if err != nil {
+		return err
+	}
+	seed, err := seedPath()
+	if err != nil {
+		return err
+	}
+	return adoptMSISeed(store, seed)
 }
 
 func cleanup() error {

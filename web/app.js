@@ -121,6 +121,7 @@ async function signedIn() {
   if (restored) restored.catch(error => notice(error.message));
   await refresh();
   if (!restored && revision === state.navigationRevision) await restore();
+  if (!restored && !state.serviceId && revision === state.navigationRevision && window.matchMedia("(max-width: 760px)").matches) await window.openCEO?.();
 }
 async function refresh() {
   if ($("app").hidden) return;
@@ -157,6 +158,7 @@ function service() {
   return state.services.find((s) => s.id === state.serviceId);
 }
 function renderDevices() {
+  window.renderHierarchy?.();
   $("device-count").textContent = state.agents.length;
   $("device-empty").hidden = state.agents.length > 0;
   const list = $("device-list"),
@@ -190,8 +192,10 @@ function renderDevices() {
     row.onkeydown = e => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") window.openDeviceMenu(e, a, menu); };
     row.append(status, add, menu); card.append(row);
     const children = node("div", undefined, "device-children");
+    window.appendAssistantButton?.(children, {scope:"client",clientId:a.id,name:a.name+" · 管家"}, a.online);
     const services = selected ? state.services : a.services || WorkspaceCache.read("client", [state.user?.id, a.id])?.services || [];
     for (const project of services) {
+      if (project.scope) continue;
       const button = node("button", undefined, "project-button" + (selected && state.serviceId === project.id ? " active" : ""));
       button.title = project.workspace;
       const provider = node("span", project.provider === "qoder" ? "◇" : "◈", "project-provider");
@@ -204,6 +208,7 @@ function renderDevices() {
       settings.onclick=e=>window.openProjectMenu(e,a,project,settings);
       projectRow.oncontextmenu=e=>window.openProjectMenu(e,a,project,settings);
       projectRow.append(button, settings);
+      window.appendAssistantButton?.(projectRow, {scope:"project",clientId:a.id,projectId:project.id,name:project.name+" · 管家"}, a.online, true);
       children.append(projectRow);
     }
     card.append(children);
@@ -740,6 +745,10 @@ function renderChat(live = false) {
   const groups = [];
   for (const e of state.entries) {
     if (e.kind === "done") continue;
+    if (e.kind === "report" && e.report) {
+      groups.push({key:`report/${e.report.id}`,role:"assistant",kind:"report",text:e.text,tools:"",report:e.report});
+      continue;
+    }
     if (e.role === "system" && !["tool", "error"].includes(e.kind)) continue;
     const tool = e.role === "system" && e.kind === "tool";
     const text = tool ? toolInvocation(e.text) : e.text;
@@ -763,6 +772,12 @@ function renderChat(live = false) {
     if (!g.text.trim() && !g.tools.trim()) continue;
     keep.add(g.key);
     let el = existing.get(g.key);
+    if (g.kind === "report" && window.renderWorkReport) {
+      el = window.renderWorkReport(g.report, el);
+      el.dataset.key = g.key;
+      container.append(el);
+      continue;
+    }
     if (!el) {
       el = node(
         g.role === "system" ? "details" : "article",
@@ -1305,15 +1320,16 @@ async function openSayso() {
   const host = $("sayso-root");
   const dispose = module.mount(host, async (method,path,body) => {
     if (state.peer !== peer) throw Error("客户端连接已断开，请保存录音备份后重新连接");
+    if (path === "/api/assistants" && method === "GET") return api(path);
     return rpc("sayso.call", {method,path,body,serviceId:project.id});
   }, () => {
     dispose(); if (state.peer !== peer) return; host.hidden = true; state.mode = "web"; closeSayso = null; renderSessions(); renderChat();
   }, `${project.name} · 完整授权`, {
-    projectId:binding.id, sessionId:binding.pinnedSessionId,
-    onTaskCreated:async id => {
+    projectId:binding.id, sessionId:binding.pinnedSessionId, ceo:project.scope==="account",
+    onTaskCreated:async (id, target) => {
       if (state.peer !== peer) return;
       await refreshSessions();
-      notice("已创建项目下的新 Web 会话，可在会话列表查看执行进度");
+      notice(target ? "已派给 "+target+"，完成后将回报 CEO" : "已创建项目下的新 Web 会话，可在会话列表查看执行进度");
     },
   });
   closeSayso = () => dispose.close();

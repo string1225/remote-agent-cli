@@ -28,6 +28,7 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 	parentClient := flags.String("parent-client", "", "parent client ID")
 	parentSession := flags.String("parent-session", "", "parent session ID")
 	session := flags.String("session", "", "current session")
+	flags.String("scope", "", "assistant scope (role is verified from local configuration)")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return errors.New("mcp requires --config, --project and --session")
 	}
@@ -37,6 +38,12 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 	c, err := agent.Load(*path)
 	if err != nil {
 		return err
+	}
+	role := ""
+	for _, service := range c.Services {
+		if service.ID == *project {
+			role = agent.AssistantInstructions(service)
+		}
 	}
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 4096), 128*1024)
@@ -58,7 +65,7 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 		var failure string
 		switch request.Method {
 		case "initialize":
-			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{"tools": map[string]bool{}}, "serverInfo": map[string]string{"name": "remote_agent", "version": "2.0"}, "instructions": fmt.Sprintf("当前客户端=%s，项目=%s，会话=%s，入口=%s；父客户端=%s，父会话=%s。%s", c.ID, *project, *session, *source, *parentClient, *parentSession, agent.SessionInstructions)}
+			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{"tools": map[string]bool{}}, "serverInfo": map[string]string{"name": "remote_agent", "version": "3.0"}, "instructions": fmt.Sprintf("当前客户端=%s，项目=%s，会话=%s，入口=%s；父客户端=%s，父会话=%s。%s\n%s", c.ID, *project, *session, *source, *parentClient, *parentSession, agent.SessionInstructions, role)}
 		case "ping":
 			result = map[string]bool{}
 		case "tools/list":
@@ -84,6 +91,9 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 					Version     uint64 `json:"version"`
 					PageCursor  string `json:"pageCursor"`
 					Search      string `json:"search"`
+					Scope       string `json:"scope"`
+					WorkID      string `json:"workId"`
+					ReplyHandle string `json:"replyHandle"`
 				} `json:"arguments"`
 			}
 			if json.Unmarshal(request.Params, &call) != nil {
@@ -99,6 +109,20 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 			}
 			var data json.RawMessage
 			switch call.Name {
+			case "list_assistants":
+				data, err = agent.ClientAPI(ctx, c, "GET", "/api/agent/assistants", nil)
+			case "delegate_work", "read_work", "reply_work", "cancel_work":
+				if *project == "" || *session == "" {
+					err = errors.New("分层协作需要真实的当前项目和会话 ID")
+					break
+				}
+				operation := map[string]string{"delegate_work": "dispatch", "read_work": "read", "reply_work": "reply", "cancel_work": "cancel"}[call.Name]
+				data, err = agent.ClientAPI(ctx, c, "POST", "/api/agent/coordination", protocol.CoordinationCommand{
+					Operation: operation, RequestID: store.Hash(*session + "\x00" + *turn + "\x00" + string(request.ID)),
+					Source: protocol.AssistantRef{ClientID: c.ID, ProjectID: *project, SessionID: *session},
+					Target: protocol.AssistantRef{Scope: call.Arguments.Scope, ClientID: target, ProjectID: call.Arguments.ProjectID},
+					WorkID: call.Arguments.WorkID, ReplyHandle: call.Arguments.ReplyHandle, Title: call.Arguments.Title, Prompt: call.Arguments.Prompt, TaskID: call.Arguments.TaskID,
+				})
 			case "upload_file":
 				var file protocol.SharedFile
 				file, err = agent.UploadFile(ctx, c, call.Arguments.Path)
@@ -193,6 +217,11 @@ func clientTools() []any {
 	send := target()
 	send["prompt"] = str("发送给子会话的新指令，最多 32000 字节；忙碌时需先等待")
 	return []any{
+		tool("list_assistants", "查询 CEO、客户端管家和项目管家目录。CEO 位于默认主机，各管家独立会话。", true, map[string]any{}),
+		tool("delegate_work", "向指定管家委派任务，返回 workId、replyHandle 和执行会话。工程会持久化回报并唤醒当前会话；返回接收不表示完成。按需直接派项目管家。", false, map[string]any{"scope": str("account=CEO、client=客户端管家、project=项目管家"), "clientId": str("目标客户端 ID"), "projectId": str("项目管家的原项目 ID；其他层省略"), "title": str("任务标题"), "prompt": str("任务、范围与验收，最多 32000 字节")}, "scope", "clientId", "prompt"),
+		tool("read_work", "读取当前会话派出的分层任务；保留 workId，不操作无关工作。", true, map[string]any{"workId": str("派工返回的 workId")}, "workId"),
+		tool("reply_work", "在下游原执行会话继续一轮，复用上下文，结果仍可靠回报当前会话。", false, map[string]any{"workId": str("workId"), "prompt": str("后续指令")}, "workId", "prompt"),
+		tool("cancel_work", "取消已核对的下游当前轮次，先读取任务 ID。", false, map[string]any{"workId": str("workId"), "taskId": str("当前 taskId")}, "workId", "taskId"),
 		tool("upload_file", "上传当前机器上的文件到 139，返回无需登录即可下载的随机链接、SHA-256 和 expiresAt。最多 100 MiB，下次北京时间凌晨 4 点失效；可在回复或已获授权的消息中附带链接。上传会公开文件内容，先核对分享范围。", false, map[string]any{"path": str("当前机器上要分享的普通文件的绝对路径")}, "path"),
 		tool("list_todos", "查询本账号唯一待办清单，存于默认主机；默认主机离线时返回明确错误。", true, map[string]any{"status": str("筛选 open、completed 或 cancelled；省略表示全部"), "search": str("搜索标题和正文"), "pageCursor": str("返回的 nextCursor，继续分页")}),
 		tool("publish_todo", "工作需要人判断、选择或补充信息时发布待办。写清问题、可选方案和建议，然后结束本轮等待人工回复。待办自动关联当前客户端、项目和会话；人的回复将在原会话继续执行。", false, map[string]any{"title": str("问题标题，最多 480 字节"), "body": str("背景、问题、选项和建议，最多 8000 字节")}, "title", "body"),

@@ -3,6 +3,9 @@ package protocol
 import "encoding/json"
 
 type Service struct {
+	Scope             string       `json:"scope,omitempty"`
+	ManagedProject    string       `json:"managedProject,omitempty"`
+	OwnerAccount      string       `json:"ownerAccount,omitempty"`
 	ToolTurn          string       `json:"-"`
 	ToolParentAgent   string       `json:"-"`
 	ToolParentSession string       `json:"-"`
@@ -52,26 +55,27 @@ type Signal struct {
 }
 
 type Request struct {
-	AllowIM       bool            `json:"-"`
-	RequireIdle   bool            `json:"-"`
-	Archived      bool            `json:"archived,omitempty"`
-	Interrupt     bool            `json:"interrupt,omitempty"`
-	Attachments   []string        `json:"attachments,omitempty"`
-	RemoveChannel bool            `json:"removeChannel,omitempty"`
-	Recorded      bool            `json:"-"`
-	ID            string          `json:"id"`
-	Type          string          `json:"type"`
-	Service       Service         `json:"service,omitempty"`
-	ServiceID     string          `json:"serviceId,omitempty"`
-	Prompt        string          `json:"prompt,omitempty"`
-	RunID         string          `json:"runId,omitempty"`
-	SessionID     string          `json:"sessionId,omitempty"`
-	Title         string          `json:"title,omitempty"`
-	Search        string          `json:"search,omitempty"`
-	Cursor        uint64          `json:"cursor,omitempty"`
-	Method        string          `json:"method,omitempty"`
-	Path          string          `json:"path,omitempty"`
-	Body          json.RawMessage `json:"body,omitempty"`
+	InternalReport bool            `json:"-"`
+	AllowIM        bool            `json:"-"`
+	RequireIdle    bool            `json:"-"`
+	Archived       bool            `json:"archived,omitempty"`
+	Interrupt      bool            `json:"interrupt,omitempty"`
+	Attachments    []string        `json:"attachments,omitempty"`
+	RemoveChannel  bool            `json:"removeChannel,omitempty"`
+	Recorded       bool            `json:"-"`
+	ID             string          `json:"id"`
+	Type           string          `json:"type"`
+	Service        Service         `json:"service,omitempty"`
+	ServiceID      string          `json:"serviceId,omitempty"`
+	Prompt         string          `json:"prompt,omitempty"`
+	RunID          string          `json:"runId,omitempty"`
+	SessionID      string          `json:"sessionId,omitempty"`
+	Title          string          `json:"title,omitempty"`
+	Search         string          `json:"search,omitempty"`
+	Cursor         uint64          `json:"cursor,omitempty"`
+	Method         string          `json:"method,omitempty"`
+	Path           string          `json:"path,omitempty"`
+	Body           json.RawMessage `json:"body,omitempty"`
 }
 
 type Event struct {

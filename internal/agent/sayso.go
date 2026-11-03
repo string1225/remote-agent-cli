@@ -82,7 +82,7 @@ func (s *saysoStore) load() error {
 		}
 	}
 	for _, run := range s.state.Runs {
-		if run.Status == "running" {
+		if run.Status == "running" && run.Command == nil {
 			run.Status = "failed"
 			run.Error = "Agent 重启，任务已中断"
 			run.FinishedAt = soNow()
@@ -90,6 +90,16 @@ func (s *saysoStore) load() error {
 	}
 	for _, action := range s.state.Actions {
 		if action.Status == "running" {
+			remote := false
+			for _, run := range s.state.Runs {
+				if run.ID == action.RunID && run.Command != nil {
+					remote = true
+					break
+				}
+			}
+			if remote {
+				continue
+			}
 			action.Status = "failed"
 			action.UpdatedAt = soNow()
 		}
@@ -422,7 +432,20 @@ func (s *saysoStore) call(p *peer, method, path string, raw json.RawMessage) ([]
 			s.state.Runs = slices.DeleteFunc(s.state.Runs, func(x *soRun) bool { return x.ActionID == a.ID })
 			value = true
 		case len(parts) == 3 && parts[2] == "dispatch" && method == "POST":
-			value, err = s.dispatch(p, a)
+			if body["target"] != nil {
+				var target protocol.AssistantRef
+				if json.Unmarshal(body["target"], &target) != nil {
+					return nil, errors.New("无效管家目标")
+				}
+				value, err = s.dispatchRemote(a, target)
+			} else {
+				for _, service := range s.a.services() {
+					if project := s.project(a.ProjectID); project != nil && service.ID == project.ServiceID && service.Scope == "account" {
+						return nil, errors.New("请为 CEO Action 选择客户端管家或项目管家")
+					}
+				}
+				value, err = s.dispatch(p, a)
+			}
 		default:
 			return nil, errors.New("不支持的 Action 操作")
 		}
@@ -433,6 +456,9 @@ func (s *saysoStore) call(p *peer, method, path string, raw json.RawMessage) ([]
 				found = true
 				if run.cancel != nil {
 					run.cancel()
+				}
+				if run.Command != nil {
+					run.CancelRequested = true
 				}
 				break
 			}

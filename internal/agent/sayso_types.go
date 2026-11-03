@@ -1,7 +1,10 @@
 package agent
 
+import "github.com/string1225/remote-agent-cli/internal/protocol"
+
 // SaySo's local data model is kept compatible with its original discussion UI.
 type soProject struct {
+	ActionSessionID string `json:"actionSessionId,omitempty"`
 	ServiceID       string `json:"serviceId,omitempty"`
 	PinnedSessionID string `json:"pinnedSessionId,omitempty"`
 	ID              string `json:"id"`
@@ -76,16 +79,21 @@ type soAction struct {
 	RunID     string `json:"runId,omitempty"`
 }
 type soRun struct {
-	WebSessionID string `json:"webSessionId,omitempty"`
-	TaskID       string `json:"taskId,omitempty"`
-	ID           string `json:"id"`
-	ActionID     string `json:"actionId"`
-	Status       string `json:"status"`
-	StartedAt    string `json:"startedAt"`
-	FinishedAt   string `json:"finishedAt,omitempty"`
-	Output       string `json:"output"`
-	Error        string `json:"error,omitempty"`
-	cancel       func()
+	WorkID          string                        `json:"workId,omitempty"`
+	ReplyHandle     string                        `json:"replyHandle,omitempty"`
+	Target          *protocol.AssistantRef        `json:"target,omitempty"`
+	Command         *protocol.CoordinationCommand `json:"command,omitempty"`
+	CancelRequested bool                          `json:"cancelRequested,omitempty"`
+	WebSessionID    string                        `json:"webSessionId,omitempty"`
+	TaskID          string                        `json:"taskId,omitempty"`
+	ID              string                        `json:"id"`
+	ActionID        string                        `json:"actionId"`
+	Status          string                        `json:"status"`
+	StartedAt       string                        `json:"startedAt"`
+	FinishedAt      string                        `json:"finishedAt,omitempty"`
+	Output          string                        `json:"output"`
+	Error           string                        `json:"error,omitempty"`
+	cancel          func()
 }
 type soSettings struct {
 	AnalysisProvider        string `json:"analysisProvider"`

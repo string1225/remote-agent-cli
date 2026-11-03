@@ -23,6 +23,8 @@ import (
 
 type Runner func(context.Context, Provider, protocol.Service, string, bool, func(protocol.Event) error, string) error
 type Agent struct {
+	coordinationOnce  sync.Once
+	coordinationMu    sync.Mutex
 	accessOnce        sync.Once
 	access            *access.Manager
 	accessErr         error
@@ -113,6 +115,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}()
 	a.initTasks(ctx)
+	a.initCoordination(ctx)
 	if err := a.commitRemoteRuntime(); err != nil {
 		return err
 	}
@@ -331,6 +334,20 @@ func (a *Agent) newPeer(parent context.Context, msg protocol.Signal, signal func
 	return p, nil
 }
 func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) error) {
+	if req.Type == "coordination.call" {
+		var in protocol.CoordinationCommand
+		if !p.accountTools || json.Unmarshal(req.Body, &in) != nil {
+			_ = send(protocol.Event{ID: req.ID, Type: "error", Error: "协作操作必须通过账号入口"})
+			return
+		}
+		value, err := a.handleCoordination(p.ctx, in)
+		if err != nil {
+			_ = send(protocol.Event{ID: req.ID, Type: "error", Error: err.Error()})
+		} else {
+			_ = send(protocol.Event{ID: req.ID, Type: "result", Data: value})
+		}
+		return
+	}
 	if req.Type == "access.call" {
 		a.handleAccess(p, req, send)
 		return

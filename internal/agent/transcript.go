@@ -11,6 +11,7 @@ import (
 type transcript struct {
 	mu         sync.Mutex
 	pending    map[string]string
+	dropping   map[string]bool
 	seen       map[string]string
 	text       func(string, string) error
 	native     func(string) error
@@ -25,6 +26,15 @@ func (t *transcript) write(stream, text string) error {
 	if t.pending == nil {
 		t.pending = map[string]string{}
 		t.seen = map[string]string{}
+		t.dropping = map[string]bool{}
+	}
+	if t.dropping[stream] {
+		at := strings.IndexByte(text, '\n')
+		if at < 0 {
+			return nil
+		}
+		text = text[at+1:]
+		delete(t.dropping, stream)
 	}
 	t.pending[stream] += text
 	for {
@@ -39,7 +49,12 @@ func (t *transcript) write(stream, text string) error {
 		}
 	}
 	// Non-JSON output can be forwarded immediately; JSONL may span chunks.
-	if p := t.pending[stream]; p != "" && (!strings.HasPrefix(strings.TrimSpace(p), "{") || len(p) > 128*1024) {
+	if p := t.pending[stream]; len(p) > 128*1024 && strings.HasPrefix(strings.TrimSpace(p), "{") {
+		t.pending[stream] = ""
+		t.dropping[stream] = true
+		return nil
+	}
+	if p := t.pending[stream]; p != "" && !strings.HasPrefix(strings.TrimSpace(p), "{") {
 		t.pending[stream] = ""
 		return t.text(stream, p)
 	}
@@ -83,6 +98,7 @@ func (t *transcript) line(stream, line string) error {
 		Event struct {
 			Type  string `json:"type"`
 			Delta struct {
+				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"delta"`
 		} `json:"event"`
@@ -150,7 +166,7 @@ func (t *transcript) line(stream, line string) error {
 		}
 		return nil
 	}
-	if e.Event.Delta.Text != "" {
+	if e.Event.Delta.Text != "" && (e.Event.Delta.Type == "" || e.Event.Delta.Type == "text_delta") {
 		t.seen["qoder-delta"] = "yes"
 		t.seen["qoder-message"] = "yes"
 		return t.text("stdout", e.Event.Delta.Text)
@@ -160,13 +176,16 @@ func (t *transcript) line(stream, line string) error {
 		if t.final != nil {
 			var msg struct {
 				Content []struct {
+					Type string `json:"type"`
 					Text string `json:"text"`
 				} `json:"content"`
 			}
 			if json.Unmarshal(e.Message, &msg) == nil {
 				var text strings.Builder
 				for _, c := range msg.Content {
-					text.WriteString(c.Text)
+					if c.Type == "" || c.Type == "text" {
+						text.WriteString(c.Text)
+					}
 				}
 				if text.Len() > 0 {
 					if err := t.final(text.String()); err != nil {
@@ -181,12 +200,13 @@ func (t *transcript) line(stream, line string) error {
 		}
 		var msg struct {
 			Content []struct {
+				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"content"`
 		}
 		if json.Unmarshal(e.Message, &msg) == nil {
 			for _, c := range msg.Content {
-				if c.Text != "" {
+				if c.Text != "" && (c.Type == "" || c.Type == "text") {
 					t.seen["qoder-message"] = "yes"
 					if err := t.text("stdout", c.Text+"\n"); err != nil {
 						return err

@@ -105,3 +105,12 @@ SaySo 仅接受预定义的 state/settings/projects/sessions/actions/runs/audio 
 回复先持久保存 pending 回执，再以待办 ID 和回复 ID 派生的稳定任务 ID 调用来源客户端 `todos.deliver`，进入原项目/会话的持久任务队列；目标接收后确认 delivered，丢失确认可去重重试。普通网页不能直接向 IM 会话提交 `tasks.run`，待办投递由受限账号工具连接授予内部 IM 继续能力。新 API、MCP 工具及故障恢复见 [todos-android.md](todos-android.md)。
 
 `android/` 通过 WebView 复用工作台，原生层仅管理站点、文件/音频授权和更新，不存客户端执行凭据。发布工作流使用持久签名，版本化 Release 和固定 `android-latest` 更新入口；更新经 gh-proxy 下载并验证 APK 哈希、应用身份、版本与已安装签名。发布凭据和真实手机覆盖更新需单独验收。
+# 分层 Agent（2026-11-03）
+
+CEO、客户端管家、项目管家以稳定 scope 系统 Service 表示，沿用 client/project/session 身份。CEO 和客户端管家使用配置目录下独立 workspace，项目管家以 ManagedProject 关联原项目和目录；原历史与录音保留。CEO 位于默认主机；已建立 CEO 后默认主机切换会拦截，完整迁移尚未提供。
+
+网页 `GET /api/assistants`、`POST /api/coordination`；设备对应 `/api/agent/assistants`、`/api/agent/coordination`。操作包含 resolve、dispatch、read、reply、cancel；服务器经 accountTools 标记的 `coordination.call` 中转至客户端，网页不能伪造该标记。139 只保存路由元数据和请求摘要，正文及结果存客户端。
+
+history.db 中 `coordination_work/outgoing/pending/inbox/replies` 分别保存工作、已接受委派、每轮回报 outbox、接收去重和续办回执。任务完成从 task_queue 和最终文本恢复；结果 ACK 后才确认交付；内部汇总轮次不作为用户消息显示。委派轮次等待下游回报后再逐层汇总。replyHandle 经账号、来源与原会话校验，网页可直接回复结果或经验证的后代结果；设备工具仅能管理本会话派工。引用有效期 30 天，路径最多 6 层并阻止循环。
+
+CEO SaySo 的 Action 先保存带稳定 run/request ID 的派工队列，再在锁外经 139 派给客户端/项目管家；断线和重启保留远程运行状态。结果回到独立 CEO Web 回报会话，SaySo 通过持久查询恢复 Action 结果。原项目讨论保留。详见 [分层协作报告](reports/2026-11-03-agent-hierarchy-release.html)。

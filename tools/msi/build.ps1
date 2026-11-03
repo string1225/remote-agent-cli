@@ -2,6 +2,7 @@
 param(
     [string]$PackageVersion = '1.0.0',
     [string]$ReleaseVersion = '',
+    [UInt64]$ReleaseSequence = 0,
     [ValidateSet('amd64','arm64')][string[]]$Architectures = @('amd64','arm64'),
     [string]$WixDirectory = '',
     [string]$UpdatePublicKey = '',
@@ -14,6 +15,7 @@ $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 if ($PackageVersion -notmatch '^([0-9]+)\.([0-9]+)\.([0-9]+)$' -or [int]$Matches[1] -gt 255 -or [int]$Matches[2] -gt 255 -or [int]$Matches[3] -gt 65535) { throw 'MSI version must be major.minor.build (255.255.65535 maximum).' }
 if (!$ReleaseVersion) { $ReleaseVersion = (& git -C $root rev-parse --short HEAD).Trim() }
 if ($ReleaseVersion -notmatch '^[A-Za-z0-9._-]{1,80}$') { throw 'Invalid release version.' }
+if (!$ReleaseSequence) { $ReleaseSequence = [UInt64]((Get-Date -Format 'yyyyMMdd') + '01') }
 if ($UpdatePublicKey -and $UpdatePublicKey -notmatch '^[0-9a-f]{64}$') { throw 'Invalid update public key.' }
 if (!$WixDirectory) {
     $WixDirectory = Join-Path $root '.local/wix314'
@@ -47,6 +49,7 @@ try {
         if (!$SkipGoBuild) {
             $env:GOOS = 'windows'; $env:GOARCH = $arch; $env:CGO_ENABLED = '0'
             $linkFlags = "-s -w -X github.com/string1225/remote-agent-cli/internal/buildinfo.Version=$ReleaseVersion"
+            $linkFlags += " -X github.com/string1225/remote-agent-cli/internal/clientupdate.MSISequence=$ReleaseSequence"
             if ($UpdatePublicKey) { $linkFlags += " -X github.com/string1225/remote-agent-cli/internal/clientupdate.ReleasePublicKey=$UpdatePublicKey" }
             & go build -trimpath "-ldflags=$linkFlags" -o $binary ./cmd/agent-host
             if ($LASTEXITCODE -ne 0) { throw 'Go agent build failed.' }

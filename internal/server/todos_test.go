@@ -15,7 +15,7 @@ import (
 	"github.com/string1225/remote-agent-cli/internal/store"
 )
 
-func todoTestDevice(t *testing.T, f *fixture, owner *http.Client) (store.Agent, agent.Config, chan string, func()) {
+func todoTestDevice(t *testing.T, f *fixture, owner *http.Client, runners ...agent.Runner) (store.Agent, agent.Config, chan string, func()) {
 	t.Helper()
 	row, token := f.enroll(owner, runtime.GOOS)
 	root := t.TempDir()
@@ -32,6 +32,9 @@ func todoTestDevice(t *testing.T, f *fixture, owner *http.Client) (store.Agent, 
 		ran <- prompt
 		return nil
 	}}
+	if len(runners) > 0 {
+		a.Execute = runners[0]
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { _ = a.Run(ctx); close(done) }()

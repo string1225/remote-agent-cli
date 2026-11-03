@@ -188,6 +188,9 @@ func (a *Agent) recoverRemoteUpdate(ctx context.Context, op MaintenanceOperation
 					v.Status = "succeeded"
 					v.Stage = "complete"
 					v.Message = "客户端更新完成，已重新上线"
+					if v.BeforeVersion == v.AfterVersion {
+						v.Message = "当前已是发布版本，未安装新版本"
+					}
 				} else {
 					v.Status = "failed"
 					v.Stage = "rollback"
@@ -274,6 +277,17 @@ func (a *Agent) runMaintenance(parent context.Context, op MaintenanceOperation) 
 		a.mu.Unlock()
 		release, e := remoteClientRelease(ctx, server)
 		err = e
+		if err == nil && release.Version == buildinfo.Current() {
+			_ = m.change(op.ID, func(v *MaintenanceOperation) {
+				v.Status = "succeeded"
+				v.Stage = "complete"
+				v.BeforeVersion = buildinfo.Current()
+				v.ExpectedVersion = release.Version
+				v.AfterVersion = buildinfo.Current()
+				v.Message = "当前已是发布版本，未执行更新"
+			})
+			return
+		}
 		if err == nil {
 			err = m.change(op.ID, func(v *MaintenanceOperation) {
 				v.BeforeVersion = buildinfo.Current()

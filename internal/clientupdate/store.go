@@ -14,6 +14,8 @@ import (
 )
 
 type State struct {
+	MSISeedDigest       string   `json:"msiSeedDigest,omitempty"`
+	MSISequence         uint64   `json:"msiSequence,omitempty"`
 	SchemaVersion       int      `json:"schemaVersion"`
 	Current             *Release `json:"current,omitempty"`
 	Previous            *Release `json:"previous,omitempty"`

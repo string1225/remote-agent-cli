@@ -68,6 +68,11 @@ func (s *Server) defaultHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if before.AgentID != "" {
+		_, e := s.coordinationCall(r.Context(), before.AgentID, protocol.CoordinationCommand{Operation: "host-move-probe", AccountID: account.UserID}, check)
+		if e != nil && !strings.Contains(e.Error(), "尚不支持分层 Agent") {
+			fail(w, 409, e.Error())
+			return
+		}
 		original := before
 		before.MigrationID = store.Token()
 		if err = s.Store.SetDefaultHost(account.UserID, original, before); err != nil {

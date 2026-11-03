@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="./maintenance.css" />
     <link rel="stylesheet" href="./todos.css" />
     <link rel="stylesheet" href="./access.css" />
+    <link rel="stylesheet" href="./coordination.css" />
     <script src="./vendor/marked.umd.js" defer></script>
     <script src="./vendor/purify.min.js" defer></script>
     <script src="./markdown.js" defer></script>
@@ -28,6 +29,7 @@
     <script src="./todos.js" defer></script>
     <script src="./android-app.js" defer></script>
     <script src="./access.js" defer></script>
+    <script src="./coordination.js" defer></script>
   </head>
   <body>
     <div id="notice" class="notice" role="alert" hidden></div>
@@ -95,6 +97,10 @@
           >
             ×
           </button>
+        </div>
+        <div class="ceo-entry">
+          <button id="ceo-open" class="ceo-button">◎ <strong>CEO</strong><span>全局助理</span></button>
+          <button id="ceo-sayso" title="CEO 的 SaySo 讨论与 Action">SaySo ↗</button>
         </div>
         <div class="device-tools">
           <span class="eyebrow"

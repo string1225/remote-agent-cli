@@ -108,6 +108,9 @@ func (e Engine) Apply(ctx context.Context, release Release, download func(io.Wri
 	if s.Pending {
 		return errors.New("a staged runtime is waiting for the stopped service to start")
 	}
+	if s.Current == nil && s.MSISeedDigest != "" && release.Sequence <= s.MSISequence {
+		return errors.New("published runtime predates the installed MSI; keep this MSI or publish a newer signed runtime")
+	}
 	if release.Sequence < s.HighestSequence || release.Sequence == s.HighestSequence && release.SHA256 != s.HighestSHA256 {
 		return errors.New("stale runtime release rejected; use explicit rollback for the retained previous version")
 	}

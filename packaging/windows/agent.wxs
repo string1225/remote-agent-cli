@@ -77,6 +77,8 @@
     </Feature>
     <CustomAction Id="PrepareAgentService" FileKey="AgentExe" ExeCommand="service prepare" Execute="deferred" Impersonate="no" Return="check" />
     <Binary Id="MaintenanceHost" SourceFile="$(var.AgentBinary)" />
+    <CustomAction Id="RollbackMSIRuntime" BinaryKey="MaintenanceHost" ExeCommand="runtime-msi-rollback" Execute="rollback" Impersonate="no" Return="check" />
+    <CustomAction Id="CommitMSIRuntime" BinaryKey="MaintenanceHost" ExeCommand="runtime-msi-commit" Execute="commit" Impersonate="no" Return="check" />
     <Binary Id="ActivationActions" SourceFile="$(var.ActivationActions)" />
     <CustomAction Id="InitializeActivation" BinaryKey="ActivationActions" DllEntry="InitializeActivation" Execute="immediate" Return="check" HideTarget="yes" />
     <CustomAction Id="ActivateDevice" BinaryKey="ActivationActions" DllEntry="ActivateDevice" Execute="immediate" Return="check" HideTarget="yes" />
@@ -85,6 +87,8 @@
     <CustomAction Id="FailAcceptanceInstall" FileKey="AgentExe" ExeCommand="service invalid-installer-action" Execute="deferred" Impersonate="no" Return="check" />
     <?endif?>
     <InstallExecuteSequence>
+      <Custom Action="RollbackMSIRuntime" Before="PrepareAgentService">NOT REMOVE~="ALL"</Custom>
+      <Custom Action="CommitMSIRuntime" After="PrepareAgentService">NOT REMOVE~="ALL"</Custom>
       <Custom Action="PrepareAgentService" After="InstallServices">NOT REMOVE~="ALL"</Custom>
       <Custom Action="CleanupRuntime" After="InstallInitialize">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
       <?ifdef var.InjectFailure?>

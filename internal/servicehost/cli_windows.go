@@ -22,6 +22,10 @@ import (
 func Run(args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "runtime-msi-rollback":
+			return finishMSISeed(true)
+		case "runtime-msi-commit":
+			return finishMSISeed(false)
 		case "update":
 			return ClientUpdate(context.Background(), args[1:], i18n.Writer(os.Stdout))
 		case "runtime-cleanup":

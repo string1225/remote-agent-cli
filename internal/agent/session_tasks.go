@@ -125,7 +125,7 @@ func (a *Agent) startSessionTask(req protocol.Request) (protocol.TaskStarted, er
 			}
 		}
 	}
-	if a.enqueueTaskLocked(queuedTask{ctx: taskCtx, cancel: cancel, priority: req.Interrupt, attachments: append([]string{}, req.Attachments...), start: in, result: result, complete: complete}) {
+	if a.enqueueTaskLocked(queuedTask{ctx: taskCtx, cancel: cancel, recorded: req.InternalReport, priority: req.Interrupt, attachments: append([]string{}, req.Attachments...), start: in, result: result, complete: complete}) {
 		result.Session, _ = h.get(session.ID)
 		return result, nil
 	}

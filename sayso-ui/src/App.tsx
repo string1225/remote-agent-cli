@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
+import DispatchTargetModal from "./DispatchTargetModal";
 import { recordingURL } from "./transport";
 import {
   normalizeDiscussionSearch,
@@ -225,7 +226,8 @@ function useTypewriterLines(lines: string[], active: boolean) {
 export interface WorkspaceScope {
   projectId: string;
   sessionId: string;
-  onTaskCreated?: (id: string) => Promise<void>;
+  onTaskCreated?: (id: string, target?: string) => Promise<void>;
+  ceo?: boolean;
 }
 export default function App({
   onClose,
@@ -239,6 +241,7 @@ export default function App({
   registerClose?: (close: () => Promise<boolean>) => void;
 }) {
   const [closing, setClosing] = useState(false);
+  const [dispatchModal, setDispatchModal] = useState<ActionItem | null>(null);
   const [pendingAudio, setPendingAudio] = useState<
     Array<{ url: string; name: string }>
   >([]);
@@ -936,6 +939,7 @@ export default function App({
                   setSearch={setSearch}
                 />
                 <ActionPanel
+                  stewardMode={scope?.ceo}
                   session={selectedSession}
                   actions={sessionActions}
                   runs={state.runs}
@@ -960,7 +964,7 @@ export default function App({
                     )
                   }
                   onDispatch={(action) =>
-                    mutateAction(
+                    scope?.ceo ? setDispatchModal(action) : mutateAction(
                       async () => { const run = await api.dispatchAction(action.id); if (run.webSessionId) await scope?.onTaskCreated?.(run.webSessionId); return run; },
                       "已创建新的 Web 会话并排队执行",
                     )
@@ -1009,6 +1013,12 @@ export default function App({
           )}
         </main>
       </div>
+      {dispatchModal && <DispatchTargetModal action={dispatchModal} onClose={()=>setDispatchModal(null)} onSend={async target=>{
+        const run=await api.dispatchAction(dispatchModal.id,target);
+        await scope?.onTaskCreated?.(run.webSessionId||"",target.name||"下游管家");
+        await refresh(true);showToast("已加入派工队列，完成后回报 CEO");
+        setDispatchModal(null);
+      }}/>}
       {systemModal && (
         <SystemSettingsModal
           settings={state.settings}
@@ -1367,6 +1377,7 @@ function TranscriptPanel({
 }
 
 function ActionPanel({
+  stewardMode,
   session,
   actions,
   runs,
@@ -1379,6 +1390,7 @@ function ActionPanel({
   onDispatch,
   onViewRun,
 }: {
+  stewardMode?: boolean;
   session: Session;
   actions: ActionItem[];
   runs: AppState["runs"];
@@ -1604,7 +1616,7 @@ function ActionPanel({
                       onClick={() => onDispatch(action)}
                     >
                       <Send size={14} />{" "}
-                      {action.status === "failed"
+                      {stewardMode ? "派给管家" : action.status === "failed"
                         ? "重新创建 Web 会话"
                         : "创建 Web 会话"}
                     </button>

@@ -2,6 +2,8 @@ export type SessionStatus = "paused" | "recording";
 export type ActionStatus = "draft" | "ready" | "running" | "done" | "failed";
 export type ActionPriority = "high" | "medium" | "low";
 
+export interface AssistantRef { scope: "account" | "client" | "project"; clientId: string; projectId?: string; sessionId?: string; name?: string; online?: boolean }
+
 export interface Project {
   id: string;
   name: string;
@@ -90,6 +92,9 @@ export interface ActionItem {
 }
 
 export interface CodexRun {
+  target?: AssistantRef;
+  workId?: string;
+  replyHandle?: string;
   webSessionId?: string;
   taskId?: string;
   id: string;

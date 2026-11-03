@@ -1,4 +1,5 @@
 import type {
+  AssistantRef,
   ActionItem,
   AppSettings,
   AppState,
@@ -18,6 +19,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  assistants: () => request<{assistants:AssistantRef[]}>("/api/assistants"),
   cancelRun: (id: string) =>
     request(`/api/runs/${id}/cancel`, { method: "POST" }),
   state: () => request<AppState>("/api/state"),
@@ -79,7 +81,7 @@ export const api = {
     }),
   deleteAction: (id: string) =>
     request<void>(`/api/actions/${id}`, { method: "DELETE" }),
-  dispatchAction: (id: string) =>
-    request<{webSessionId?:string}>(`/api/actions/${id}/dispatch`, { method: "POST" }),
+  dispatchAction: (id: string, target?: AssistantRef) =>
+    request<{webSessionId?:string;target?:AssistantRef}>(`/api/actions/${id}/dispatch`, { method: "POST", body: JSON.stringify(target ? {target} : {}) }),
   uploadAudio: upload,
 };
