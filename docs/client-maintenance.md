@@ -27,6 +27,16 @@ macOS/Linux 的更新先校验 Ed25519 发布清单和完整下载，再暂停�
 
 三平台清单分别为 `/updates/v1/{windows|darwin|linux}/{amd64|arm64}.json`。发布时先 `go run ./tools/build -version <版本>`，再用 `tools/release-sign` 签发六个平台清单；`-platforms windows` 可仅签发 Windows。私钥不进入客户端或服务器。macOS/Linux 的信任公钥编译在客户端中，网页和清单都不能替换信任根。
 
+## 发布业务 runtime 到 139
+
+发布 MSI 不会自动更新签名业务通道。现有宿主与新 core 协议兼容时，只需发布新的签名 core；`remote-agent update --check` 应显示新版本，不能只核对 MSI 下载链接。
+
+`tools/publish-runtime.ps1 -Version <版本> -Sequence <递增序号> -PrepareOnly` 从当前已提交版本构建六个平台产物，不包含其他未提交改动。输出目录中的 `sign.ps1` 由原发布密钥所属的桌面用户运行，无需管理员权限；它从原 `~/.remote-agent-release` 目录选择与已安装信任公钥匹配的密钥，只写公开签名。服务身份无法访问该目录时，不修改密钥权限、不复制私钥，也不替换信任公钥。
+
+签名后，运行 `tools/publish-runtime.ps1 -PreparedPath <输出目录>`。脚本独立验证六份签名、版本、序号、大小和摘要，再经已配置的 SSH 发布到 139；`-SSHConfig` 和 `-SSHHost` 可指定已有连接。139 保留原下载目录和 MSI，拒绝倒退序号，原子切换签名清单与对应产物，并检查全部公网下载与健康。失败自动恢复旧通道，成功输出私有备份目录和 `rollback.sh`。本流程只变更下载目录，不停止后端服务或迁移数据库。
+
+通道发布不等于客户端已切换。客户端仍须通过签名验证，在任务和录音结束后更新；当前会话执行自身升级时也属于忙碌任务，不强制取消。验收核对真实 worker 版本、服务健康和经 139 的业务请求。恢复旧通道不会让已接受较高序号的客户端静默降级；需要时使用客户端保留的上一稳定 runtime 显式回退。
+
 ## 验证边界
 
 普通测试使用临时配置、模拟凭据和官方包结构的原生 CLI fixture，验证恢复、去重、进度和工具生效。浏览器测试脚本为 `tools/test-device-maintenance.cjs`，需 Playwright 和 Edge，可通过 `PLAYWRIGHT_MODULE`、`PLAYWRIGHT_CHANNEL` 指定运行时。
