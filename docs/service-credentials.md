@@ -52,3 +52,14 @@ ssh -F 'C:/ProgramData/RemoteAgent/ssh/deploy-139/config' deploy-139 id
 恢复旧连接时，管理员将对应 `previous-config` 原子恢复到别名的 `config`，旧代次原样保留。撤销访问需要移除配置副本，并在目标服务器撤销对应部署公钥；删除本机副本不会撤销同一私钥的其他副本。
 
 自动验证使用临时生成的密钥、环回 SSH 模拟服务器和临时 ACL。覆盖系统原生 OpenSSH 的实际认证、主机核验、条件读取权限、输入校验、源文件保留和 PowerShell 语法；不调用真实 UAC、不修改开发机服务或用户 `.ssh`，不代替 139 真连接、真实 GitHub 登录和升级后的验收。
+
+## 当前开发机已配置的 139 连接
+
+2026-11-04 在真实 LocalService 后台任务中复核：本机先前已配置的服务专用连接位于 `C:/Users/junte/.remote-agent/git-auth/ssh-139/config`，别名为 `deploy-139`。该连接的原生 OpenSSH 登录、主机核验和 `sudo -n` 均正常；它是早期已完成初始化的连接，不在上面新版 `ssh configure` 的默认目录。
+
+```powershell
+ssh -F 'C:/Users/junte/.remote-agent/git-auth/ssh-139/config' deploy-139 'id; sudo -n true'
+./tools/deploy-139.ps1 -SSHHost deploy-139 -SSHConfig 'C:/Users/junte/.remote-agent/git-auth/ssh-139/config'
+```
+
+本机后续部署先复用此显式配置。桌面用户 `C:/Users/junte/.ssh/` 的文件拒绝服务身份读取，并不表示既有后台 SSH 连接不可用；无需重新导入私钥、初始化连接或更改 ACL。

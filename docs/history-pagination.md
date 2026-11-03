@@ -15,3 +15,5 @@
 服务器、网页与客户端需升级才能减少历史传输量。旧客户端不返回 `olderCursor` 时，网页兼容其原有正序分页，在内存中保留完整结果，只展示最近 2 轮；后续点击从内存补充。因此旧客户端的首次读取仍有全量传输成本。缓存预览也只显示最近 2 轮，客户端历史始终为准，无数据库迁移。
 
 验证入口：Go 的 `TestHistoryTurnWindow*`、`node --test tools/test-history-pagination.cjs`；安装 Playwright 后运行 `tools/test-history-pagination-ui.cjs` 验证桌面和手机布局、加载次数与滚动位置。
+
+2026-11-04 已通过现有服务专用 SSH 配置部署服务器和网页版本 `476e777`，公网健康检查通过，线上 HTML、JS、CSS 与该提交逐字节一致。部署前保留程序、数据库及配置备份，位于 `/var/backups/remote-agent/476e777d1f096b6b1b7dc9f57b3a1e56c564efea-20261104000712`，原部署保留可回滚。本次仅发布服务器和网页，既有客户端安装包保持原版；客户端倒序按轮次读取仍需升级后生效。
