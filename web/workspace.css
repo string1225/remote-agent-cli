@@ -80,6 +80,9 @@ button:focus-visible,a:focus-visible,summary:focus-visible { outline:3px solid #
 .chat-body { min-width:0; min-height:0; overflow:hidden; flex:1 1 0; display:grid; grid-template-rows:minmax(0,1fr) auto; }
 .chat-scroll { min-width:0; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-gutter:stable; }
 .messages { overflow:visible; padding:30px clamp(22px,5%,74px) 12px; scroll-behavior:auto; }
+.load-more-history { display:block; margin:16px auto 0; padding:6px 12px; border:0; background:transparent; color:var(--muted); font-size:12px; }
+.load-more-history:hover { color:var(--blue); text-decoration:underline; }
+.load-more-history:disabled { cursor:default; opacity:.6; }
 .message { margin-bottom:30px; min-width:0; }
 .message-label { color:#7890b1; font-size:11px; margin-bottom:10px; font-weight:650; }
 .run-details-toggle { padding:0; margin-left:4px; border:0; border-radius:3px; background:transparent; color:#8b96a8; font-size:10px; font-weight:400; line-height:1.5; }

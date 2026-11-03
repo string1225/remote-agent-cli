@@ -17,6 +17,7 @@ const state = {
   sessions: [],
   session: null,
   entries: [],
+  olderCursor: 0,
   running: null,
   runSession: null,
   pending: new Map(),
@@ -654,7 +655,12 @@ async function loadSession(session, {localOnly = false, refreshOnly = false, aut
     const valid = cached?.session?.serviceId === project;
     state.historyLocal = !!valid;
     state.session = valid ? {...cached.session, ...session} : session;
-    state.entries = valid ? [...cached.entries] : [];
+    const preview = recentHistory(valid ? cached.entries : []);
+    state.entries = preview.entries;
+    state.olderCursor = preview.olderCursor;
+    state.legacyHistory = valid ? [...cached.entries] : null;
+    state.historyReady = false;
+    state.loadingOlder = null;
     const scope = [state.user?.id, state.selected?.id, project];
     WorkspaceCache.write("project-selection", scope, {session:session.id});
     WorkspaceCache.write("selection", scope.slice(0, 1), {client:state.selected?.id, project, session:session.id});
@@ -668,17 +674,14 @@ async function loadSession(session, {localOnly = false, refreshOnly = false, aut
   if (localOnly || !peer || peer.connecting) return;
   state.loadingSession = revision;
   try {
-    let cursor = 0, current, entries = [];
-    do {
-      const page = await rpc("sessions.get", {sessionId:session.id, cursor});
-      if (revision !== state.readRevision || peer !== state.peer || project !== state.serviceId || session.id !== state.session?.id || state.mode === "sayso") return;
-      if (page.session.serviceId !== project) throw Error("会话不属于当前项目");
-      current = page.session;
-      entries.push(...page.entries);
-      cursor = page.nextCursor || 0;
-    } while (cursor);
+    const page = await readHistoryTurns(session.id, 0, () => revision === state.readRevision && peer === state.peer && project === state.serviceId && session.id === state.session?.id && state.mode !== "sayso");
+    if (!page) return;
+    const current = page.session, entries = page.entries;
     state.session = current;
     state.entries = entries.sort((a, b) => a.seq - b.seq);
+    state.olderCursor = page.olderCursor;
+    state.legacyHistory = page.legacy;
+    state.historyReady = true;
     state.historyLocal = false;
     reconcilePendingDraft();
     cacheCurrentSession();
@@ -690,6 +693,73 @@ async function loadSession(session, {localOnly = false, refreshOnly = false, aut
     if (state.loadingSession === revision) state.loadingSession = null;
   }
 }
+// Count user turns, preserving every chunk of each prompt and agent reply.
+function recentHistory(entries, before = 0) {
+  const rows = before ? entries.filter(entry => entry.seq < before) : entries;
+  let start = rows.length, count = 0, userTurn;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const entry = rows[i];
+    if (count === 2 && (entry.role !== "user" || entry.turnId !== userTurn)) break;
+    if (entry.role === "user" && (count === 0 || entry.turnId !== userTurn)) {
+      count++;
+      userTurn = entry.turnId;
+    }
+    start = i;
+  }
+  return {entries:rows.slice(start), olderCursor:start ? rows[start]?.seq || 0 : 0};
+}
+async function readHistoryTurns(sessionId, before, isCurrent) {
+  let cursor = 0, session, olderCursor = 0, historyEnd = before, supported, entries = [];
+  do {
+    const page = await rpc("sessions.get", {sessionId, cursor, turns:2, before:historyEnd});
+    if (!isCurrent()) return null;
+    if (page.session.serviceId !== state.serviceId) throw Error("会话不属于当前项目");
+    if (supported === undefined) {
+      supported = page.olderCursor !== undefined;
+      olderCursor = page.olderCursor || 0;
+      historyEnd = page.historyEnd || before;
+    }
+    session = page.session;
+    entries.push(...page.entries);
+    cursor = page.nextCursor || 0;
+  } while (cursor);
+  // Older clients only provide forward pages. Keep their transcript in memory
+  // while applying the same two-turn display and load-more behavior.
+  if (!supported) return {session, ...recentHistory(entries, before), legacy:entries};
+  return {session, entries, olderCursor, legacy:null};
+}
+async function loadMoreHistory() {
+  if (!state.olderCursor || state.loadingOlder || state.loadingSession === state.readRevision || (!state.legacyHistory && (!state.peer || state.peer.connecting))) return;
+  const peer = state.peer, project = state.serviceId, session = state.session, revision = state.readRevision, before = state.olderCursor;
+  const token = {};
+  const isCurrent = () => state.peer === peer && state.serviceId === project && state.session?.id === session.id && state.readRevision === revision && state.mode !== "sayso";
+  state.loadingOlder = token;
+  renderChat();
+  try {
+    const page = state.legacyHistory ? recentHistory(state.legacyHistory, before) : await readHistoryTurns(session.id, before, isCurrent);
+    if (!page || !isCurrent()) return;
+    const scroll = $("chat-scroll"), anchor = $("messages").firstElementChild;
+    const anchorTop = anchor?.getBoundingClientRect().top, top = scroll.scrollTop, height = scroll.scrollHeight;
+    const seq = new Set(state.entries.map(entry => entry.seq));
+    state.entries.unshift(...page.entries.filter(entry => !seq.has(entry.seq)));
+    state.entries.sort((a, b) => a.seq - b.seq);
+    state.olderCursor = page.olderCursor;
+    cacheCurrentSession();
+    renderChat();
+    scroll.scrollTop = anchor ? scroll.scrollTop + anchor.getBoundingClientRect().top - anchorTop : top + scroll.scrollHeight - height;
+    state.chatAtBottom = false;
+  } catch (error) {
+    if (isCurrent()) notice(error.message);
+  } finally {
+    if (state.loadingOlder === token) {
+      state.loadingOlder = null;
+      const button = $("load-more-history");
+      button.disabled = !state.legacyHistory && (!state.peer || state.peer.connecting);
+      button.textContent = "加载更多";
+    }
+  }
+}
+$("load-more-history").onclick = loadMoreHistory;
 function scrollChatToLatest() {
   state.chatAtBottom = true;
   $("chat-scroll").scrollTop = $("chat-scroll").scrollHeight;
@@ -718,6 +788,10 @@ function toolInvocation(text) {
 function renderChat(live = false) {
   setRunning(state.running);
   updateSessionContext();
+  const moreHistory = $("load-more-history");
+  moreHistory.hidden = !state.session || !state.olderCursor;
+  moreHistory.disabled = !!state.loadingOlder || (!state.legacyHistory && (!state.peer || state.peer.connecting));
+  moreHistory.textContent = state.loadingOlder ? "加载中…" : "加载更多";
   $("send-run").textContent = state.session?.kind === "im" ? "发送到渠道 ↗" : state.taskQueue && ["queued", "running"].includes(state.session?.taskStatus) ? "排队 ↗" : "发送 ↗";
   $("prompt").placeholder = state.session?.kind === "im" ? "向这个项目的 IM 渠道发送消息…" : "输入你的想法，交给项目的执行器…";
   $("sayso-root").hidden = state.mode !== "sayso";
@@ -1562,6 +1636,7 @@ async function openLinkedSession() {
 async function pollSession() {
   const session = state.session, peer = state.peer, revision = state.readRevision;
   if (!session || !peer || peer.connecting || state.loadingSession === revision) return;
+  if (state.historyReady === false) return loadSession(session, {refreshOnly:true});
   let cursor = state.entries.at(-1)?.seq || 0;
   do {
     const page = await rpc("sessions.get", {sessionId:session.id,cursor});

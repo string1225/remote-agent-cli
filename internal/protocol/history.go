@@ -49,7 +49,9 @@ type ConversationPage struct {
 }
 
 type HistoryPage struct {
-	Session    Conversation `json:"session"`
-	Entries    []ChatEntry  `json:"entries"`
-	NextCursor uint64       `json:"nextCursor"`
+	Session     Conversation `json:"session"`
+	Entries     []ChatEntry  `json:"entries"`
+	NextCursor  uint64       `json:"nextCursor"`
+	OlderCursor *uint64      `json:"olderCursor,omitempty"`
+	HistoryEnd  uint64       `json:"historyEnd,omitempty"`
 }

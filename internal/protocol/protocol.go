@@ -73,6 +73,8 @@ type Request struct {
 	Title          string          `json:"title,omitempty"`
 	Search         string          `json:"search,omitempty"`
 	Cursor         uint64          `json:"cursor,omitempty"`
+	Before         uint64          `json:"before,omitempty"`
+	Turns          int             `json:"turns,omitempty"`
 	Method         string          `json:"method,omitempty"`
 	Path           string          `json:"path,omitempty"`
 	Body           json.RawMessage `json:"body,omitempty"`

@@ -461,7 +461,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		}
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: page})
 	case "sessions.get":
-		page, err := a.historyStore().read(req.SessionID, req.Cursor)
+		page, err := a.historyStore().readWindow(req.SessionID, req.Cursor, req.Before, req.Turns)
 		if err != nil {
 			fail(err)
 			return

@@ -139,7 +139,17 @@ func (h historyStore) listArchived(serviceID, search string, offset uint64, arch
 	return
 }
 func (h historyStore) read(id string, after uint64) (page protocol.HistoryPage, err error) {
+	return h.readWindow(id, after, 0, 0)
+}
+
+// readWindow reads a bounded page. Turn windows seek backwards from the end,
+// then stream forwards in transport-sized pages without scanning older turns.
+// before is exclusive; continuation pages reuse HistoryEnd and NextCursor.
+func (h historyStore) readWindow(id string, after, before uint64, turns int) (page protocol.HistoryPage, err error) {
 	page.Entries = []protocol.ChatEntry{}
+	if turns < 0 || turns > 10 {
+		return page, errors.New("turns must be between 0 and 10")
+	}
 	err = h.transact(false, func(tx *bolt.Tx) error {
 		var err error
 		page.Session, err = sessionFrom(tx, id)
@@ -158,11 +168,60 @@ func (h historyStore) read(id string, after uint64) (page protocol.HistoryPage, 
 		if after == ^uint64(0) {
 			return nil
 		}
+		if turns > 0 {
+			var older uint64
+			page.OlderCursor = &older
+			cursor := bucket.Cursor()
+			k, _ := cursor.Last()
+			if k == nil {
+				return nil
+			}
+			page.HistoryEnd = binary.BigEndian.Uint64(k) + 1
+			if before > 0 && before < page.HistoryEnd {
+				page.HistoryEnd = before
+			}
+			if after == 0 {
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, page.HistoryEnd)
+				k, v := cursor.Seek(key)
+				if k == nil {
+					k, v = cursor.Last()
+				} else {
+					k, v = cursor.Prev()
+				}
+				var start uint64
+				var userTurn string
+				count := 0
+				for ; k != nil; k, v = cursor.Prev() {
+					var entry protocol.ChatEntry
+					if err := json.Unmarshal(v, &entry); err != nil {
+						return err
+					}
+					// One prompt can occupy multiple adjacent user chunks.
+					if count == turns && (entry.Role != "user" || entry.TurnID != userTurn) {
+						older = start
+						break
+					}
+					if entry.Role == "user" && (count == 0 || entry.TurnID != userTurn) {
+						count++
+						userTurn = entry.TurnID
+					}
+					start = entry.Seq
+				}
+				if start == 0 {
+					return nil
+				}
+				after = start - 1
+			}
+		}
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, after+1)
 		cursor := bucket.Cursor()
 		size := 0
 		for k, v := cursor.Seek(key); k != nil; k, v = cursor.Next() {
+			if turns > 0 && binary.BigEndian.Uint64(k) >= page.HistoryEnd {
+				break
+			}
 			if len(page.Entries) > 0 && size+len(v) > 24000 {
 				page.NextCursor = page.Entries[len(page.Entries)-1].Seq
 				break
