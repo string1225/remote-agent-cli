@@ -126,7 +126,15 @@ func (s *Server) uploadSharedFile(w http.ResponseWriter, r *http.Request) {
 	}
 	complete = true
 	file.URL = s.Config.PublicURL + "/files/" + file.ID
+	if isHTMLReport(file.Name) {
+		file.PreviewURL = file.URL + "?view=1"
+	}
 	reply(w, 200, file)
+}
+
+func isHTMLReport(name string) bool {
+	name = strings.ToLower(name)
+	return strings.HasSuffix(name, ".html") || strings.HasSuffix(name, ".htm")
 }
 
 func (s *Server) downloadSharedFile(w http.ResponseWriter, r *http.Request) {
@@ -161,8 +169,21 @@ func (s *Server) downloadSharedFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	disposition := "attachment"
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": metadata.Name}))
+	if r.URL.Query().Get("view") == "1" {
+		if !isHTMLReport(metadata.Name) {
+			fail(w, http.StatusUnsupportedMediaType, "only HTML reports support preview")
+			return
+		}
+		disposition = "inline"
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// Reports share the application host. Give them an opaque origin and no
+		// scripts, forms, network access or remote assets; self-contained CSS is
+		// sufficient for readable reports without access to account sessions.
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox")
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": metadata.Name}))
 	w.Header().Set("X-File-Expires-At", metadata.ExpiresAt.Format(time.RFC3339))
 	http.ServeContent(w, r, metadata.Name, info.ModTime(), file)
 }

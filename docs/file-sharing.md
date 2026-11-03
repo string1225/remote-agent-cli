@@ -8,6 +8,8 @@ remote-agent files upload --path "C:\path\remote-agent.apk"
 
 可使用 `--config PATH` 选择已绑定客户端配置。MCP 提供 `upload_file`，参数 `path` 必须是当前机器上普通文件的绝对路径。两种入口均返回 `id/name/size/sha256/url/expiresAt`，不发送消息；Agent 可在回复或已经授权的消息里附上链接。该能力需要升级服务端和执行上传的客户端。
 
+上传 `.html` / `.htm`（大小写均可）还返回 `previewUrl`，打开即可阅读静态报告；原 `url` 继续下载文件。预览沿用同一随机 ID、权限和凌晨 4 点失效时间，支持 GET/HEAD；非 HTML 的 `?view=1` 返回 415。报告应为单文件，内嵌 CSS 和 data 图片；139 用 CSP sandbox 隔离来源，禁止脚本、表单、外部资源和网络访问，上传的 HTML 无法读取工作台账号。交互式报告需要后续独立来源托管，当前不支持运行脚本。
+
 上传限 100 MiB，以设备 Bearer 凭据调用 `POST /api/agent/files?id=<deviceId>`，二进制 `application/octet-stream` 请求体，`X-File-Name` 为 URL query 编码后的文件名。凭据只发给所属站点，不跟随重定向。最多四个并发上传，流式计算 SHA-256，失败移除未完成文件；保存完整内容及元数据后才发布链接。
 
 `GET/HEAD /files/<256-bit random ID>` 无需登录，支持 Range 续传和中文附件名称，强制下载并禁止缓存。文件名和原路径不在下载 URL 中。知道链接的人均可下载，直到下次北京时间（UTC+8）凌晨 4 点；这不是从上传时起保留 24 小时。
