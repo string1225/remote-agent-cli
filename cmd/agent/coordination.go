@@ -17,6 +17,13 @@ func runCoordination(ctx context.Context, args []string, out io.Writer) error {
 	}
 	operation := "list"
 	rest := args[1:]
+	hostMode := args[0] == "host"
+	if hostMode {
+		if len(rest) == 0 || (rest[0] != "show" && rest[0] != "set") {
+			return errors.New("use host show | host set --client CLIENT_ID")
+		}
+		operation, rest = rest[0], rest[1:]
+	}
 	if args[0] == "work" {
 		if len(rest) == 0 {
 			return errors.New("use work dispatch/read/reply/cancel --help")
@@ -50,7 +57,16 @@ func runCoordination(ctx context.Context, args []string, out io.Writer) error {
 	}
 	method, url := "GET", "/api/agent/assistants"
 	var body any
-	if operation != "list" {
+	if hostMode {
+		url = "/api/agent/default-host"
+		if operation == "set" {
+			if *client == "" {
+				return errors.New("host set requires --client")
+			}
+			method = "PUT"
+			body = map[string]string{"agentId": *client}
+		}
+	} else if operation != "list" {
 		if *session == "" || *sourceProject == "" {
 			return errors.New("real --source-project and --session are required")
 		}

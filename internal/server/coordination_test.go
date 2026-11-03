@@ -17,7 +17,19 @@ func TestCoordinationRelayDirectReplyAndAccountIsolation(t *testing.T) {
 	host, hostConfig, hostRan, _ := todoTestDevice(t, f, alice)
 	target, targetConfig, targetRan, _ := todoTestDevice(t, f, alice)
 	f.request(alice, "POST", "/api/coordination", protocol.CoordinationCommand{Operation: "resolve", Target: protocol.AssistantRef{Scope: "account"}}, 409)
-	f.request(alice, "PUT", "/api/default-host", map[string]string{"agentId": host.ID}, 200)
+	_, err := agent.ClientAPI(context.Background(), hostConfig, "PUT", "/api/agent/default-host", map[string]string{"agentId": host.ID})
+	if err != nil {
+		t.Fatal("CLI could not select default host", err)
+	}
+	foreign, _ := f.enroll(bob, "windows")
+	if _, err = agent.ClientAPI(context.Background(), hostConfig, "PUT", "/api/agent/default-host", map[string]string{"agentId": foreign.ID}); err == nil {
+		t.Fatal("device CLI selected a foreign host")
+	}
+	invalid := hostConfig
+	invalid.Credential = "invalid"
+	if _, err = agent.ClientAPI(context.Background(), invalid, "GET", "/api/agent/default-host", nil); err == nil {
+		t.Fatal("unauthenticated host query")
+	}
 	raw := f.request(alice, "POST", "/api/coordination", protocol.CoordinationCommand{Operation: "resolve", Target: protocol.AssistantRef{Scope: "account", ClientID: target.ID}}, 200)
 	var resolved protocol.AssistantResolved
 	_ = json.Unmarshal(raw, &resolved)
@@ -52,7 +64,7 @@ func TestCoordinationRelayDirectReplyAndAccountIsolation(t *testing.T) {
 		t.Fatal("downstream not executed")
 	}
 	// Only the original creator device/session can use the agent tool route.
-	_, err := agent.ClientAPI(context.Background(), targetConfig, "POST", "/api/agent/coordination", protocol.CoordinationCommand{Operation: "read", WorkID: accepted.WorkID, Source: dispatch.Source})
+	_, err = agent.ClientAPI(context.Background(), targetConfig, "POST", "/api/agent/coordination", protocol.CoordinationCommand{Operation: "read", WorkID: accepted.WorkID, Source: dispatch.Source})
 	if err == nil {
 		t.Fatal("sibling device could control work")
 	}

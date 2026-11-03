@@ -62,7 +62,7 @@ func run() error {
 	if os.Args[1] == "files" {
 		return runFiles(context.Background(), os.Args[2:], os.Stdout)
 	}
-	if os.Args[1] == "assistants" || os.Args[1] == "work" {
+	if os.Args[1] == "assistants" || os.Args[1] == "work" || os.Args[1] == "host" {
 		return runCoordination(context.Background(), os.Args[1:], os.Stdout)
 	}
 	if os.Args[1] == "ssh" {

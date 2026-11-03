@@ -15,7 +15,7 @@ import (
 // ClientAPI uses only the enrolled site's HTTPS endpoint. Device credentials are
 // never handed to the target client or included in model tool output.
 func ClientAPI(ctx context.Context, c Config, method, path string, body any) (json.RawMessage, error) {
-	if path != "/api/agent/catalog" && path != "/api/agent/tools" && path != "/api/agent/todos" && path != "/api/agent/channel" && path != "/api/agent/channels/sync" && path != "/api/agent/assistants" && path != "/api/agent/coordination" {
+	if path != "/api/agent/catalog" && path != "/api/agent/tools" && path != "/api/agent/todos" && path != "/api/agent/channel" && path != "/api/agent/channels/sync" && path != "/api/agent/assistants" && path != "/api/agent/coordination" && path != "/api/agent/default-host" {
 		return nil, errors.New("unsupported client endpoint")
 	}
 	var data []byte

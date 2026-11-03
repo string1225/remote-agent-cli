@@ -62,6 +62,8 @@ curl --proxy http://127.0.0.1:17891 https://chatgpt.com/
 
 ## 本机维护
 
+`remote-agent host show` 查询账号默认主机；用户明确选择后用 `remote-agent host set --client CLIENT_ID` 设置，只能选择本账号客户端。与网页共用待办迁移和 CEO 工作区保护；主机选择是配置变更，查询目录不会自动替用户选择。
+
 用户可在网页“服务器与 GitHub”或 CLI `servers add --name NAME --host IP --user USER` 隐藏输入密码，客户端自动生成密钥、追加远端公钥并验证 SSH。不要让用户把服务器密码放进聊天、模型提示或命令参数；需要初始化时指引用户使用该表单或本机终端。`servers list/test/remove` 查询、测试或归档连接；列表仅有目标、指纹及 `ssh -F CONFIG ALIAS` 配置路径，不返回私钥。连接属于所选客户端，不跨设备复制私钥。
 
 GitHub 可用 `github login [--username ACCOUNT] [--wait]` 发起，`github status/accounts/cancel/logout` 管理；`git login/status/logout` 保留。常驻客户端独立轮询，终端或网页关闭不取消授权，用户须在官方页面确认设备码。不要把 GitHub 密码或 Token 放进模型上下文。凭据管理不属于 MCP 会话工具；旧客户端需先更新 core。

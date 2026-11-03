@@ -25,9 +25,21 @@ func (s *Server) lockTodos(userID string) func() {
 }
 
 func (s *Server) defaultHost(w http.ResponseWriter, r *http.Request) {
-	account, ok := s.require(w, r)
-	if !ok {
-		return
+	var account struct{ UserID string }
+	sourceID := ""
+	if r.URL.Path == "/api/agent/default-host" {
+		device, e := s.authenticateAgent(r)
+		if e != nil {
+			fail(w, 401, "device credentials denied")
+			return
+		}
+		account.UserID, sourceID = device.UserID, device.ID
+	} else {
+		user, ok := s.require(w, r)
+		if !ok {
+			return
+		}
+		account.UserID = user.UserID
 	}
 	unlock := s.lockTodos(account.UserID)
 	defer unlock()
@@ -40,7 +52,7 @@ func (s *Server) defaultHost(w http.ResponseWriter, r *http.Request) {
 		s.hostView(w, before)
 		return
 	}
-	check := s.todoAuth(r, account.UserID, "")
+	check := s.todoAuth(r, account.UserID, sourceID)
 	before, err = s.recoverTodoMigration(r.Context(), account.UserID, before, check)
 	if err != nil {
 		fail(w, 409, err.Error())
