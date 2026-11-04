@@ -137,13 +137,10 @@ try {
     Wait-Connected $offset
     $status = Get-Content -LiteralPath $healthPath -Raw | ConvertFrom-Json
     if ($status.version -ne $expectedVersion) { throw 'The retained runtime changed during host replacement.' }
+    $retainedHostPID = $status.hostPid
     $offset = LogOffset
     $lock.Dispose(); $lock = $null
     Start-Existing 'RemoteAgentUpdater'
-    & $hostPath update
-    if ($LASTEXITCODE -ne 0) { throw 'Runtime update failed; restoring the original host and runtime selection.' }
-    Wait-Connected $offset
-    Write-Output "Host 3 and runtime update completed; server connection confirmed. Backup: $backup"
 } catch {
     $failure = $_
     if ($replaced) {
@@ -171,3 +168,11 @@ try {
     if ($lock) { $lock.Dispose() }
     if ($paused) { & sc.exe control RemoteAgent 130 | Out-Null }
 }
+# The verified host migration is complete. The normal update engine owns core
+# rollback; a busy/refused core update must never force-stop newly accepted work.
+& $hostPath update
+$updateExit = $LASTEXITCODE
+$status = Get-Content -LiteralPath $healthPath -Raw | ConvertFrom-Json
+if ($status.hostPid -ne $retainedHostPID -or $status.version -ne $expectedVersion) { Wait-Connected $offset }
+if ($updateExit -ne 0) { throw "Host 3 is installed and the existing runtime was retained by the update engine. Retry remote-agent update when idle. Backup: $backup" }
+Write-Output "Host 3 and runtime update completed; server connection confirmed. Backup: $backup"
