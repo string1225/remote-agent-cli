@@ -25,10 +25,11 @@ Remote Agent for Windows
    Runtime connection messages are in .remote-agent\agent.log.
 
 Routine updates: remote-agent update (or update --check / update --rollback).
-The fixed RemoteAgentUpdater service verifies signed business programs and
+The fixed RemoteAgentUpdater service downloads from the enrolled HTTPS site and
 switches versions without another MSI or UAC prompt. Automatic checks run when
 idle. MSI/SCM registration and device identity, projects, history and recordings
-stay in place. Host/trust-anchor changes still require an explicit host MSI.
+stay in place. Older hosts need a one-time administrator host upgrade; the
+tools/upgrade-host.ps1 maintenance script can replace the host without MSI.
 
 The service runs as LocalService with its own SID. Credentials remain in the
 original private user directory. The ProgramData service profile contains paths

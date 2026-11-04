@@ -8,11 +8,11 @@ import (
 )
 
 // MSISequence is supplied by the installer build; it does not bypass release
-// signature validation or replace the signed updater's anti-rollback floor.
+// integrity validation or replace the updater's anti-rollback floor.
 var MSISequence = "0"
 
 // AdoptMSISeed is called only by the elevated MSI custom action after installing
-// the protected seed. Signed background releases keep their normal verification
+// the protected seed. Background releases keep their normal verification
 // and sequence floor. MSI rollback restores the entire former runtime pointer.
 func (s Store) AdoptMSISeed(digest string) error {
 	state, e := s.Load()

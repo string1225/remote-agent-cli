@@ -1,11 +1,10 @@
-// Package clientupdate implements signed, credential-free runtime releases.
+// Package clientupdate implements credential-free runtime releases from the
+// configured HTTPS site, with platform, version and artifact integrity checks.
 package clientupdate
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,7 +18,7 @@ import (
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 )
 
-const HostVersion = 2
+const HostVersion = 3
 const UnixUpdateProtocol = 1
 const WorkerProtocol = 1
 const DataVersion = 1
@@ -45,8 +44,10 @@ type Payload struct {
 
 type Release struct {
 	Payload
-	KeyID     string `json:"keyId"`
-	Signature string `json:"signature"`
+	// Legacy fields preserve existing runtime state and rollback points.
+	// New releases omit them; publication authority is the configured HTTPS site.
+	KeyID     string `json:"keyId,omitempty"`
+	Signature string `json:"signature,omitempty"`
 }
 
 func (p Payload) Artifact() string {
@@ -60,24 +61,12 @@ func supportedPlatform(platform, arch string) bool {
 	return (platform == "windows" || platform == "darwin" || platform == "linux") && (arch == "amd64" || arch == "arm64")
 }
 
-func (r Release) Verify(keys map[string]ed25519.PublicKey, platform, arch string) error {
+func (r Release) Verify(platform, arch string) error {
 	p := r.Payload
 	if p.SchemaVersion != 1 || p.Sequence == 0 || !versionRE.MatchString(p.Version) || p.OS != platform || p.Arch != arch || !supportedPlatform(p.OS, p.Arch) || !digestRE.MatchString(p.SHA256) || p.Size < 1 || p.Size > MaxSize || p.MinHostVersion < 1 || p.WorkerProtocol < 1 || p.DataVersion != DataVersion || p.MinRollbackDataVersion != DataVersion {
 		return errors.New("invalid or incompatible runtime release")
 	}
-	key, ok := keys[r.KeyID]
-	sig, err := base64.StdEncoding.DecodeString(r.Signature)
-	data, _ := json.Marshal(p)
-	// Include key ID in the signed domain; manifests cannot replace trust anchors.
-	if !ok || len(key) != ed25519.PublicKeySize || err != nil || !ed25519.Verify(key, append([]byte("remote-agent-update/v1\x00"+r.KeyID+"\x00"), data...), sig) {
-		return errors.New("runtime release signature denied")
-	}
 	return nil
-}
-
-func Sign(p Payload, id string, key ed25519.PrivateKey) Release {
-	data, _ := json.Marshal(p)
-	return Release{Payload: p, KeyID: id, Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(key, append([]byte("remote-agent-update/v1\x00"+id+"\x00"), data...)))}
 }
 
 func Compatible(r Release) error {
@@ -88,7 +77,7 @@ func Compatible(r Release) error {
 		return nil
 	}
 	if r.MinHostVersion > HostVersion || r.WorkerProtocol != WorkerProtocol {
-		return fmt.Errorf("this release requires a newer host MSI (minimum host %d, worker protocol %d); routine runtime updates do not require MSI", r.MinHostVersion, r.WorkerProtocol)
+		return fmt.Errorf("this release requires a newer fixed host (minimum host %d, worker protocol %d); upgrade the host once before updating the runtime", r.MinHostVersion, r.WorkerProtocol)
 	}
 	return nil
 }
@@ -114,7 +103,7 @@ func get(ctx context.Context, client *http.Client, url string) (*http.Response, 
 	return res, nil
 }
 
-func Fetch(ctx context.Context, client *http.Client, server, platform, arch string, keys map[string]ed25519.PublicKey) (Release, error) {
+func Fetch(ctx context.Context, client *http.Client, server, platform, arch string) (Release, error) {
 	var release Release
 	u, err := protocol.ParseServerURL(server)
 	if err != nil {
@@ -136,7 +125,7 @@ func Fetch(ctx context.Context, client *http.Client, server, platform, arch stri
 	if d.Decode(&struct{}{}) != io.EOF {
 		return release, errors.New("invalid trailing runtime manifest data")
 	}
-	if err := release.Verify(keys, platform, arch); err != nil {
+	if err := release.Verify(platform, arch); err != nil {
 		return release, err
 	}
 	return release, Compatible(release)

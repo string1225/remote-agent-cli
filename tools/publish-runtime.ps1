@@ -2,6 +2,7 @@
 param(
     [string]$Version = '',
     [uint64]$Sequence = 0,
+    [string]$PackageVersion = '',
     [string]$PreparedPath = '',
     [switch]$PrepareOnly,
     [string]$SSHHost = 'deploy-139',
@@ -35,26 +36,18 @@ if (!$PreparedPath) {
         $env:CGO_ENABLED = '0'
         $env:GOFLAGS = '-buildvcs=false'
         Invoke-Checked go @('-C',$source,'run','./tools/build','-version',$Version)
-        Invoke-Checked go @('-C',$source,'build','-trimpath','-o',"$PreparedPath/release-sign.exe",'./tools/release-sign')
+        if ($PackageVersion) {
+            & (Join-Path $source 'tools/msi/build.ps1') -PackageVersion $PackageVersion -ReleaseVersion $Version -ReleaseSequence $Sequence -WixDirectory (Join-Path $repository '.local/wix314') -PackageOnly
+        }
+        Invoke-Checked go @('-C',$source,'build','-trimpath','-o',"$PreparedPath/release-manifest.exe",'./tools/release-manifest')
+        Invoke-Checked (Join-Path $PreparedPath 'release-manifest.exe') @('-dist',"$source/dist",'-version',$Version,'-sequence',[string]$Sequence)
     } finally {
         $env:GOOS, $env:GOARCH, $env:CGO_ENABLED, $env:GOFLAGS = $savedOS, $savedArch, $savedCGO, $savedFlags
     }
-    $metadata = [ordered]@{schemaVersion=1;revision=$revision;version=$Version;sequence=$Sequence}
+    $metadata = [ordered]@{schemaVersion=1;revision=$revision;version=$Version;sequence=$Sequence;hostVersion=3;packageVersion=$PackageVersion}
     [IO.File]::WriteAllText((Join-Path $PreparedPath 'release.json'), ($metadata | ConvertTo-Json), $utf8)
     Copy-Item -LiteralPath (Join-Path $source 'deploy/publish-runtime.sh') -Destination $PreparedPath
-    $signScript = @'
-$ErrorActionPreference = 'Stop'
-$release = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Raw | ConvertFrom-Json
-$arguments = @('-dist',(Join-Path $PSScriptRoot 'source/dist'),'-version',$release.version,'-sequence',[string]$release.sequence)
-& (Join-Path $PSScriptRoot 'release-sign.exe') @arguments -key-dir (Join-Path $env:USERPROFILE '.remote-agent-release')
-if ($LASTEXITCODE -ne 0) { throw 'Signing failed. No server publication was attempted.' }
-& (Join-Path $PSScriptRoot 'release-sign.exe') @arguments -verify-only
-if ($LASTEXITCODE -ne 0) { throw 'Signed package verification failed.' }
-Write-Output 'All six runtime packages signed with the original key and verified. Private keys stayed in their original directory.'
-'@
-    [IO.File]::WriteAllText((Join-Path $PreparedPath 'sign.ps1'), $signScript, $utf8)
     Write-Output "Prepared committed revision $revision in $PreparedPath"
-    Write-Output "Sign as the original desktop user: powershell -NoProfile -File '$PreparedPath/sign.ps1'"
     if ($PrepareOnly) { return }
 }
 $PreparedPath = [IO.Path]::GetFullPath($PreparedPath)
@@ -62,7 +55,7 @@ if (!$PreparedPath.StartsWith($workRoot + [IO.Path]::DirectorySeparatorChar, [St
 $release = Get-Content -LiteralPath (Join-Path $PreparedPath 'release.json') -Raw | ConvertFrom-Json
 if ($release.schemaVersion -ne 1 -or $release.revision -notmatch '^[0-9a-f]{40}$' -or $release.version -notmatch '^[A-Za-z0-9._-]{1,80}$' -or [uint64]$release.sequence -eq 0) { throw 'Invalid prepared release metadata.' }
 $distribution = Join-Path $PreparedPath 'source/dist'
-Invoke-Checked (Join-Path $PreparedPath 'release-sign.exe') @('-verify-only','-dist',$distribution,'-version',$release.version,'-sequence',[string]$release.sequence)
+Invoke-Checked (Join-Path $PreparedPath 'release-manifest.exe') @('-verify-only','-dist',$distribution,'-version',$release.version,'-sequence',[string]$release.sequence)
 if ($PrepareOnly) { return }
 $payload = Join-Path $PreparedPath 'payload'
 New-Item -ItemType Directory -Path $payload -Force | Out-Null
@@ -72,6 +65,8 @@ foreach ($platform in @('windows','darwin','linux')) {
         $artifact = "remote-agent-$platform-$arch"
         if ($platform -eq 'windows') { $artifact = "remote-agent-core-windows-$arch.exe" }
         $names += @($artifact,"updates/v1/$platform/$arch.json")
+        if ($platform -eq 'windows') { $names += "remote-agent-windows-$arch.exe" }
+        if ($platform -eq 'windows' -and $release.PSObject.Properties['packageVersion'] -and $release.packageVersion) { $names += "remote-agent-windows-$arch.msi" }
     }
 }
 $checks = @()

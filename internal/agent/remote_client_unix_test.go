@@ -4,8 +4,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -29,33 +27,9 @@ import (
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 )
 
-func unixReleaseKey(t *testing.T) ed25519.PrivateKey {
-	t.Helper()
-	pub, key, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if path := os.Getenv("REMOTE_AGENT_UNIX_TEST_KEY"); path != "" {
-		raw, e := os.ReadFile(path)
-		if e != nil {
-			t.Fatal(e)
-		}
-		seed, e := hex.DecodeString(strings.TrimSpace(string(raw)))
-		if e != nil || len(seed) != ed25519.SeedSize {
-			t.Fatal("invalid isolated test key")
-		}
-		key = ed25519.NewKeyFromSeed(seed)
-		pub = key.Public().(ed25519.PublicKey)
-	}
-	original := clientupdate.ReleasePublicKey
-	clientupdate.ReleasePublicKey = hex.EncodeToString(pub)
-	t.Cleanup(func() { clientupdate.ReleasePublicKey = original })
-	return key
-}
-
-func signUnixFixture(key ed25519.PrivateKey, seq uint64, version string, data []byte) clientupdate.Release {
+func unixFixtureRelease(seq uint64, version string, data []byte) clientupdate.Release {
 	sum := sha256.Sum256(data)
-	return clientupdate.Sign(clientupdate.Payload{SchemaVersion: 1, Sequence: seq, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH, MinHostVersion: 1, WorkerProtocol: 1, DataVersion: 1, MinRollbackDataVersion: 1, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}, "release-2026", key)
+	return clientupdate.Release{Payload: clientupdate.Payload{SchemaVersion: 1, Sequence: seq, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH, MinHostVersion: 1, WorkerProtocol: 1, DataVersion: 1, MinRollbackDataVersion: 1, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}}
 }
 
 func TestUnixRunWithoutJournalDoesNotNeedWritableExecutableDirectory(t *testing.T) {
@@ -79,7 +53,6 @@ func TestUnixRunWithoutJournalDoesNotNeedWritableExecutableDirectory(t *testing.
 }
 
 func TestUnixStartupFailureAndInterruptedStartupRestorePrevious(t *testing.T) {
-	key := unixReleaseKey(t)
 	for _, phase := range []string{"switching", "booting"} {
 		t.Run(phase, func(t *testing.T) {
 			root := t.TempDir()
@@ -101,7 +74,7 @@ func TestUnixStartupFailureAndInterruptedStartupRestorePrevious(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			release := signUnixFixture(key, 5, "candidate", new)
+			release := unixFixtureRelease(5, "candidate", new)
 			oldsum := sha256.Sum256(old)
 			state := unixUpdateState{SchemaVersion: 1, AgentID: c.ID, Server: c.Server, Executable: exe, OperationID: op.ID, Phase: phase, PreviousSHA256: hex.EncodeToString(oldsum[:]), HighestSequence: 5, HighestSHA256: release.SHA256, Release: release}
 			if err := saveUnixUpdate(config, state); err != nil {
@@ -137,7 +110,6 @@ func TestUnixStartupFailureAndInterruptedStartupRestorePrevious(t *testing.T) {
 }
 
 func TestUnixRemoteUpdateRejectsCorruptionBusyAndOldRelease(t *testing.T) {
-	key := unixReleaseKey(t)
 	for _, scenario := range []string{"corrupt", "busy", "old-release", "probe-failure"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
@@ -147,7 +119,7 @@ func TestUnixRemoteUpdateRejectsCorruptionBusyAndOldRelease(t *testing.T) {
 				t.Fatal(err)
 			}
 			body := []byte("not an executable")
-			release := signUnixFixture(key, 5, "candidate", body)
+			release := unixFixtureRelease(5, "candidate", body)
 			site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
 					t.Error("download leaked credentials")
@@ -172,7 +144,7 @@ func TestUnixRemoteUpdateRejectsCorruptionBusyAndOldRelease(t *testing.T) {
 				t.Fatal(err)
 			}
 			if scenario == "old-release" {
-				newer := signUnixFixture(key, 6, "later", []byte("later"))
+				newer := unixFixtureRelease(6, "later", []byte("later"))
 				sum := sha256.Sum256(old)
 				state := unixUpdateState{SchemaVersion: 1, AgentID: c.ID, Server: c.Server, Executable: exe, OperationID: op.ID, Phase: "committed", PreviousSHA256: hex.EncodeToString(sum[:]), HighestSequence: 6, HighestSHA256: newer.SHA256, Release: newer}
 				if err := saveUnixUpdate(c.Path, state); err != nil {
@@ -193,9 +165,8 @@ func TestUnixRemoteUpdateRejectsCorruptionBusyAndOldRelease(t *testing.T) {
 }
 
 // Real native daemon + WebSocket update + exec; no system service/LaunchAgent is
-// registered. CI runs this on Linux and macOS with isolated profiles and keys.
+// registered. CI runs this on Linux and macOS with isolated profiles.
 func TestUnixRemoteUpdateNativeProcessReexec(t *testing.T) {
-	key := unixReleaseKey(t)
 	root := t.TempDir()
 	exe := filepath.Join(root, "remote-agent")
 	candidate := filepath.Join(root, "candidate")
@@ -218,7 +189,7 @@ func TestUnixRemoteUpdateNativeProcessReexec(t *testing.T) {
 			}
 			continue
 		}
-		cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-X github.com/string1225/remote-agent-cli/internal/buildinfo.Version="+build.version+" -X github.com/string1225/remote-agent-cli/internal/clientupdate.ReleasePublicKey="+clientupdate.ReleasePublicKey, "-o", build.path, "./cmd/agent")
+		cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-X github.com/string1225/remote-agent-cli/internal/buildinfo.Version="+build.version, "-o", build.path, "./cmd/agent")
 		cmd.Dir = module
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatal("build native fixture", err, string(out))
@@ -228,7 +199,7 @@ func TestUnixRemoteUpdateNativeProcessReexec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	release := signUnixFixture(key, 1, "native-new", body)
+	release := unixFixtureRelease(1, "native-new", body)
 	result := make(chan MaintenanceOperation, 1)
 	var initiated atomic.Bool
 	var upgraded atomic.Bool

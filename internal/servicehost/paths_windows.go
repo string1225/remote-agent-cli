@@ -37,7 +37,7 @@ func installedHost() (string, error) {
 }
 func runtimeStore() (clientupdate.Store, error) {
 	root, err := machineRoot()
-	return clientupdate.Store{Path: filepath.Join(root, "runtime"), Keys: clientupdate.TrustKeys(), Arch: runtime.GOARCH}, err
+	return clientupdate.Store{Path: filepath.Join(root, "runtime"), Arch: runtime.GOARCH}, err
 }
 func seedPath() (string, error) {
 	host, err := installedHost()

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,23 +26,23 @@ import (
 // Called only by the existing explicit disposable-machine MSI acceptance test.
 func runtimeAcceptance(t *testing.T, exe string, retained func(), setUpdateHandler func(http.Handler), remoteCall func(context.Context, string, any) (MaintenanceOperation, error)) {
 	t.Helper()
-	seedHex, err := os.ReadFile(os.Getenv("REMOTE_AGENT_UPDATE_TEST_KEY"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	seed, err := hex.DecodeString(string(seedHex))
-	if err != nil || len(seed) != 32 {
-		t.Fatal("invalid fixture signing key")
-	}
-	key := ed25519.NewKeyFromSeed(seed)
 	core, err := os.ReadFile(os.Getenv("REMOTE_AGENT_UPDATE_TEST_CORE"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var body = []byte(core)
+	store := clientupdate.Store{Path: filepath.Join(filepath.Dir(serviceProfilePath()), "runtime"), Arch: "amd64"}
+	initial, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	floor := initial.HighestSequence
+	if initial.MSISequence > floor {
+		floor = initial.MSISequence
+	}
 	makeRelease := func(seq uint64, version string) clientupdate.Release {
 		sum := sha256.Sum256(body)
-		return clientupdate.Sign(clientupdate.Payload{SchemaVersion: 1, Sequence: seq, Version: version, OS: "windows", Arch: "amd64", MinHostVersion: 1, WorkerProtocol: 1, DataVersion: 1, MinRollbackDataVersion: 1, Size: int64(len(body)), SHA256: hex.EncodeToString(sum[:])}, "release-2026", key)
+		return clientupdate.Release{Payload: clientupdate.Payload{SchemaVersion: 1, Sequence: floor + seq, Version: version, OS: "windows", Arch: "amd64", MinHostVersion: clientupdate.HostVersion, WorkerProtocol: 1, DataVersion: 1, MinRollbackDataVersion: 1, Size: int64(len(body)), SHA256: hex.EncodeToString(sum[:])}}
 	}
 	release := makeRelease(1, "acceptance-runtime")
 	corrupt := false
@@ -132,14 +131,13 @@ func runtimeAcceptance(t *testing.T, exe string, retained func(), setUpdateHandl
 		t.Fatal("runtime update changed SCM/MSI registration")
 	}
 	retained()
-	store := clientupdate.Store{Path: filepath.Join(filepath.Dir(serviceProfilePath()), "runtime"), Keys: map[string]ed25519.PublicKey{"release-2026": key.Public().(ed25519.PublicKey)}, Arch: "amd64"}
 	state, err := store.Load()
 	if err != nil || state.Pending || state.Current == nil {
 		t.Fatal("runtime not committed", err)
 	}
 	stable := state.Current.SHA256
-	// A signed but non-executable candidate must fall back before business work.
-	body = []byte("signed invalid executable fixture")
+	// A checksum-valid but non-executable candidate must fall back before work.
+	body = []byte("invalid executable fixture")
 	release = makeRelease(2, "bad-startup")
 	if out, err := run("update", "--server", server.URL); err == nil {
 		t.Fatal("bad startup accepted", out)
@@ -189,7 +187,7 @@ func runtimeAcceptance(t *testing.T, exe string, retained func(), setUpdateHandl
 		t.Fatal("recovery changed registration")
 	}
 	retained()
-	t.Log("ordinary-user update/check/rollback, LocalService SID remote update/restart/result, signed invalid startup rollback, corrupt download rejection and unchanged MSI/SCM passed")
+	t.Log("ordinary-user update/check/rollback, LocalService SID remote update/restart/result, unsigned invalid startup rollback, corrupt download rejection and unchanged MSI/SCM passed")
 }
 
 func acceptanceNormalToken(t *testing.T) windows.Token {

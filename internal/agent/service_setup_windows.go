@@ -36,7 +36,7 @@ func setupWindowsService(config string, noStart, manual, activation bool) error 
 	if err != nil {
 		return err
 	}
-	// An older signed business runtime may still be selected after an MSI
+	// An older business runtime may still be selected after an MSI
 	// upgrade. Use this MSI's seed for activation so it understands ManualStart.
 	if activation {
 		exe = filepath.Join(filepath.Dir(exe), "seed", "remote-agent-core.exe")

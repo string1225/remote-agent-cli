@@ -40,7 +40,7 @@
                             Account="NT AUTHORITY\LocalService" Arguments="service run" />
             <ServiceControl Id="AgentServiceControl" Name="RemoteAgent" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
             <ServiceInstall Id="UpdateServiceInstall" Name="RemoteAgentUpdater" DisplayName="Remote Agent Updater"
-                            Description="Verifies signed runtime updates and preserves the fixed Remote Agent installation."
+                            Description="Downloads runtime updates from the enrolled site and checks artifact integrity."
                             Type="ownProcess" Start="auto" ErrorControl="normal" Vital="yes" Arguments="update-service run" />
             <ServiceControl Id="UpdateServiceControl" Name="RemoteAgentUpdater" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
           </Component>
@@ -51,7 +51,7 @@
           </Directory>
           <Component Id="InstallationRegistry" Guid="C9443878-4C38-4F10-BE23-D8EBD7E5C6D3" Win64="yes">
             <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="HostProtocol" Type="integer" Value="1" />
-            <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="HostVersion" Type="integer" Value="2" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="HostVersion" Type="integer" Value="3" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="InstallDir" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\RemoteAgent" Name="Language" Type="string" Value="[CLI_LANGUAGE]" />
             <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\RemoteAgent" Name="EventMessageFile" Type="expandable" Value="[System64Folder]EventCreate.exe" />

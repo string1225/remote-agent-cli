@@ -92,7 +92,7 @@ func (e Engine) Reconcile() error {
 }
 
 func (e Engine) Apply(ctx context.Context, release Release, download func(io.Writer) error, force bool) error {
-	if err := release.Verify(e.Store.Keys, "windows", e.Store.Arch); err != nil {
+	if err := release.Verify("windows", e.Store.Arch); err != nil {
 		return err
 	}
 	if err := Compatible(release); err != nil {
@@ -109,7 +109,7 @@ func (e Engine) Apply(ctx context.Context, release Release, download func(io.Wri
 		return errors.New("a staged runtime is waiting for the stopped service to start")
 	}
 	if s.Current == nil && s.MSISeedDigest != "" && release.Sequence <= s.MSISequence {
-		return errors.New("published runtime predates the installed MSI; keep this MSI or publish a newer signed runtime")
+		return errors.New("published runtime predates the installed MSI; keep this MSI or publish a newer runtime")
 	}
 	if release.Sequence < s.HighestSequence || release.Sequence == s.HighestSequence && release.SHA256 != s.HighestSHA256 {
 		return errors.New("stale runtime release rejected; use explicit rollback for the retained previous version")

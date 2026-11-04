@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish signed runtime packages while retaining MSI installers and the backend.
+# Publish runtime packages from the trusted HTTPS site; retain MSI and backend.
 set -Eeuo pipefail
 label=${1:?release label}
 bundle_hash=${2:?bundle SHA-256}
@@ -33,7 +33,9 @@ for platform in ('windows', 'darwin', 'linux'):
         relative = pathlib.Path('updates/v1') / platform / (arch + '.json')
         meta = json.loads((root / relative).read_text())
         assert meta['version'] == provenance['version'] and meta['sequence'] == provenance['sequence']
-        assert meta['os'] == platform and meta['arch'] == arch and meta['keyId'] == 'release-2026' and meta['signature']
+        assert meta['os'] == platform and meta['arch'] == arch
+        assert not meta.get('signature') and not meta.get('keyId'), 'New releases do not use publishing signatures'
+        assert meta['minHostVersion'] == (3 if platform == 'windows' else 1)
         artifact = ('remote-agent-core-windows-' + arch + '.exe') if platform == 'windows' else ('remote-agent-' + platform + '-' + arch)
         raw = (root / artifact).read_bytes()
         assert len(raw) == meta['size'] and hashlib.sha256(raw).hexdigest() == meta['sha256']
@@ -95,8 +97,15 @@ for platform in ('windows', 'darwin', 'linux'):
         artifact = f'remote-agent-core-windows-{arch}.exe' if platform == 'windows' else f'remote-agent-{platform}-{arch}'
         raw = fetch('/downloads/' + artifact)
         assert len(raw) == expected['size'] and hashlib.sha256(raw).hexdigest() == expected['sha256']
+        if platform == 'windows':
+            host = f'remote-agent-windows-{arch}.exe'
+            assert hashlib.sha256(fetch('/downloads/' + host)).hexdigest() == hashlib.sha256((root / host).read_bytes()).hexdigest()
+            provenance = json.loads((root / 'RUNTIME_RELEASE.json').read_text())
+            if provenance.get('packageVersion'):
+                package = f'remote-agent-windows-{arch}.msi'
+                assert hashlib.sha256(fetch('/downloads/' + package)).hexdigest() == hashlib.sha256((root / package).read_bytes()).hexdigest()
 assert json.loads(fetch('/healthz'))['ok'] is True
 print('Public update manifests, all six downloads and server health verified')
 PY
 trap - ERR HUP INT TERM
-printf '\nPublished signed runtime packages: %s\nRollback: bash %s/rollback.sh\n' "$label" "$backup"
+printf '\nPublished runtime packages: %s\nRollback: bash %s/rollback.sh\n' "$label" "$backup"

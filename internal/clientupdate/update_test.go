@@ -3,8 +3,6 @@ package clientupdate
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,19 +19,15 @@ import (
 
 func fixture(t *testing.T) (Store, func(uint64, string) (Release, []byte)) {
 	t.Helper()
-	pub, key, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := Store{Path: t.TempDir(), Keys: map[string]ed25519.PublicKey{"fixture": pub}, Arch: "amd64"}
+	s := Store{Path: t.TempDir(), Arch: "amd64"}
 	return s, func(seq uint64, version string) (Release, []byte) {
 		b := []byte("fixture executable " + version)
 		sum := sha256.Sum256(b)
-		return Sign(Payload{SchemaVersion: 1, Sequence: seq, Version: version, OS: "windows", Arch: "amd64", MinHostVersion: 1, WorkerProtocol: 1, DataVersion: 1, MinRollbackDataVersion: 1, Size: int64(len(b)), SHA256: hex.EncodeToString(sum[:])}, "fixture", key), b
+		return Release{Payload: Payload{SchemaVersion: 1, Sequence: seq, Version: version, OS: "windows", Arch: "amd64", MinHostVersion: 1, WorkerProtocol: 1, DataVersion: 1, MinRollbackDataVersion: 1, Size: int64(len(b)), SHA256: hex.EncodeToString(sum[:])}}, b
 	}
 }
 
-func TestSignatureAndCredentialFreeDownload(t *testing.T) {
+func TestUnsignedManifestAndCredentialFreeDownload(t *testing.T) {
 	s, makeRelease := fixture(t)
 	release, body := makeRelease(1, "fixture-one")
 	var corrupt, redirect bool
@@ -62,7 +56,7 @@ func TestSignatureAndCredentialFreeDownload(t *testing.T) {
 	defer server.Close()
 	ctx := context.Background()
 	base := server.URL + "/agents"
-	r, err := Fetch(ctx, HTTPClient(), base, "windows", "amd64", s.Keys)
+	r, err := Fetch(ctx, HTTPClient(), base, "windows", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,9 +66,14 @@ func TestSignatureAndCredentialFreeDownload(t *testing.T) {
 	if _, err = s.Binary(&r, ""); err != nil {
 		t.Fatal(err)
 	}
-	release.Version = "tampered"
-	if _, err = Fetch(ctx, HTTPClient(), base, "windows", "amd64", s.Keys); err == nil {
-		t.Fatal("tampered manifest accepted")
+	// The configured site may publish new metadata without a separate key.
+	release.Version = "site-published"
+	if _, err = Fetch(ctx, HTTPClient(), base, "windows", "amd64"); err != nil {
+		t.Fatal("site manifest required a release signature", err)
+	}
+	release.SHA256 = "invalid"
+	if _, err = Fetch(ctx, HTTPClient(), base, "windows", "amd64"); err == nil {
+		t.Fatal("invalid checksum metadata accepted")
 	}
 	release, _ = makeRelease(2, "fixture-two")
 	corrupt = true
@@ -82,7 +81,7 @@ func TestSignatureAndCredentialFreeDownload(t *testing.T) {
 		t.Fatal("corrupt download accepted")
 	}
 	redirect = true
-	if _, err = Fetch(ctx, HTTPClient(), base, "windows", "amd64", s.Keys); err == nil {
+	if _, err = Fetch(ctx, HTTPClient(), base, "windows", "amd64"); err == nil {
 		t.Fatal("redirect followed")
 	}
 	state, err := s.Load()

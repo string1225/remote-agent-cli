@@ -10,7 +10,7 @@ import (
 
 func TestMSIAdoptsSeedPreservesFloorAndRollsBack(t *testing.T) {
 	s, makeRelease := fixture(t)
-	release, body := makeRelease(10, "old-signed")
+	release, body := makeRelease(10, "old-runtime")
 	if e := s.Stage(release, func(w io.Writer) error { _, e := w.Write(body); return e }); e != nil {
 		t.Fatal(e)
 	}
@@ -28,7 +28,7 @@ func TestMSIAdoptsSeedPreservesFloorAndRollsBack(t *testing.T) {
 	if path, e := s.Binary(state.Current, "protected-seed.exe"); e != nil || path != "protected-seed.exe" {
 		t.Fatal(path, e)
 	}
-	// A stale signed online channel must not reactivate the former core.
+	// A stale online channel must not reactivate the former core.
 	engine := Engine{Store: s, Service: &fakeService{store: s}}
 	if e = engine.Apply(context.Background(), release, func(io.Writer) error { t.Fatal("stale update downloaded"); return nil }, false); e == nil {
 		t.Fatal("old online release replaced MSI")

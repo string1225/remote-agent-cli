@@ -21,8 +21,8 @@
 | 服务器 | 账号/设备注册与撤销、心跳、网页、项目目录、机器人唯一绑定、139 WebSocket 中转 | 多节点扩展留待后续 |
 | Web 代理与 Codex 技能 | 默认关闭的 web-proxy，GitHub/ChatGPT/OpenAI/Google 经 139，其他 HTTP/HTTPS 直连；Windows on/off 经就绪检查联动系统代理并保留恢复点；139 Fake-IP DNS 可信回退；Codex 安装/更新/setup 自动安装 skill | 真实浏览器、Git/LFS、各站点 HTTPS/WSS 与 Windows Service 冷启动持续验收，见 [使用说明](web-proxy.md) |
 | Windows 安装 | x64/ARM64 MSI、自动 Windows Service、失败恢复、旧任务迁移、保留数据升级/回滚；不新建计划任务 | 发布者签名、原生 ARM64、真实整机冷启动/退出桌面验收 |
-| Windows 业务更新 | MSI 1.1 固定宿主 + SYSTEM 更新服务，签名 core、普通用户命令/后台检查、事务切换/上一稳定版回退，日常无需 MSI/UAC；不做旧客户端兼容 | 一次性管理员 runner 的真实 MSI/SCM 验收，原生 ARM64、断电与冷启动/退出桌面验收 |
-| macOS/Linux 远程更新 | 客户端菜单发起签名更新，空闲检查、原子替换、保留 PID 重新加载、启动中断回退及进度持久化，不改写服务注册；旧客户端需先命令行升级一次 | 原生进程测试及回退测试；真实 LaunchAgent/systemd 的开机、退出登录与原生 ARM64 环境单独验收，见 [客户端维护](client-maintenance.md) |
+| Windows 业务更新 | MSI 1.1 固定宿主 + SYSTEM 更新服务，HTTPS 站点发布的无签名 core、普通用户命令/后台检查、事务切换/上一稳定版回退，日常无需 MSI/UAC；宿主 1/2 需一次管理员替换并保留旧状态 | 一次性管理员 runner 的真实 MSI/SCM 验收，原生 ARM64、断电与冷启动/退出桌面验收 |
+| macOS/Linux 远程更新 | 客户端菜单从绑定 HTTPS 站点发起无签名更新，空闲检查、原子替换、保留 PID 重新加载、启动中断回退及进度持久化，不改写服务注册；旧客户端需先命令行升级一次 | 原生进程测试及回退测试；真实 LaunchAgent/systemd 的开机、退出登录与原生 ARM64 环境单独验收，见 [客户端维护](client-maintenance.md) |
 | 本机任务 | Codex danger-full-access/never、Qoder bypass_permissions；Web/IM/SaySo 统一完整授权，旧配置内存迁移；输出/取消/超时、同设备多会话并发，同会话按序执行 | 独立通用命令 API 仍待实现；旧 Windows RX 项目目录需运行 connect 重新配置服务 ACL |
 | 工具和安装 | Codex/Qoder CLI 检测，区分 Qoder 编辑器启动器；本机 Codex 安装更新与平台代理配置；Windows App 打开商店页 | 完整 App 版本检测、网页通用代理配置/安装操作及服务到用户桌面协作仍待补齐 |
 | 项目与会话 | 保留原 Service ID，统一工作台/IM/SaySo 映射，保留原生上下文与旧数据；用户输入只进入当前会话；会话可直接执行或自行派生、读取/等待/继续/取消直接子任务 | 真实目标设备的各 CLI/MCP 版本需验收 |
@@ -50,4 +50,4 @@ Go 单元/集成测试、JS 语法、浏览器预览、交叉编译、Linux race
 
 实现 CEO → 客户端管家 → 项目管家、独立角色会话、CEO/客户端独立 workspace；网页左上 CEO 和每层入口，手机无恢复目标时默认 CEO。持久派工和逐层自动回报、结果卡跨级回复进入原下游会话、CLI/MCP 和角色 skill 已实现。SaySo 作为 CEO 能力，确认 Action 后选择客户端/项目管家执行，重启恢复派工与结果；原项目历史及录音保留。
 
-工程验证包含三层中转、去重、循环及账号隔离、原生上下文续办、SaySo 恢复、桌面/手机入口和目标选择。完整 CEO 主机迁移、真实眼镜入口、IM 引用回复与硬件/模型验收仍待完成；已有 CEO 时拦截默认主机切换，避免丢上下文。Windows 直接交付 MSI，安装激活内置 core 并提供安装回滚，保留签名在线更新验证。完整方案与边界见 [HTML 报告](reports/2026-11-03-agent-hierarchy-release.html)。
+工程验证包含三层中转、去重、循环及账号隔离、原生上下文续办、SaySo 恢复、桌面/手机入口和目标选择。完整 CEO 主机迁移、真实眼镜入口、IM 引用回复与硬件/模型验收仍待完成；已有 CEO 时拦截默认主机切换，避免丢上下文。Windows 直接交付 MSI，安装激活内置 core 并提供安装回滚，保留摘要、发布序号和回滚验证，宿主 3 的在线更新不要求发布签名。完整方案与边界见 [HTML 报告](reports/2026-11-03-agent-hierarchy-release.html)。

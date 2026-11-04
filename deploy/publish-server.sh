@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Backend/web deployment; retain the currently published signed client packages.
+# Backend/web deployment; retain the currently published client packages.
 set -Eeuo pipefail
 label=${1:?release label}
 bundle_hash=${2:?bundle SHA-256}

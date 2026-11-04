@@ -26,7 +26,7 @@ func remoteClientUpdateSupported() bool {
 }
 
 func remoteClientRelease(ctx context.Context, server string) (clientupdate.Release, error) {
-	return clientupdate.Fetch(ctx, clientupdate.HTTPClient(), server, runtime.GOOS, runtime.GOARCH, clientupdate.TrustKeys())
+	return clientupdate.Fetch(ctx, clientupdate.HTTPClient(), server, runtime.GOOS, runtime.GOARCH)
 }
 
 type unixUpdateState struct {
@@ -70,7 +70,7 @@ func loadUnixUpdate(config string) (unixUpdateState, error) {
 	if state.Phase != "switching" && state.Phase != "booting" && state.Phase != "committed" && state.Phase != "rolled_back" && state.Phase != "abandoned" {
 		return state, errors.New("invalid Unix update phase")
 	}
-	if err := state.Release.Verify(clientupdate.TrustKeys(), runtime.GOOS, runtime.GOARCH); err != nil {
+	if err := state.Release.Verify(runtime.GOOS, runtime.GOARCH); err != nil {
 		return state, err
 	}
 	if state.HighestSHA256 != state.Release.SHA256 || state.HighestSequence != state.Release.Sequence {
@@ -199,7 +199,7 @@ func (a *Agent) applyUnixUpdate(ctx context.Context, op MaintenanceOperation, re
 	a.mu.Lock()
 	c := a.Config
 	a.mu.Unlock()
-	if err := release.Verify(clientupdate.TrustKeys(), runtime.GOOS, runtime.GOARCH); err != nil {
+	if err := release.Verify(runtime.GOOS, runtime.GOARCH); err != nil {
 		return err
 	}
 	if err := clientupdate.Compatible(release); err != nil {
@@ -396,7 +396,7 @@ func runWithUnixRecovery(config, exe, version string, run func() error, reexec f
 				state.Phase = "rolled_back"
 				err = saveUnixUpdate(config, state)
 			} else if digest != state.Release.SHA256 || version != state.Release.Version {
-				err = errors.New("starting client differs from signed update")
+				err = errors.New("starting client differs from runtime update manifest")
 			} else {
 				state.Phase = "booting"
 				err = saveUnixUpdate(config, state)

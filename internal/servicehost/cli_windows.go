@@ -87,13 +87,12 @@ func ClientUpdate(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	request.Server = server
 	if check {
 		store, err := runtimeStore()
 		if err != nil {
 			return err
 		}
-		release, err := clientupdate.Fetch(ctx, clientupdate.HTTPClient(), server, "windows", store.Arch, store.Keys)
+		release, err := clientupdate.Fetch(ctx, clientupdate.HTTPClient(), server, "windows", store.Arch)
 		if err != nil {
 			return err
 		}
@@ -108,7 +107,7 @@ func ClientUpdate(ctx context.Context, args []string, output io.Writer) error {
 		if state.Current != nil && state.Current.SHA256 == release.SHA256 {
 			fmt.Fprintln(output, "Runtime is up to date.")
 		} else {
-			fmt.Fprintln(output, "A signed runtime update is available. Run remote-agent update; no MSI or administrator prompt is needed.")
+			fmt.Fprintln(output, "A runtime update is available. Run remote-agent update; no MSI or administrator prompt is needed.")
 		}
 		return nil
 	}

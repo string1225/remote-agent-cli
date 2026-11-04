@@ -38,5 +38,5 @@ func RuntimeRelease(ctx context.Context, server string) (clientupdate.Release, e
 	if e != nil {
 		return clientupdate.Release{}, e
 	}
-	return clientupdate.Fetch(ctx, clientupdate.HTTPClient(), server, "windows", s.Arch, s.Keys)
+	return clientupdate.Fetch(ctx, clientupdate.HTTPClient(), server, "windows", s.Arch)
 }

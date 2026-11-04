@@ -109,9 +109,9 @@ sc.exe qfailure RemoteAgent
 
 使用更高三段版本号的 MSI 升级。组件 GUID 和关键路径保持稳定，Windows Installer 在事务内停止服务、替换程序并重启，成功执行新安装后才移除旧产品登记。升级复用现有服务对象，保留服务 SID 和恢复策略；失败时回滚程序文件并恢复服务。MSI 只拥有程序、许可证、安装说明及安装目录登记，不拥有业务数据；修复、升级和卸载都不删除上述配置、项目、历史或录音。
 
-MSI 1.1 安装固定宿主和 RemoteAgentUpdater 服务。日常使用 `remote-agent update` 校验签名并更新独立业务版本，无需重新运行 MSI 或 UAC；`update --check` 只读检查，`update --rollback` 恢复保留的上一稳定版。更新不改 SCM、PATH 或目录权限。业务服务仍是 LocalService；SYSTEM 更新服务只管理受保护程序目录，不执行业务代码。
+MSI 安装固定宿主和 RemoteAgentUpdater 服务。宿主 3 信任绑定的 HTTPS 站点，不要求发布签名；日常使用 `remote-agent update` 校验摘要、大小及发布序号并更新独立业务版本，无需重新运行 MSI 或 UAC；`update --check` 只读检查，`update --rollback` 恢复保留的上一稳定版。更新不改 SCM、PATH 或目录权限。业务服务仍是 LocalService；SYSTEM 更新服务只管理受保护程序目录，不执行业务代码。
 
-协议、签名、权限边界和恢复见 [客户端更新框架](superpowers/specs/2026-10-25-client-update-framework.md)。首次安装框架，以及未来宿主/信任锚等系统变更仍走 MSI；不实现旧客户端更新兼容。
+当前协议、权限边界和恢复见 [客户端维护](client-maintenance.md)。旧版更新框架文档保留供追溯。宿主 1/2 需一次管理员替换，可运行 `tools/upgrade-host.ps1` 而不重装 MSI；脚本保留原服务与用户数据，拒绝中断任务或录音并提供失败恢复。首次安装和服务注册变更仍由 MSI 处理。
 
 卸载从 Windows 设置中的应用列表或 `msiexec /x` 进行，停止并删除服务、程序及 MSI 自己添加的 PATH 项，保留业务数据与机器服务路径配置。停止/卸载会中断正在执行的任务，应先结束任务再维护。
 

@@ -1,7 +1,6 @@
 package clientupdate
 
 import (
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -30,7 +29,6 @@ type State struct {
 
 type Store struct {
 	Path string
-	Keys map[string]ed25519.PublicKey
 	Arch string
 }
 
@@ -62,7 +60,7 @@ func (s Store) Load() (State, error) {
 	}
 	for _, release := range []*Release{state.Current, state.Previous, state.RollbackPrevious} {
 		if release != nil {
-			if err := release.Verify(s.Keys, "windows", s.Arch); err != nil {
+			if err := release.Verify("windows", s.Arch); err != nil {
 				return state, err
 			}
 			if err := Compatible(*release); err != nil {
@@ -120,7 +118,7 @@ func (s Store) Binary(release *Release, seed string) (string, error) {
 	if release == nil {
 		return seed, nil
 	} // The seed belongs to MSI, not the writable data directory.
-	if err := release.Verify(s.Keys, "windows", s.Arch); err != nil {
+	if err := release.Verify("windows", s.Arch); err != nil {
 		return "", err
 	}
 	if err := Compatible(*release); err != nil {
@@ -156,7 +154,7 @@ func (s Store) Binary(release *Release, seed string) (string, error) {
 }
 
 func (s Store) Stage(release Release, download func(io.Writer) error) error {
-	if err := release.Verify(s.Keys, "windows", s.Arch); err != nil {
+	if err := release.Verify("windows", s.Arch); err != nil {
 		return err
 	}
 	if err := Compatible(release); err != nil {

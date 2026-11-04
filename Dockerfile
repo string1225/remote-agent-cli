@@ -3,10 +3,10 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN mkdir -p /signed-release && \
-    if [ -d dist/updates ]; then cp -a dist/updates /signed-release/ && cp dist/remote-agent-core-windows-*.exe /signed-release/; fi && \
+RUN mkdir -p /runtime-release && \
+    if [ -d dist/updates ]; then cp -a dist/updates /runtime-release/ && cp dist/remote-agent-core-windows-*.exe /runtime-release/; fi && \
     CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /remote-server ./cmd/server && go run ./tools/build && \
-    if [ -d /signed-release/updates ]; then cp -a /signed-release/updates dist/ && cp /signed-release/remote-agent-core-windows-*.exe dist/; fi
+    if [ -d /runtime-release/updates ]; then cp -a /runtime-release/updates dist/ && cp /runtime-release/remote-agent-core-windows-*.exe dist/; fi
 
 FROM alpine:3.23
 RUN apk add --no-cache ca-certificates && addgroup -S agent && adduser -S -G agent agent && mkdir /data && chown agent:agent /data

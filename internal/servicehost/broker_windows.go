@@ -76,11 +76,11 @@ func (b *broker) execute(ctx context.Context, request Request, output io.Writer)
 	if err != nil {
 		return err
 	}
-	release, err := clientupdate.Fetch(ctx, clientupdate.HTTPClient(), server, "windows", store.Arch, store.Keys)
+	release, err := clientupdate.Fetch(ctx, clientupdate.HTTPClient(), server, "windows", store.Arch)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(output, "Verified signed runtime %s (release %d).\n", release.Version, release.Sequence)
+	fmt.Fprintf(output, "Verified runtime manifest %s (release %d).\n", release.Version, release.Sequence)
 	return engine.Apply(ctx, release, func(w io.Writer) error {
 		return clientupdate.Download(ctx, clientupdate.HTTPClient(), server, release, w)
 	}, request.Force)
@@ -225,7 +225,7 @@ func (updaterHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, sta
 			}()
 		}
 	}()
-	// Updates are idle-only in the background. A signed release is checked at
+	// Updates are idle-only in the background. The enrolled site is checked at
 	// startup and every six hours; manual update uses exactly the same engine.
 	autoDone := make(chan struct{})
 	go func() {
