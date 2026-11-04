@@ -96,7 +96,8 @@ $label = 'runtime-' + $release.revision + '-' + [DateTimeOffset]::UtcNow.ToUnixT
 $stage = "/tmp/remote-agent-$label"
 $sshOptions = @('-F',[IO.Path]::GetFullPath($SSHConfig),'-o','BatchMode=yes','-o','ConnectTimeout=15')
 Invoke-Checked ssh ($sshOptions + @($SSHHost,"umask 077; mkdir '$stage'"))
-Invoke-Checked scp ($sshOptions + @($bundle,(Join-Path $PreparedPath 'publish-runtime.sh'),"${SSHHost}:$stage/"))
+# Use the current deployment procedure even for artifacts prepared earlier.
+Invoke-Checked scp ($sshOptions + @($bundle,(Join-Path $repository 'deploy/publish-runtime.sh'),"${SSHHost}:$stage/"))
 $bundleHash = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
 Invoke-Checked ssh ($sshOptions + @($SSHHost,"sudo -n bash '$stage/publish-runtime.sh' '$label' '$bundleHash'"))
 Write-Output "Published runtime $($release.version), sequence $($release.sequence), source $($release.revision)."

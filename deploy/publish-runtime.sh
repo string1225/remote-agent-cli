@@ -42,7 +42,9 @@ for platform in ('windows', 'darwin', 'linux'):
 print('Six runtime packages, provenance and monotonic release sequences verified')
 PY
 chown -R root:root "$target"
-chmod -R a+rX "$target"
+# Archives built on Windows may carry 0777 directories or 0666 files.
+# Grant public read access while removing every group/other write permission.
+chmod -R u+rwX,go+rX,go-w "$target"
 install -d -m 0700 "$backup"
 printf '%s\n' "$previous" > "$backup/previous-dist"
 printf '%s\n' "$release" > "$backup/server-release"
