@@ -7,7 +7,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
   const browser = await chromium.launch({headless:true, channel:process.env.PLAYWRIGHT_CHANNEL || 'msedge'});
   try {
     for (const width of [1440, 390]) {
-      const page = await browser.newPage({viewport:{width, height:900}}), errors = [];
+      const page = await browser.newPage({viewport:{width, height:900}, timezoneId:'Asia/Shanghai'}), errors = [];
       page.setDefaultTimeout(5000);
       page.on('pageerror', error => errors.push(error.message));
       await page.addInitScript(() => { window.setInterval = () => 0; });
@@ -30,8 +30,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         state.sessions = [state.session];
         state.peer = {ws:{readyState:WebSocket.OPEN}};
         state.permissionMode = 'full';
+        const started = Date.parse('2026-11-04T10:00:00+08:00');
         state.entries = [
-          {seq:1, turnId:'task', role:'user', kind:'message', text:'更换到 C:\\Users\\junte\\Code'},
+          {seq:1, turnId:'task', role:'user', kind:'message', text:'更换到 C:\\Users\\junte\\Code', createdAt:started},
           {seq:2, turnId:'task', role:'assistant', kind:'stdout', text:'我将把后续命令的工作目录切换到 `C:\\Users\\junte\\Code`，并确认目录可用。\n\n已切换到 `C:\\Users\\junte\\Code`，后续命令将在此目录执行。'},
           {seq:3, turnId:'task', role:'system', kind:'tool', text:'$ "C:\\Users\\junte\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe" -Command Get-Location\nPRIVATE TOOL OUTPUT'},
           {seq:4, turnId:'task', role:'system', kind:'tool', text:'PRIVATE CONTINUATION'},
@@ -42,6 +43,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         renderChat();
       });
       const toggle = page.locator('.run-details-toggle'), details = page.locator('.run-details');
+      const timing = page.locator('.run-timing');
+      assert.equal(await timing.isVisible(), false, 'unfinished output must not show a completion time');
       assert.equal(await page.locator('#send-run').isDisabled(), true);
       assert.equal(await details.isVisible(), false);
       assert.equal(await page.locator('.message.system').count(), 0);
@@ -81,6 +84,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(await page.locator('#cancel-run').isVisible(), false);
       assert.equal(await page.locator('#prompt').inputValue(), '保留的下一条草稿');
       assert.equal(await details.isVisible(), true, 'refresh preserves expanded details');
+      assert.equal(await timing.isVisible(), false, 'session metadata alone must not invent a per-turn completion time');
+      await page.evaluate(() => mergeEntries([{seq:5, turnId:'task', role:'system', kind:'done', text:'', createdAt:Date.parse('2026-11-04T10:02:03+08:00')}]));
+      assert.equal(await timing.textContent(), '完成于 2026/11/04 10:02:03 · 总耗时 2分3秒');
+      assert.equal(await timing.isVisible(), true);
+      assert.equal(await details.isVisible(), true, 'completion metadata preserves expanded details');
+      const timingLayout = await timing.boundingBox(), toggleLayout = await toggle.boundingBox();
+      assert(timingLayout.x >= toggleLayout.x + toggleLayout.width, 'completion metadata sits to the right of run details');
       if (process.env.UI_TEST_SCREENSHOT_DIR) {
         fs.mkdirSync(process.env.UI_TEST_SCREENSHOT_DIR, {recursive:true});
         await page.screenshot({path:path.join(process.env.UI_TEST_SCREENSHOT_DIR, `chat-${width}.png`)});
@@ -89,11 +99,32 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(await details.isVisible(), false);
       await toggle.press('Space');
       assert.equal(await details.isVisible(), true);
+      // Later turns must not overwrite earlier totals, including after cached
+      // history recreates the message DOM. Replies without tools still get time.
+      await page.evaluate(() => {
+        state.session.taskId = 'second';
+        state.session.taskStatus = 'running';
+        mergeEntries([
+          {seq:6, turnId:'second', role:'user', kind:'message', text:'第二轮', createdAt:Date.parse('2026-11-04T11:00:00+08:00')},
+          {seq:7, turnId:'second', role:'assistant', kind:'stdout', text:'已完成第二轮。'},
+        ]);
+      });
+      assert.equal(await timing.first().textContent(), '完成于 2026/11/04 10:02:03 · 总耗时 2分3秒');
+      assert.equal(await timing.nth(1).isVisible(), false);
+      await page.evaluate(() => {
+        mergeEntries([{seq:8, turnId:'second', role:'system', kind:'done', text:'', createdAt:Date.parse('2026-11-04T13:01:05+08:00')}]);
+        state.entries = JSON.parse(JSON.stringify(state.entries));
+        $('messages').replaceChildren();
+        renderChat();
+      });
+      assert.equal(await timing.first().textContent(), '完成于 2026/11/04 10:02:03 · 总耗时 2分3秒');
+      assert.equal(await timing.nth(1).textContent(), '完成于 2026/11/04 13:01:05 · 总耗时 2小时1分5秒');
+      assert.equal(await timing.nth(1).isVisible(), true);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width, 'no horizontal overflow');
       assert.deepEqual(errors, []);
       await page.close();
     }
-    console.log('PASS: desktop/mobile layout, inline run details, keyboard toggle, expansion survives refresh, completion restores sending without navigation, tool output remains hidden');
+    console.log('PASS: desktop/mobile layout, per-turn completion time and total duration, cached-history rendering, keyboard toggle, expansion survives refresh, completion restores sending, tool output remains hidden');
   } finally {
     await browser.close();
   }

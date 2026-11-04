@@ -5,14 +5,16 @@ class Element {
   append(...nodes) { for(const node of nodes){if(node.parent)node.parent.children.splice(node.parent.children.indexOf(node),1);this.children.push(node);node.parent=this;} }
   querySelector(cls){for(const child of this.children){if(child.className===cls.slice(1))return child;const found=child.querySelector(cls);if(found)return found;}}
   setAttribute(name,value){this[name]=value;}
+  addEventListener(){}
   remove(){this.parent.children.splice(this.parent.children.indexOf(this),1);}
   replaceChildren(){this.children=[];}
 }
 const elements=new Map(), $=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
 const state={session:{id:'im-web'},entries:[],mode:'web',permissionMode:'full',peer:{ws:{readyState:1}},submitting:new Set()};
-const sandbox={state,$,window:{},node:(...args)=>new Element(...args),service:()=>({provider:'codex'}),sessionTitle:()=>"Web",updateSessionContext(){},renderMarkdown:(el,text)=>{el.textContent=text;},Map,Set,console};
+const sandbox={state,$,window:{},node:(...args)=>new Element(...args),service:()=>({provider:'codex'}),sessionTitle:()=>"Web",updateSessionContext(){},renderMarkdown:(el,text)=>{el.textContent=text;},ResizeObserver:class{observe(){}},Map,Set,console};
 vm.createContext(sandbox);
 vm.runInContext(source.slice(source.indexOf('function setRunning('),source.indexOf('function resetWorkspace(')),sandbox);
+vm.runInContext(source.slice(source.indexOf('function scrollChatToLatest('),source.indexOf('function sessionTitle(')),sandbox);
 vm.runInContext(source.slice(source.indexOf('function toolInvocation('),source.indexOf('function initPaneResizers(')),sandbox);
 state.entries=[{seq:2,turnId:'im-task',role:'assistant',kind:'stdout',text:'answer'}];sandbox.renderChat();
 const assistant=$('messages').children[0];

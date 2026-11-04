@@ -785,6 +785,20 @@ function toolInvocation(text) {
   // invocation lines; continuation chunks can contain entire skill files.
   return text.startsWith("$ ") || text.startsWith("工具调用：") ? text.split("\n", 1)[0].slice(0, 1200) + "\n" : "";
 }
+function turnTimingText(timing) {
+  if (!timing?.completedAt) return "";
+  const completed = new Date(timing.completedAt).toLocaleString("zh-CN", {
+    year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit", hourCycle:"h23",
+  });
+  let text = "完成于 " + completed;
+  if (timing.startedAt && timing.completedAt >= timing.startedAt) {
+    const seconds = Math.floor((timing.completedAt - timing.startedAt) / 1000);
+    const hours = Math.floor(seconds / 3600), minutes = Math.floor(seconds % 3600 / 60);
+    const duration = (hours ? hours + "小时" : "") + (minutes ? minutes + "分" : "") + (seconds % 60 || !hours && !minutes ? seconds % 60 + "秒" : "");
+    text += " · 总耗时 " + duration;
+  }
+  return text;
+}
 function renderChat(live = false) {
   setRunning(state.running);
   updateSessionContext();
@@ -816,8 +830,16 @@ function renderChat(live = false) {
     container.replaceChildren();
     return;
   }
-  const groups = [];
+  const groups = [], timings = new Map();
   for (const e of state.entries) {
+    // Use persisted timestamps so each turn keeps its own completion metadata
+    // through polling, pagination and cached-history reloads.
+    if (e.turnId && Number.isFinite(e.createdAt) && e.createdAt > 0 && !Number.isNaN(new Date(e.createdAt).getTime())) {
+      const timing = timings.get(e.turnId) || {};
+      if (e.role === "user") timing.startedAt = Math.min(timing.startedAt || e.createdAt, e.createdAt);
+      if (e.role === "system" && ["done", "error"].includes(e.kind)) timing.completedAt = Math.max(timing.completedAt || 0, e.createdAt);
+      timings.set(e.turnId, timing);
+    }
     if (e.kind === "done") continue;
     if (e.kind === "report" && e.report) {
       groups.push({key:`report/${e.report.id}`,role:"assistant",kind:"report",text:e.text,tools:"",report:e.report});
@@ -881,7 +903,10 @@ function renderChat(live = false) {
           details.hidden = !details.hidden;
           toggle.setAttribute("aria-expanded", String(!details.hidden));
         };
-        header.append(toggle);
+        const timing = node("span", "", "run-timing");
+        timing.hidden = true;
+        timing.title = "从本轮消息提交到结束，包含排队时间";
+        header.append(toggle, timing);
         el.append(details);
       }
       el.append(node("div", "", "message-text"));
@@ -895,6 +920,9 @@ function renderChat(live = false) {
       const toggle = el.querySelector(".run-details-toggle"), details = el.querySelector(".run-details");
       toggle.hidden = !g.tools.trim();
       details.textContent = g.tools.trimEnd();
+      const timing = el.querySelector(".run-timing");
+      timing.textContent = turnTimingText(timings.get(g.turnId));
+      timing.hidden = !timing.textContent;
       renderMarkdown(text, g.text);
     }
     else text.textContent = g.text;
