@@ -79,6 +79,8 @@ func TestDefaultCodexSetupUsesBoundAccount(t *testing.T) {
 	t.Setenv("RA_CODEX_PATH", helper)
 	t.Setenv("RA_QODER_PATH", filepath.Join(root, "missing"))
 	t.Setenv("CODEX_HOME", filepath.Join(root, "codex-home"))
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
 	t.Setenv("REMOTE_AGENT_LANGUAGE", "en")
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -185,7 +185,7 @@ func TestUpdateCLI(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		installerCommand.Env = append(os.Environ(), "XDG_CONFIG_HOME="+filepath.Join(dir, "xdg"), "PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		installerCommand.Env = append(os.Environ(), "HOME="+dir, "CODEX_HOME="+filepath.Join(dir, "codex"), "XDG_CONFIG_HOME="+filepath.Join(dir, "xdg"), "PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	} else {
 		// Real Windows/macOS installers alter the machine's Scheduled Tasks or
 		// LaunchAgents. Test their shared updater here without enabling autostart;
@@ -227,7 +227,7 @@ func TestUpdateCLI(t *testing.T) {
 				return err
 			}
 			cmd := exec.Command("/bin/bash", path)
-			cmd.Env = append(os.Environ(), "CODEX_HOME="+filepath.Join(root, "codex"), "XDG_CONFIG_HOME="+filepath.Join(root, "xdg"), "PATH="+filepath.Join(dir, "fake-systemd")+string(os.PathListSeparator)+os.Getenv("PATH"))
+			cmd.Env = append(os.Environ(), "HOME="+root, "CODEX_HOME="+filepath.Join(root, "codex"), "XDG_CONFIG_HOME="+filepath.Join(root, "xdg"), "PATH="+filepath.Join(dir, "fake-systemd")+string(os.PathListSeparator)+os.Getenv("PATH"))
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				return fmt.Errorf("%w: %s", err, out)

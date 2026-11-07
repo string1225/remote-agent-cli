@@ -1,11 +1,19 @@
 ---
 name: remote-agent
-description: 使用本机 Remote Agent 客户端查询设备与项目、创建远程任务、通知已绑定的飞书或钉钉会话，或管理客户端、Codex CLI 和按域名分流的 Web 代理时使用。
+description: 使用本机 Remote Agent 客户端查询设备与项目、创建远程任务、通知已绑定的飞书或钉钉会话、通过 139 临时分享本机文件，或管理客户端、Codex CLI 和按域名分流的 Web 代理时使用。
 ---
 
 # Remote Agent 客户端
 
 Remote Agent 是本机常驻客户端，属于一个平台账号，管理多个“工作目录 + Codex/Qoder 执行器”项目。工作台、Web/IM 会话和 SaySo 共享项目身份。这里的 `code` 指 Qoder。
+
+## 本机其他 Agent 的接入
+
+同一用户下能运行 CLI 或 MCP 的 agent 可以复用此客户端能力，不需要读取或复制设备凭据、模型 Token、机器人 AK/SK。临时文件上传可直接运行 `remote-agent files upload --path FILE`；IM 主动推送使用 `remote-agent mcp` 的 `notify_im_session`，明确指定已有目标项目和 IM 会话 ID，并先取得用户对发送对象和内容的授权。上传和通知也分别提供 MCP 的 `upload_file` 与 `notify_im_session`；安装技能不等于替其他 agent 永久注册了 MCP。
+
+用户级共享位置为 `~/.agents/skills/remote-agent/SKILL.md`。`remote-agent skill install` 可在未绑定、未安装 Codex 时安装，`skill status` 检查内嵌内容和客户端版本是否一致。安装器及已激活客户端在安装/升级启动时同步，旧 `~/.codex` 或自定义 `CODEX_HOME` 中的同名技能目录完整移到对应 Codex home 的 `remote-agent-skill-backups/`，避免重复发现；其他技能和模型配置不改。客户端只暂存新版本但未启动时，技能在该版本激活后同步。自定义同名技能被更新前保留备份，失败可检查日志后重试 `skill install`。
+
+Windows 安装/配置时仅给本技能目录授予 RemoteAgent 服务的更新权限。旧安装若缺少新目录权限，由所属用户运行一次 `remote-agent skill install` 补齐，后续服务激活自动更新；不需要重装 MSI 或更换服务账号。
 
 需要核对本机客户端时，按需使用 `remote-agent version`、`remote-agent status` 或 `remote-agent web-proxy status`。配置默认在 `~/.remote-agent/config.json`；自定义配置用 `--config PATH`。status 返回的项目、工具检测与代理状态才是当前能力，不要把安装了本技能当作已绑定、在线或已配置渠道的证据。不要读取、输出或复制配置中的 credential、模型 Token 或机器人 Secret。
 

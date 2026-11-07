@@ -129,6 +129,9 @@ func RunWorker(ctx context.Context, profile string, input io.Reader, output io.W
 					return errors.New("worker already active")
 				}
 				active = true
+				if a != nil {
+					syncActivatedWorkerSkill(p)
+				}
 				go func() {
 					if a == nil {
 						<-workerCtx.Done()

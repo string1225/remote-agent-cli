@@ -30,6 +30,9 @@ function Format-ControlText([string]$Control) {
 }
 try {
     $database = $installer.OpenDatabase($package,0)
+    if ((Read-Scalar 'SELECT `Target` FROM `CustomAction` WHERE `Action`=''InstallUserSkill''') -ne 'skill install') { throw 'MSI must install the shared user skill.' }
+    if ((Read-Scalar 'SELECT `Source` FROM `CustomAction` WHERE `Action`=''InstallUserSkill''') -ne 'AgentExe') { throw 'Skill installation must use the active runtime so MSI repair preserves newer skills.' }
+    if ([int](Read-Scalar 'SELECT `Sequence` FROM `InstallExecuteSequence` WHERE `Action`=''InstallUserSkill''') -le [int](Read-Scalar 'SELECT `Sequence` FROM `InstallExecuteSequence` WHERE `Action`=''InstallFinalize''')) { throw 'User skill installation must follow a successful machine install.' }
     if ((Read-Scalar 'SELECT `Property` FROM `Control` WHERE `Dialog_`=''AgentComplete'' AND `Control`=''BindingCode''') -ne 'BINDING_CODE') { throw 'Completion must accept a device binding code in the MSI.' }
     foreach ($choice in @('AUTO_START','CONFIGURE_CODEX','INSTALL_CODEX')) {
         if ((Read-Scalar "SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$choice'") -ne '1') { throw "Default option must be enabled: $choice" }

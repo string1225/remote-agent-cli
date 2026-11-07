@@ -32,6 +32,7 @@ if [[ "$mode" == cli || "$mode" == codex ]]; then
     else
         mv "$temp/agent" "$root/bin/remote-agent"
     fi
+    "$root/bin/remote-agent" skill install
     if [[ "$mode" == cli ]]; then echo 'Local CLI installed. No remote service enabled. Run remote-agent --help in a new terminal.'; exit 0; fi
 fi
 if [[ "$mode" == codex ]]; then
@@ -43,14 +44,16 @@ if [[ "$mode" == codex ]]; then
     exit 0
 fi
 if [[ -e "$root/config.json" ]]; then
-    if [[ "$setup_codex" == true ]]; then "$temp/agent" codex setup --config "$root/config.json" --server "$server"; fi
     "$temp/agent" update --installer --preserve-start="$no_start" --server "$server" --config "$root/config.json"
+    "$root/bin/remote-agent" skill install
+    if [[ "$setup_codex" == true ]]; then "$root/bin/remote-agent" codex setup --config "$root/config.json" --server "$server"; fi
     if [[ "$no_start" == true ]]; then "$root/bin/remote-agent" stop --config "$root/config.json"; else "$root/bin/remote-agent" autostart install --config "$root/config.json"; fi
     echo 'Existing agent upgraded. Its account binding, projects, permissions, and conversations are retained. Reconnect in the web console.'
     exit 0
 fi
 mv "$temp/agent" "$root/bin/remote-agent"
 printf '%s' '__TOKEN__' | "$root/bin/remote-agent" enroll --server "$server" --config "$root/config.json" --token-stdin
+"$root/bin/remote-agent" skill install
 if [[ "$setup_codex" == true ]]; then "$root/bin/remote-agent" codex setup --config "$root/config.json"; fi
 if [[ "$no_start" == true ]]; then echo 'CLI installed and bound; remote service is stopped. Use remote-agent start when needed.'; exit 0; fi
 "$root/bin/remote-agent" autostart install --config "$root/config.json"

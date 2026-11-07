@@ -40,6 +40,7 @@ if [[ "$mode" == cli || "$mode" == codex ]]; then
     else
         mv "$temp/agent" "$root/bin/remote-agent"
     fi
+    "$root/bin/remote-agent" skill install
     if [[ "$mode" == cli ]]; then echo 'Local CLI installed. No remote service enabled. Run remote-agent --help in a new terminal.'; exit 0; fi
 fi
 if [[ "$mode" == codex ]]; then
@@ -52,14 +53,14 @@ if [[ "$mode" == codex ]]; then
 fi
 exe="$root/bin/remote-agent"
 if [[ -e "$root/config.json" ]]; then
-    if [[ "$setup_codex" == true ]]; then "$temp/agent" codex setup --config "$root/config.json" --server "$server"; fi
     "$temp/agent" update --installer --preserve-start="$no_start" --server "$server" --config "$root/config.json"
     echo 'Existing account binding, projects, permissions, and conversations retained.'
 else
     mv "$temp/agent" "$exe"
     printf '%s' '__TOKEN__' | "$exe" enroll --server "$server" --config "$root/config.json" --token-stdin
-    if [[ "$setup_codex" == true ]]; then "$exe" codex setup --config "$root/config.json"; fi
 fi
+"$exe" skill install
+if [[ "$setup_codex" == true ]]; then "$exe" codex setup --config "$root/config.json" --server "$server"; fi
 if [[ "$no_start" == true ]]; then
     if [[ -e "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/remote-agent.service" ]]; then "$exe" stop --config "$root/config.json"; fi
     echo 'CLI installed and bound; remote service is stopped. Use remote-agent start when needed.'

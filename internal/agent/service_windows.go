@@ -331,7 +331,11 @@ func ConfigureWindowsService(p ServiceProfile, noStart bool) (resultErr error) {
 			return err
 		}
 	}
-	for _, path := range []string{p.Environment["CODEX_HOME"], filepath.Join(p.Environment["USERPROFILE"], ".qoder")} {
+	skillDirectory, err := userSkillServiceDirectory(p.Environment["USERPROFILE"], true)
+	if err != nil {
+		return err
+	}
+	for _, path := range []string{p.Environment["CODEX_HOME"], filepath.Join(p.Environment["USERPROFILE"], ".qoder"), skillDirectory} {
 		if info, e := os.Stat(path); e == nil && info.IsDir() {
 			if err = grantDirectory(path, "M"); err != nil {
 				return err

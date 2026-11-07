@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/string1225/remote-agent-cli/internal/buildinfo"
+	"github.com/string1225/remote-agent-cli/internal/codexsetup"
 	"github.com/string1225/remote-agent-cli/internal/workerproto"
 )
 
@@ -69,6 +71,16 @@ func TestWorkerBoundLifecycleOffline(t *testing.T) {
 		var m workerproto.Message
 		if err := d.Decode(&m); err != nil || m.Type != step.want || m.Error != "" {
 			t.Fatal(step, m, err)
+		}
+		if step.send == "prepare" {
+			if status, err := codexsetup.UserRemoteAgentSkillStatus(dir, buildinfo.Current()); err != nil || status.Exists {
+				t.Fatal("worker preparation changed skills", err)
+			}
+		}
+		if step.send == "activate" {
+			if status, err := codexsetup.UserRemoteAgentSkillStatus(dir, buildinfo.Current()); err != nil || !status.Current {
+				t.Fatal("activated worker did not synchronize user skill", err)
+			}
 		}
 	}
 	if err := <-done; err != nil {

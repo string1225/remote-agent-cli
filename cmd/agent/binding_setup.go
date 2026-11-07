@@ -18,7 +18,10 @@ func configureBoundCodex(config agent.Config) error {
 		return err
 	}
 	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return applyBoundCodex(client, config, home, os.Stdout)
+	if err := applyBoundCodex(client, config, home, os.Stdout); err != nil {
+		return err
+	}
+	return installRemoteAgentSkill()
 }
 
 func applyBoundCodex(client *http.Client, config agent.Config, home string, output io.Writer) error {
@@ -35,9 +38,6 @@ func applyBoundCodex(client *http.Client, config agent.Config, home string, outp
 	}
 	if backup != "" {
 		fmt.Fprintf(output, tr("Previous configuration backed up to %s\n"), backup)
-	}
-	if _, err := codexsetup.InstallRemoteAgentSkill(home); err != nil {
-		return fmt.Errorf("安装 remote-agent skill 失败：%w", err)
 	}
 	fmt.Fprintf(output, tr("Codex Token belongs to platform account %s (%s) at %s; source: device binding.\n"), connection.AccountUsername, connection.AccountID, config.Server)
 	return nil

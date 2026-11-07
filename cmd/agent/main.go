@@ -51,6 +51,7 @@ func run() error {
 		fmt.Println("github login [--username ACCOUNT] [--wait] | github status/accounts/cancel/logout：由常驻客户端完成 GitHub 设备授权，关闭终端后继续等待。")
 		fmt.Println("web-proxy on/off/status/run [--config PATH] [--listen 127.0.0.1:17891]：GitHub/ChatGPT/OpenAI/Google 经 139，其他请求直连；Windows on/off 联动系统代理（默认关闭）。")
 		fmt.Println("files upload --path FILE [--config PATH]：上传文件并返回公开下载链接，最多 100 MiB，下次北京时间凌晨 4 点失效。")
+		fmt.Println("skill install/update/status：安装或检查用户级 ~/.agents/skills/remote-agent，随客户端激活版本同步。")
 		fmt.Println("ssh configure --alias NAME --host HOST --user USER --identity PATH --known-hosts PATH：为 Windows 后台服务导入指定 SSH 连接，保留原文件。")
 		fmt.Println(tr("Windows service GitHub authorization: remote-agent git login | git status | git logout --username ACCOUNT"))
 		fmt.Println(tr("remote-agent: connect --server URL --token-prompt | enroll | run | start | stop | status | version | mcp | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup [--server URL --token-prompt] | app install/upgrade\nUse <command> --help for options.\nWindows: install the MSI first, then run a token/setup command in a new PowerShell. The MSI installs PATH and an automatic Windows Service."))
@@ -58,6 +59,9 @@ func run() error {
 	}
 	if os.Args[1] == "codex" {
 		return runCodex(os.Args[2:])
+	}
+	if os.Args[1] == "skill" {
+		return runSkill(os.Args[2:], os.Stdout)
 	}
 	if os.Args[1] == "files" {
 		return runFiles(context.Background(), os.Args[2:], os.Stdout)
@@ -182,6 +186,9 @@ func run() error {
 				log.SetOutput(f)
 			}
 			log.Printf("agent starting (version %s, pid %d)", buildinfo.Current(), os.Getpid())
+			if _, err := syncCurrentUserSkill(); err != nil {
+				log.Printf("remote-agent skill synchronization failed; client continues: %v", err)
+			}
 			if err := agent.RepairAutostart(path); err != nil {
 				log.Printf("cannot repair autostart recovery policy: %v", err)
 			}

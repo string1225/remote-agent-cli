@@ -57,11 +57,15 @@ CONNECT 中应用与目标的 TLS 保持原样，正常校验证书，139 不替
 
 ## Codex 自动安装技能
 
-`remote-agent codex install/update` 成功安装官方 CLI 后安装 `remote-agent` skill；`codex setup` 和设备绑定的 Codex 配置流程也安装它，因此已安装 CLI 可通过 setup 补齐。位置为 `$CODEX_HOME/skills/remote-agent/SKILL.md`，未设置时为 `~/.codex/skills/remote-agent/SKILL.md`，新 Codex 会话中可发现。安装失败返回具体错误，CLI 本体保留，可重试 setup。
+Remote Agent 的 Unix 安装器和 Windows MSI 在安装时同步用户级 `remote-agent` skill；`codex install/update/setup` 也调用同一安装逻辑。全局共享位置为 `~/.agents/skills/remote-agent/SKILL.md`，未绑定设备或未安装 Codex 也可单独运行 `remote-agent skill install`。`remote-agent skill status` 返回安装路径、版本和是否与当前内嵌内容一致。当前运行版本在 Unix daemon 启动或 Windows worker 激活时再次同步；只暂存但未启动的版本在激活后生效，准备/探测阶段不修改技能。失败写日志且保留客户端在线，可显式重试安装。
 
-技能源为 [SKILL.md](../internal/codexsetup/skills/remote-agent/SKILL.md)，编译进客户端，介绍当前设备查询、项目/会话关系、三个 MCP 工具、任务与通知语义、客户端维护及默认关闭的 Web 代理。技能只保存说明，不包含真实身份或凭证，也不把安装视作联网、绑定、渠道或 MCP 已可用的证明。
+旧 `~/.codex/skills/remote-agent` 及自定义 `CODEX_HOME/skills/remote-agent` 目录整体备份到对应 Codex home 的 `remote-agent-skill-backups/`，保留指令、自定义资源和旧备份，移出技能发现路径以避免同名重复。技能目录或迁移路径存在符号链接、冲突或锁时保留源数据并报错；不会替其他 agent 改写长期 MCP 或模型配置。Codex 官方用户级技能位置及自动发现行为见 [Agent Skills](https://developers.openai.com/codex/skills/)。
 
-安装相同内容不重复写入。更新前保留原同名技能文件 `SKILL.md.backup-<时间>`；拒绝链接、路径冲突及并发安装，失败保留原文件。其他技能和 Codex 配置不会由技能安装器改动。
+Windows 安装和服务配置给本技能目录授予 RemoteAgent 服务的更新权限，不扩展到其他用户技能。旧安装缺少该目录权限时，由所属用户运行一次 `remote-agent skill install` 即可补齐；后续服务激活继续自动同步，无需更换服务账号或重装 MSI。MSI 修复通过宿主调用当前生效的 runtime，保留后台已升级的较新 skill。
+
+技能源为 [SKILL.md](../internal/codexsetup/skills/remote-agent/SKILL.md)，编译进客户端，介绍当前设备查询、项目/会话关系、MCP 工具、任务与通知语义、客户端维护及默认关闭的 Web 代理。技能只保存说明，不包含真实身份或凭证，也不把安装视作联网、绑定、渠道或 MCP 已可用的证明。
+
+安装相同内容不重复写入；版本和来源摘要另存于技能目录内的 `.remote-agent-install.json`。更新前保留原同名技能文件 `SKILL.md.backup-<时间>`；拒绝链接、路径冲突及并发安装，失败保留原文件。其他技能和 Codex 配置不会由技能安装器改动。支持 CLI/MCP 的其他本机 agent 可复用 IM 推送和 139 临时文件上传；推送须有明确目标和用户授权，上传文件为公开临时分享，不能把安装 skill 当作发送或上传的授权。
 
 ## 验收边界
 
