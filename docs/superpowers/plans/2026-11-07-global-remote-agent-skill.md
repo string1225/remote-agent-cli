@@ -9,5 +9,7 @@ Use the official user-level shared location `~/.agents/skills/remote-agent`. Kee
 - [x] Sync only on activated Windows workers and Unix CLI daemon startup, never during worker preparation/probes. Use the owning user's explicit profile; log skill failures without preventing the client from connecting.
 - [x] Call skill installation in Unix installer templates and after successful Windows MSI installation in the invoking user context. No MSI installation test runs on this developer host.
 - [x] Update the skill/docs to explain use by standalone local agents, explicit IM targets, public temporary file links, global installation and version synchronization.
-- [ ] Run full Go tests/vet, platform and MSI package/static checks; review, commit/push, publish runtime/MSI and deploy changed server installer templates with existing backup/rollback procedures.
-- [ ] Update Windows and 139 clients; verify automatic migration/version markers, discovery and MCP tool listing without sending messages or uploading private files. Preserve configuration, sessions, recordings and unrelated dirty files.
+- [x] Run full Go tests/vet, platform and MSI package/static checks; review, commit/push, publish runtime/MSI and deploy changed server installer templates with existing backup/rollback procedures.
+- [x] Update Windows and 139 clients; verify automatic migration/version markers, discovery and MCP tool listing without sending messages or uploading private files. Preserve configuration, sessions, recordings and unrelated dirty files.
+
+Acceptance and remaining platform boundaries: [2026-11-08 release record](../../deployments/2026-11-08-global-remote-agent-skill.md).
