@@ -10,7 +10,7 @@ The authorized behavior is unchanged: only the existing GitHub/ChatGPT/OpenAI/Go
 - [x] Isolate direct HTTP/CONNECT from relay quota and retain shutdown cancellation.
 - [x] Test saturation and 139 failure, Git proxy switching/restoration/external edits, and existing proxy behavior using temporary Git configuration. Review regressions also cover failed port-switch journal recovery and effective included/URL-specific Git overrides.
 - [x] Run full Go tests/vet, six-platform builds and independent review; all checks passed and review findings were resolved.
-- [ ] Commit/push only intended files.
-- [ ] Publish the existing runtime channel with backup/rollback, update this machine and 139 client, and verify real direct/relay requests under load, Git clone without per-command proxy flags, off/on restoration and unchanged device/session data.
+- [x] Commit/push only intended files (`24e1bba`).
+- [x] Publish the existing runtime channel with backup/rollback, update this machine and 139 client, and verify real direct/relay requests under load, Git clone without per-command proxy flags, off/on restoration and unchanged device/session data. See `docs/deployments/2026-11-07-web-proxy-direct-git.md`.
 
 Windows on remains explicit and default off. Only the Git HTTP proxy setting is managed alongside it; other Git settings and authentication remain unchanged. No PAC, persistent environment variable, certificate setting, relay domain expansion, new service or scheduled task is introduced.
