@@ -58,6 +58,8 @@ func ServeWebProxy(ctx context.Context, cfg Config, listener net.Listener) error
 		listener.Close()
 		return errors.New("web proxy requires an enrolled client")
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	p := &webProxy{config: cfg}
 	server := &http.Server{
 		Handler:           p,
@@ -99,7 +101,7 @@ func (p *webProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	ctx, release, ok := p.pool.Open(r.Context(), p.config.ID)
+	ctx, release, ok := p.connectionContext(r.Context(), host)
 	if !ok {
 		http.Error(w, "web proxy connection limit reached", http.StatusTooManyRequests)
 		return
@@ -129,6 +131,14 @@ func (p *webProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = conn.SetWriteDeadline(time.Time{})
 	webproxy.Stream(ctx, conn, buffered.Reader, upstream)
+}
+
+func (p *webProxy) connectionContext(parent context.Context, host string) (context.Context, func(), bool) {
+	if webproxy.RelayHost(host) {
+		return p.pool.Open(parent, p.config.ID)
+	}
+	ctx, cancel := context.WithTimeout(parent, webproxy.MaxLifetime)
+	return ctx, cancel, true
 }
 
 // The route is chosen before dialing. Relay failures must never dial the

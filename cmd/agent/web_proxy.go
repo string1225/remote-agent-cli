@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -46,6 +47,8 @@ func runWebProxy(args []string) error {
 		return err
 	}
 	system := systemproxy.Manager{Backend: backend, Path: filepath.Join(home, ".remote-agent", "web-proxy-system.json")}
+	gitPath, _ := exec.LookPath("git")
+	gitProxy := systemproxy.GitManager{Git: gitPath, Path: filepath.Join(home, ".remote-agent", "web-proxy-git.json")}
 	if action == "status" {
 		address, err := agent.WebProxyAddress(*path)
 		if err != nil {
@@ -65,6 +68,14 @@ func runWebProxy(args []string) error {
 			status["systemProxyEnabled"] = state.Flags&systemproxy.Proxy != 0
 			status["systemProxyManaged"] = state.Flags&systemproxy.Proxy != 0 && state.Server == address
 		}
+		status["gitProxySupported"] = gitPath != ""
+		if gitPath != "" {
+			gitState, err := gitProxy.Status(ctx, address)
+			if err != nil {
+				return err
+			}
+			status["gitProxyEnabled"], status["gitProxyManaged"] = gitState.Enabled, gitState.Managed
+		}
 		return json.NewEncoder(os.Stdout).Encode(status)
 	}
 	if action == "on" || action == "off" {
@@ -83,7 +94,7 @@ func runWebProxy(args []string) error {
 				return fmt.Errorf("%w；请检查客户端服务，系统代理保持原设置", err)
 			}
 		}
-		if action == "off" && systemSupported {
+		if action == "off" {
 			previous, err := agent.WebProxyAddress(*path)
 			if err != nil {
 				return err
@@ -91,8 +102,18 @@ func runWebProxy(args []string) error {
 			if previous == "" {
 				previous = agent.DefaultWebProxyListen
 			}
-			if err := system.Disable(previous); err != nil {
-				return err
+			if gitPath != "" {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				err := gitProxy.Disable(ctx, previous)
+				cancel()
+				if err != nil {
+					return err
+				}
+			}
+			if systemSupported {
+				if err := system.Disable(previous); err != nil {
+					return err
+				}
 			}
 		}
 		if action == "on" {
@@ -106,6 +127,20 @@ func runWebProxy(args []string) error {
 				if err := system.Enable(address); err != nil {
 					return err
 				}
+			}
+			if gitPath != "" {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				err := gitProxy.Enable(ctx, address)
+				cancel()
+				if err != nil {
+					if systemSupported {
+						return errors.Join(err, system.Disable(address))
+					}
+					return err
+				}
+				fmt.Printf("Git HTTP 代理已同步：http://%s；关闭时恢复原设置。\n", address)
+			}
+			if systemSupported {
 				fmt.Printf("Web 代理已就绪并启用 Windows 系统代理：http://%s。关闭用 remote-agent web-proxy off，原系统设置已备份。\n", address)
 			} else {
 				fmt.Printf("Web 代理已就绪：http://%s；请在应用中选择该代理。\n", address)

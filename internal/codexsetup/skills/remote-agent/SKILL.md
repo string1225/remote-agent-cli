@@ -50,15 +50,17 @@ remote-agent web-proxy off
 
 `on` 优先沿用已配置地址，首次默认 `127.0.0.1:17891`；`--listen 127.0.0.1:PORT` 指定优先尝试的端口。端口被占用或不可绑定时自动选择相同回环 IP 的空闲端口，提示新地址并保存；不停止占用端口的其他程序。健康的本客户端监听直接复用，不能复用其他客户端或普通代理；绑定竞争最多重试三次。它先等待健康检查核对本机客户端，再验证 GitHub 中转 CONNECT；成功后自动开启 Windows 当前用户系统代理，无需管理员权限。未就绪/中转失败会报错且不改系统代理，先检查或升级客户端服务。`off` 先恢复系统代理原设置，再关闭监听；原设置私有备份至 `~/.remote-agent/web-proxy-system.json`，外部后来修改的代理会保留。`status` 区分配置、监听就绪、系统代理启用及归属。macOS/Linux 需在应用中选择代理。临时前台运行用 `remote-agent web-proxy run`，Ctrl+C 停止，此模式仍严格绑定指定端口，不自动改系统代理。
 
-开启后按单次请求显式选择代理；先读取 `remote-agent web-proxy status` 的 `listen`，以下 `17891` 仅为默认端口示例，自动换端口后须使用实际地址：
+`on/off` 还会同步当前用户全局 Git 的 `http.proxy` 和实际监听端口，普通 `git clone/fetch/push` 可直接使用；原设置私有备份到 `~/.remote-agent/web-proxy-git.json`，关闭恢复，外部后来修改的值保留。仅管理这一项，不修改其他 Git 配置或持久环境变量；仓库级/URL 专用配置仍按 Git 优先级生效。`status` 的 `gitProxyEnabled/gitProxyManaged` 可检查是否接管。SSH 协议不使用 HTTP 代理。其他命令行程序（如 curl）仍需显式选择代理。
+
+curl 等程序按单次请求显式选择代理；先读取 `remote-agent web-proxy status` 的 `listen`，以下 `17891` 仅为默认端口示例，自动换端口后须使用实际地址：
 
 ```text
-git -c http.proxy=http://127.0.0.1:17891 ls-remote https://github.com/OWNER/REPO.git
+git ls-remote https://github.com/OWNER/REPO.git
 curl --proxy http://127.0.0.1:17891 https://api.github.com/
 curl --proxy http://127.0.0.1:17891 https://chatgpt.com/
 ```
 
-支持普通 HTTP 转发和 HTTPS CONNECT：`github.com`、`githubusercontent.com`、`githubassets.com`、`chatgpt.com`、`openai.com`、`google.com` 及其子域的 80/443 经已绑定站点的鉴权 WebSocket 到 139，其他目标直接放行。重定向后按新目标重新选择路由。中转失败报错，不回退直连；其他目标不依赖 139 在线。139 遇 Fake-IP DNS 会使用固定公网解析器的 HTTPS 查询并继续拒绝非公网地址。CONNECT 中目标 TLS/WSS 透传，由应用正常校验证书，不要关闭证书验证。旧 `.github-proxy.json` 开关保留，新 `.web-proxy.json` 优先。按用户要求使用 `on/off` 管理系统代理，不额外改全局 Git、环境变量或证书验证。
+支持普通 HTTP 转发和 HTTPS CONNECT：`github.com`、`githubusercontent.com`、`githubassets.com`、`chatgpt.com`、`openai.com`、`google.com` 及其子域的 80/443 经已绑定站点的鉴权 WebSocket 到 139，其他目标由本机直接连接，不去 139，也不计入每设备 32 条的中转额度。重定向后按新目标重新选择路由。中转失败报错，不回退直连；其他目标不依赖 139 在线。139 遇 Fake-IP DNS 会使用固定公网解析器的 HTTPS 查询并继续拒绝非公网地址。CONNECT 中目标 TLS/WSS 透传，由应用正常校验证书，不要关闭证书验证。旧 `.github-proxy.json` 开关保留，新 `.web-proxy.json` 优先。按用户要求使用 `on/off` 同步系统和 Git 代理，不额外改环境变量或证书验证。
 
 ## 本机维护
 

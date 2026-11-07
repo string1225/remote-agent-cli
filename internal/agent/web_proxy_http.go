@@ -33,7 +33,7 @@ func (p *webProxy) forwardHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	ctx, release, ok := p.pool.Open(r.Context(), p.config.ID)
+	ctx, release, ok := p.connectionContext(r.Context(), r.URL.Hostname())
 	if !ok {
 		http.Error(w, "web proxy connection limit reached", http.StatusTooManyRequests)
 		return
