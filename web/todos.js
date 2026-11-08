@@ -3,30 +3,38 @@
 (() => {
   let host = null, account = null, revision = 0, cursor = "", busy = false;
   const button = node("button", "☑ 待办任务"), dialog = node("dialog", undefined, "todo-dialog"),
-    heading = node("div", undefined, "todo-heading"), title = node("h2", "待办任务"),
-    close = node("button", "×", "icon-button"), hostLine = node("p", "请选择默认主机", "muted"),
-    hostButton = node("button", "选择默认主机", "secondary"), toolbar = node("div", undefined, "todo-toolbar"),
+    heading = node("div", undefined, "todo-dialog-header"), title = node("h2", "待办任务"), count = node("span", "", "todo-count"),
+    headerTitle = node("div", undefined, "todo-title"), headerActions = node("div", undefined, "todo-header-actions"),
+    close = node("button", "×", "icon-button"), hostLine = node("span", "请选择默认主机", "todo-host-name"),
+    hostBar = node("div", undefined, "todo-host"), hostInfo = node("div", undefined, "todo-host-info"),
+    hostButton = node("button", "选择默认主机", "todo-host-change"), toolbar = node("div", undefined, "todo-toolbar"),
+    searchBox = node("div", undefined, "todo-search"),
     filter = node("select"), search = node("input"), refreshButton = node("button", "刷新", "secondary"),
     createButton = node("button", "＋ 新建待办", "primary"), errorLine = node("p", "", "todo-error"),
     list = node("div", undefined, "todo-list"), more = node("button", "加载更多", "text-button");
   button.id = "todos-entry"; button.type = "button";
   document.querySelector(".platform-nav").prepend(button);
   dialog.id = "todos-dialog"; close.type = "button"; close.setAttribute("aria-label", "关闭待办");
-  heading.append(title, close); close.onclick = () => dialog.close();
+  headerTitle.append(title, count); headerActions.append(createButton, close); heading.append(headerTitle, headerActions); close.onclick = () => dialog.close();
+  hostInfo.append(node("span", "默认主机", "todo-host-label"), hostLine); hostBar.append(hostInfo, hostButton);
+  hostButton.type = createButton.type = refreshButton.type = "button";
   dialog.setAttribute("aria-label", "账号待办清单");
   for (const [value, label] of [["open", "待处理"], ["completed", "已完成"], ["cancelled", "已取消"], ["", "全部"]]) {
     const option = node("option", label); option.value = value; filter.append(option);
   }
   filter.setAttribute("aria-label", "待办状态"); search.type = "search"; search.placeholder = "搜索待办…"; search.setAttribute("aria-label", "搜索待办");
-  toolbar.append(filter, search, refreshButton, createButton);
-  dialog.append(heading, hostLine, hostButton, toolbar, errorLine, list, more); document.body.append(dialog);
+  const searchIcon = node("span", "⌕", "todo-search-icon"); searchIcon.setAttribute("aria-hidden", "true"); searchBox.append(searchIcon, search);
+  toolbar.append(searchBox, filter, refreshButton);
+  errorLine.setAttribute("role", "alert"); list.setAttribute("aria-label", "待办列表");
+  dialog.append(heading, hostBar, toolbar, errorLine, list, more); document.body.append(dialog);
   more.hidden = true;
   async function readHost() {
     const user = state.user?.id; if (!user) return;
     const next = await api("/api/default-host");
     if (state.user?.id !== user) return;
     host = next; account = user;
-    hostLine.textContent = next.agentId ? `保存在默认主机：${next.name} · ${next.online ? "在线" : "离线"}` : "请先选择一台已绑定的电脑保存本账号的唯一待办清单。";
+    hostLine.textContent = next.agentId ? `${next.name} · ${next.online ? "在线" : "离线"}` : "未选择 · 选择一台电脑保存待办";
+    hostLine.dataset.state = next.agentId ? next.online ? "online" : "offline" : "unselected";
     hostButton.textContent = next.agentId ? "更换默认主机" : "选择默认主机";
     renderDevices();
   }
@@ -62,7 +70,8 @@
     }
     if (preselected || host?.agentId) select.value = preselected || host.agentId;
     label.append(select); save.type = "submit"; cancel.type = "button"; cancel.onclick = () => picker.close();
-    form.append(node("h2", "选择默认主机"), description, label, error, save, cancel); picker.append(form); document.body.append(picker);
+    const actions = node("div", undefined, "todo-form-actions"); actions.append(cancel, save);
+    form.append(node("h2", "选择默认主机"), description, label, error, actions); picker.append(form); document.body.append(picker);
     picker.addEventListener("close", () => picker.remove(), {once:true});
     form.onsubmit = async e => {
       e.preventDefault(); save.disabled = true; cancel.disabled = true;
@@ -81,13 +90,20 @@
     if (!state.user || !dialog.open) return;
     const stamp = ++revision, user = state.user.id;
     errorLine.textContent = "";
+    list.setAttribute("aria-busy", "true"); count.textContent = "加载中…";
     try {
       const page = await api(`/api/todos?status=${encodeURIComponent(filter.value)}&search=${encodeURIComponent(search.value)}&cursor=${encodeURIComponent(append ? cursor : "")}`);
       if (stamp !== revision || user !== state.user?.id || !dialog.open) return;
       if (!append) list.replaceChildren();
       list.append(...page.todos.map(renderTodo)); cursor = page.nextCursor || ""; more.hidden = !cursor;
-      if (!list.children.length) list.append(node("p", "这里还没有待办。Agent 需要你判断时会在这里提问，也可以手动新建。", "muted"));
-    } catch (e) { if (stamp === revision && user === state.user?.id) { errorLine.textContent = e.message; if (!append) list.replaceChildren(); more.hidden = true; } }
+      count.textContent = `${list.querySelectorAll(".todo-card").length}${cursor ? "+" : ""} 项`;
+      if (!list.children.length) {
+        const empty = node("div", undefined, "todo-empty"), icon = node("span", "✓", "todo-empty-icon"); icon.setAttribute("aria-hidden", "true");
+        const label = search.value.trim() ? "没有匹配的待办" : ({open:"暂无待处理任务",completed:"暂无已完成任务",cancelled:"暂无已取消任务"})[filter.value] || "还没有待办";
+        empty.append(icon, node("h3", label), node("p", search.value.trim() ? "换个关键词，或调整状态筛选。" : "需要你判断的事项会出现在这里，也可以新建待办。")); list.append(empty);
+      }
+    } catch (e) { if (stamp === revision && user === state.user?.id) { errorLine.textContent = e.message; if (!append) list.replaceChildren(); count.textContent = "暂不可用"; more.hidden = true; } }
+    finally { if (stamp === revision) list.setAttribute("aria-busy", "false"); }
   }
   async function mutate(command) {
     if (busy) return;
@@ -96,26 +112,29 @@
     catch (e) { if (state.user?.id === user) { await load(); errorLine.textContent = e.message; } throw e; }
     finally { busy = false; }
   }
-  function action(label, callback) { const b = node("button", label, "secondary"); b.type = "button"; b.onclick = async () => { b.disabled = true; try { await callback(); } catch (e) { notice(e.message); } finally { b.disabled = false; } }; return b; }
+  function action(label, callback, primary = false) { const b = node("button", label, "secondary" + (primary ? " todo-action-primary" : "")); b.type = "button"; b.onclick = async () => { b.disabled = true; try { await callback(); } catch (e) { notice(e.message); } finally { b.disabled = false; } }; return b; }
   function renderTodo(row) {
-    const card = node("article", undefined, "todo-card"), top = node("div", undefined, "todo-heading"), actions = node("div", undefined, "todo-actions");
-    card.dataset.todoId = row.id;
-    top.append(node("h3", row.title), node("span", ({open:"待处理",completed:"已完成",cancelled:"已取消"})[row.status] || row.status, "status neutral"));
-    card.append(top, node("p", row.body, "todo-body"));
+    const card = node("article", undefined, "todo-card"), top = node("div", undefined, "todo-heading"), actions = node("div", undefined, "todo-actions"), footer = node("div", undefined, "todo-footer"), body = node("div", "", "todo-body");
+    card.dataset.todoId = row.id; card.dataset.status = row.status;
+    top.append(node("h3", row.title), node("span", ({open:"待处理",completed:"已完成",cancelled:"已取消"})[row.status] || row.status, "todo-status"));
+    renderMarkdown(body, row.body || ""); card.append(top, body);
     const device = state.agents.find(a => a.id === row.clientId), project = device?.services?.find(p => p.id === row.projectId);
-    if (row.sessionId) card.append(node("p", `${device?.name || row.clientId} / ${project?.name || row.projectId} · Session ${row.sessionId}`, "small muted todo-route"));
+    if (row.sessionId) {
+      const route = node("div", undefined, "todo-route"), session = node("span", `会话 ${row.sessionId.slice(0, 8)}${row.sessionId.length > 8 ? "…" : ""}`, "todo-session-ref");
+      session.title = `Session ${row.sessionId}`; route.append(node("span", `${device?.name || row.clientId} / ${project?.name || row.projectId}`), session); footer.append(route);
+    }
     const command = operation => ({operation, id:row.id, version:row.version});
     if (row.reply) card.append(node("p", `上次回复 · ${({pending:"等待送达确认",delivered:"已送入原会话",cancelled:"已取消重试，请检查来源会话"})[row.reply.state] || row.reply.state}：${row.reply.text}`, "todo-reply"));
     if (row.reply?.state === "pending") actions.append(action("重试回复", () => mutate({...command("reply"), requestId:row.reply.id, message:row.reply.text})), action("取消", () => mutate(command("cancel"))));
     else {
       if (row.status === "open") {
-        actions.append(action("完成", () => mutate(command("complete"))), action("取消", () => mutate(command("cancel"))));
+        actions.append(action("完成", () => mutate(command("complete")), true), action("取消", () => mutate(command("cancel"))));
         if (row.sessionId) actions.append(action("回复", () => replyForm(card, row)));
       } else actions.append(action("重新打开", () => mutate(command("reopen"))));
       actions.append(action("编辑", () => editForm(row)));
     }
     if (row.sessionId) actions.append(action("打开会话", async () => { dialog.close(); location.hash = `client=${encodeURIComponent(row.clientId)}&project=${encodeURIComponent(row.projectId)}&session=${encodeURIComponent(row.sessionId)}`; await openLinkedSession(); closeDrawers(); }));
-    card.append(actions); return card;
+    footer.append(actions); card.append(footer); return card;
   }
   function replyForm(card, row) {
     if (card.querySelector("form")) return;
@@ -125,17 +144,20 @@
     text.value = draft?.text || "";
     text.oninput = () => WorkspaceCache.write("todo-reply",context,{id,text:text.value});
     form.onsubmit = async e => { e.preventDefault(); send.disabled = true; try { await mutate({operation:"reply",id:row.id,version:row.version,requestId:id,message:text.value}); WorkspaceCache.remove("todo-reply",context); } catch {} finally { send.disabled = false; } };
-    form.append(text, send, action("收起", () => form.remove())); card.append(form); text.focus();
+    const actions = node("div", undefined, "todo-form-actions"); actions.append(action("收起", () => form.remove()), send);
+    form.append(text, actions); card.append(form); text.focus();
   }
   function editForm(row) {
     const editor = node("dialog", undefined, "todo-editor"), form = node("form"), title = node("input"), body = node("textarea"),
       save = node("button", "保存", "primary"), cancel = node("button", "取消", "secondary"), linked = node("input"), linkLabel = node("label", "关联当前会话（回复将让 Agent 继续执行）"), error = node("p", "", "todo-error");
     title.required = true; title.maxLength = 160; title.placeholder = "待办标题"; title.setAttribute("aria-label", "待办标题"); title.value = row?.title || "";
-    body.maxLength = 8000; body.rows = 7; body.placeholder = "背景、需要判断的问题和建议…"; body.setAttribute("aria-label", "待办正文"); body.value = row?.body || "";
+    body.maxLength = 8000; body.rows = 6; body.placeholder = "写清重点、下一步和验收标准，支持 Markdown…"; body.setAttribute("aria-label", "待办正文"); body.value = row?.body || "";
     linked.type = "checkbox"; linked.checked = !!state.session; linked.disabled = !state.session; linkLabel.prepend(linked); linkLabel.hidden = !!row;
     const route = {clientId:state.selected?.id,projectId:state.serviceId,sessionId:state.session?.id}, requestId = crypto.randomUUID(), user = state.user?.id;
     save.type = "submit"; cancel.type = "button"; cancel.onclick = () => editor.close();
-    form.append(node("h2", row ? "编辑待办" : "新建待办"), title, body, linkLabel, error, save, cancel); editor.append(form); document.body.append(editor);
+    const titleLabel = node("label", "标题"), bodyLabel = node("label", "任务说明"), actions = node("div", undefined, "todo-form-actions");
+    titleLabel.append(title); bodyLabel.append(body); linkLabel.className = "todo-link-session"; actions.append(cancel, save);
+    form.append(node("h2", row ? "编辑待办" : "新建待办"), titleLabel, bodyLabel, linkLabel, error, actions); editor.append(form); document.body.append(editor);
     editor.addEventListener("close", () => editor.remove(), {once:true});
     form.onsubmit = async e => { e.preventDefault(); save.disabled = true; try {
       await mutate({operation:row ? "update" : "create",id:row?.id,version:row?.version,requestId,title:title.value,body:body.value,...(!row && linked.checked ? route : {})});

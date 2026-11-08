@@ -1,20 +1,96 @@
-.todo-dialog { width: min(820px, calc(100vw - 24px)); max-height: 88dvh; overflow: auto; }
-.todo-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.todo-heading h2, .todo-heading h3 { margin: 8px 0; overflow-wrap: anywhere; }
-.todo-toolbar, .todo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
-.todo-toolbar input { flex: 1; min-width: 120px; }
-.todo-toolbar select { width: auto; }
-.todo-card { border: 1px solid #dce4d6; border-radius: 12px; padding: 16px; margin: 12px 0; background: #fff; }
-.todo-body, .todo-reply { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
-.todo-reply { background: #f2f6ef; border-radius: 8px; padding: 12px; }
-.todo-route { overflow-wrap: anywhere; }
-.todo-error { color: #a33427; white-space: pre-wrap; }
-.todo-host-dialog, .todo-editor { width: min(560px, calc(100vw - 24px)); }
-.todo-editor form, .todo-host-dialog form { display: grid; gap: 12px; }
-.todo-dialog textarea, .todo-editor textarea { width: 100%; min-height: 100px; resize: vertical; }
-.todo-editor input[type=checkbox] { width: auto; margin-right: 8px; }
-.default-host-badge { display: inline-block; margin-left: 5px; padding: 1px 4px; color: #48633a; background: #e8efdf; border-radius: 4px; font-size: 10px; vertical-align: middle; }
-html.android-app #new-agent, html.android-app #empty-add { display: none; }
-html.android-app .tree-empty p { font-size: 0; }
-html.android-app .tree-empty p::after { content: "请在电脑上绑定客户端，再在这里选择项目。"; font-size: 13px; }
-@media (max-width: 600px) { .todo-dialog { padding: 16px; } .todo-card { padding: 12px; } .todo-heading h3 { font-size: 16px; } .todo-toolbar { display: grid; grid-template-columns: 1fr 1fr; } .todo-toolbar input { min-width: 0; } }
+.todo-dialog { width:min(900px,calc(100vw - 32px)); max-width:none; max-height:86dvh; padding:0; overflow:hidden; }
+.todo-dialog[open] { display:flex; flex-direction:column; }
+.todo-dialog-header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:22px 24px 18px; }
+.todo-title,.todo-header-actions { display:flex; align-items:center; gap:10px; min-width:0; }
+.todo-title h2 { margin:0; font-size:20px; font-weight:650; letter-spacing:-.4px; white-space:nowrap; }
+.todo-count { color:var(--muted); background:#f0f3f8; border-radius:6px; padding:3px 7px; font-size:11px; white-space:nowrap; }
+.todo-dialog-header .primary { min-height:36px; padding:8px 13px; font-size:12px; }
+.todo-dialog-header .icon-button { display:grid; place-items:center; width:32px; height:32px; padding:0; flex-shrink:0; font-size:20px; }
+.todo-host { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:44px; padding:7px 24px; border-block:1px solid var(--line); background:#f8fafc; }
+.todo-host-info { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; min-width:0; }
+.todo-host-label { color:var(--muted); font-size:11px; }
+.todo-host-name { display:inline-flex; align-items:center; gap:6px; color:#46556b; font-size:12px; overflow-wrap:anywhere; }
+.todo-host-name::before { content:""; width:6px; height:6px; border-radius:50%; background:#9ba5b3; flex-shrink:0; }
+.todo-host-name[data-state=online]::before { background:#139468; }
+.todo-host-change { border:0; background:transparent; color:#536d9d; padding:5px 0 5px 8px; font-size:11px; white-space:nowrap; flex-shrink:0; }
+.todo-host-change:hover { color:var(--blue); }
+.todo-toolbar { display:grid; grid-template-columns:minmax(0,1fr) 112px auto; gap:10px; padding:16px 24px; align-items:center; }
+.todo-search { position:relative; min-width:0; }
+.todo-search-icon { position:absolute; left:13px; top:50%; transform:translateY(-50%); color:#7f8ca0; font-size:22px; line-height:1; pointer-events:none; }
+.todo-toolbar input,.todo-toolbar select,.todo-toolbar button { height:40px; min-height:40px; width:100%; margin:0; padding:0 12px; font-size:12px; }
+.todo-toolbar input { padding-left:36px; }
+.todo-toolbar select { padding-right:8px; }
+.todo-toolbar button { padding-inline:15px; }
+.todo-dialog>.todo-error { margin:0 24px 12px; padding:10px 12px; border:1px solid #f0cbd0; border-radius:8px; background:#fff7f7; }
+.todo-error { margin:0; color:#b13d47; font-size:12px; line-height:1.6; white-space:pre-wrap; }
+.todo-error:empty { display:none; }
+.todo-list { display:grid; gap:10px; padding:0 24px 24px; overflow:auto; min-height:0; overscroll-behavior:contain; }
+.todo-dialog>button.text-button { flex-shrink:0; margin:0 24px 12px; }
+.todo-empty { display:grid; justify-items:center; gap:8px; padding:30px 16px; border:1px dashed #dce3ee; border-radius:12px; background:#fbfcfe; text-align:center; }
+.todo-empty-icon { display:grid; place-items:center; width:32px; height:32px; margin-bottom:2px; border:1px solid #dce5f4; border-radius:9px; color:#7392cc; background:#f0f5ff; font-size:18px; }
+.todo-empty h3 { margin:0; color:#46566e; font-size:14px; font-weight:600; }
+.todo-empty p { margin:0; color:var(--muted); font-size:12px; line-height:1.7; }
+.todo-card { display:grid; gap:10px; min-width:0; padding:16px; border:1px solid #e0e6ef; border-radius:11px; background:#fff; }
+.todo-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; min-width:0; }
+.todo-heading h3 { margin:0; color:#293b55; font-size:15px; line-height:1.5; font-weight:650; overflow-wrap:anywhere; }
+.todo-status { flex-shrink:0; padding:3px 8px; border-radius:5px; font-size:10px; font-weight:550; line-height:1.6; color:#67758a; background:#f0f3f7; }
+.todo-card[data-status=open] .todo-status { color:#88621b; background:#fff5df; }
+.todo-card[data-status=completed] .todo-status { color:#18734d; background:#eaf6ef; }
+.todo-body.markdown-body { margin:0; color:#516078; font-size:13px; line-height:1.65; overflow-wrap:anywhere; }
+.todo-body:empty { display:none; }
+.todo-body.markdown-body p,.todo-body.markdown-body ul,.todo-body.markdown-body ol { margin:0 0 5px; }
+.todo-body.markdown-body>:last-child { margin-bottom:0; }
+.todo-body.markdown-body ul,.todo-body.markdown-body ol { padding-left:20px; }
+.todo-body.markdown-body li { margin:2px 0; }
+.todo-body.markdown-body strong { color:#2e405b; font-weight:650; }
+.todo-body.markdown-body h1,.todo-body.markdown-body h2,.todo-body.markdown-body h3 { margin:8px 0 5px; font-size:14px; line-height:1.5; }
+.todo-body.markdown-body>:first-child { margin-top:0; }
+.todo-body.markdown-body pre { max-height:180px; overflow:auto; }
+.todo-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 12px; padding-top:10px; border-top:1px solid #edf0f5; }
+.todo-route { display:flex; align-items:center; flex-wrap:wrap; gap:5px 10px; flex:1 1 180px; min-width:0; color:#8290a4; font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+.todo-session-ref { color:#94a0b2; font-family:"Cascadia Code",Consolas,monospace; }
+.todo-actions,.todo-form-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:6px; }
+.todo-actions { margin-left:auto; }
+.todo-actions .secondary { min-height:30px; padding:5px 9px; border-radius:6px; border-color:#e1e7f0; font-size:11px; font-weight:500; }
+.todo-actions .todo-action-primary { color:#315ee9; border-color:#dbe5ff; background:#f0f5ff; }
+.todo-reply { margin:0; padding:9px 11px; border-left:2px solid #c3d3f2; border-radius:0 7px 7px 0; background:#f6f8fc; color:#5a6b85; font-size:12px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+.todo-card>form { display:grid; gap:10px; margin:0; }
+.todo-dialog textarea,.todo-editor textarea { width:100%; min-height:100px; resize:vertical; }
+.todo-host-dialog,.todo-editor { width:min(560px,calc(100vw - 32px)); max-width:none; padding:24px; max-height:88dvh; overflow:auto; }
+.todo-editor form,.todo-host-dialog form { display:grid; gap:16px; margin:0; }
+.todo-editor h2,.todo-host-dialog h2 { margin:0 0 2px; font-size:19px; }
+.todo-host-dialog .muted { margin:0; }
+.todo-editor label,.todo-host-dialog label { margin:0; font-size:12px; }
+.todo-editor input:not([type=checkbox]),.todo-editor textarea,.todo-host-dialog select { margin-top:7px; font-size:13px; }
+.todo-editor .todo-link-session { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; line-height:1.5; }
+.todo-editor input[type=checkbox] { width:auto; margin:0; flex-shrink:0; }
+.todo-form-actions { padding-top:4px; }
+.todo-form-actions button { min-height:36px; padding:8px 14px; font-size:12px; }
+.default-host-badge { display:inline-block; margin-left:5px; padding:1px 4px; color:#48633a; background:#e8efdf; border-radius:4px; font-size:10px; vertical-align:middle; }
+html.android-app #new-agent,html.android-app #empty-add { display:none; }
+html.android-app .tree-empty p { font-size:0; }
+html.android-app .tree-empty p::after { content:"请在电脑上绑定客户端，再在这里选择项目。"; font-size:13px; }
+@media (max-width:600px) {
+  .todo-dialog { width:calc(100vw - 20px); max-height:92dvh; border-radius:14px; }
+  .todo-dialog-header { gap:8px; padding:17px 16px 14px; }
+  .todo-title,.todo-header-actions { gap:7px; }
+  .todo-title h2 { font-size:18px; }
+  .todo-count { font-size:10px; padding:3px 5px; }
+  .todo-dialog-header .primary { min-height:34px; padding:7px 9px; font-size:11px; }
+  .todo-host { padding:8px 16px; gap:8px; }
+  .todo-host-info { gap:4px 8px; }
+  .todo-toolbar { grid-template-columns:minmax(0,1fr) auto; gap:8px; padding:12px 16px; }
+  .todo-search { grid-column:1 / -1; }
+  .todo-toolbar select { width:100%; }
+  .todo-list { padding:0 16px 16px; }
+  .todo-dialog>.todo-error { margin-inline:16px; }
+  .todo-card { padding:13px; gap:9px; }
+  .todo-heading { gap:8px; }
+  .todo-heading h3 { font-size:14px; }
+  .todo-footer { gap:9px; }
+  .todo-route { flex-basis:100%; }
+  .todo-actions { gap:5px; }
+  .todo-empty { padding:26px 12px; }
+  .todo-empty p { max-width:230px; }
+  .todo-editor,.todo-host-dialog { padding:20px; }
+}
