@@ -78,7 +78,7 @@ func TestClientCapabilitiesStayWithinAccountAndUseServerAssignedRouting(t *testi
 }
 
 func TestSessionManagementRelayReplacesCallerAndRejectsForeignClients(t *testing.T) {
-	for _, kind := range []string{"sessions.spawn", "sessions.control"} {
+	for _, kind := range []string{"sessions.spawn", "sessions.control", "channels.sessions"} {
 		t.Run(kind, func(t *testing.T) {
 			f := setupAt(t, "/agents")
 			alice, bob := f.user("alice"), f.user("bob")
@@ -123,7 +123,7 @@ func TestSessionManagementRelayReplacesCallerAndRejectsForeignClients(t *testing
 				if forwarded["parentAgentId"] != source.ID || forwarded["notify"] == true || forwarded["notifyAgentId"] != nil {
 					t.Fatal("spawn retained spoofed routing", forwarded)
 				}
-			} else if forwarded["callerAgentId"] != source.ID || forwarded["callerSessionId"] != "parent" {
+			} else if kind == "sessions.control" && (forwarded["callerAgentId"] != source.ID || forwarded["callerSessionId"] != "parent") {
 				t.Fatal("caller was not authenticated", forwarded)
 			}
 			if err := device.WriteJSON(protocol.Signal{Type: "event", PeerID: open.PeerID, Event: &protocol.Event{ID: request.Request.ID, Type: "result", Data: map[string]bool{"ok": true}}}); err != nil {

@@ -29,7 +29,7 @@ func providerTools(s protocol.Service, args []string) ([]string, func(), error) 
 		args = append(append(append([]string{}, args[:len(args)-1]...), overrides...), args[len(args)-1])
 		return args, cleanup, nil
 	}
-	config := map[string]any{"mcpServers": map[string]any{"remote_agent": map[string]any{"command": s.ToolBinary, "args": toolArgs, "trust": true, "includeTools": []string{"list_assistants", "delegate_work", "read_work", "reply_work", "cancel_work", "upload_file", "list_todos", "publish_todo", "update_todo", "list_clients_projects", "start_web_session", "list_child_sessions", "read_session", "wait_session", "send_to_session", "cancel_session_task", "notify_im_session"}}}}
+	config := map[string]any{"mcpServers": map[string]any{"remote_agent": map[string]any{"command": s.ToolBinary, "args": toolArgs, "trust": true, "includeTools": []string{"list_assistants", "delegate_work", "read_work", "reply_work", "cancel_work", "upload_file", "list_todos", "publish_todo", "update_todo", "list_clients_projects", "list_im_sessions", "start_web_session", "list_child_sessions", "read_session", "wait_session", "send_to_session", "cancel_session_task", "notify_im_session"}}}}
 	data, _ := json.Marshal(config)
 	f, err := os.CreateTemp(filepath.Dir(s.ToolConfig), ".mcp-*.json")
 	if err != nil {

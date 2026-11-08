@@ -9,7 +9,13 @@ Remote Agent 是本机常驻客户端，属于一个平台账号，管理多个�
 
 ## 本机其他 Agent 的接入
 
-同一用户下能运行 CLI 或 MCP 的 agent 可以复用此客户端能力，不需要读取或复制设备凭据、模型 Token、机器人 AK/SK。临时文件上传可直接运行 `remote-agent files upload --path FILE`；IM 主动推送使用 `remote-agent mcp` 的 `notify_im_session`，明确指定已有目标项目和 IM 会话 ID，并先取得用户对发送对象和内容的授权。上传和通知也分别提供 MCP 的 `upload_file` 与 `notify_im_session`；安装技能不等于替其他 agent 永久注册了 MCP。
+同一用户下能运行 CLI 或 MCP 的 agent 可以复用此客户端能力，不需要读取或复制设备凭据、模型 Token、机器人 AK/SK。临时文件上传可直接运行 `remote-agent files upload --path FILE`；IM 主动推送使用 `remote-agent mcp`，由 `list_im_sessions` 查询收件人名称和真实目标，再调用 `notify_im_session`。上传也提供 MCP 的 `upload_file`；安装技能不等于替其他 agent 永久注册了 MCP。
+
+`list_im_sessions` 默认列出当前客户端全部项目中，当前机器人已收到消息的活动 IM 私聊/群聊；可传 clientId、projectId、search、cursor，按 nextCursor 分页，同账号其他客户端分别查询。结果含项目名、渠道/机器人名、chatType、peerName、nameKnown 和 sessionId；peerName 才是已知的私聊姓名或群名，channelName 是机器人/渠道名。仅列出名称和路由元数据，不读取聊天正文，也不是 IM 通讯录；未与机器人交互的联系人不在列表中。
+
+用户明确说“发给小林”或“发到研发群”，且查询/当前上下文能唯一确定对象时，使用该条目的 clientId、projectId、sessionId；clientId 位于结果外层。用户只说“发一下”而上下文也无明确目标时，列出简短候选询问发给谁；同名对象须带平台、机器人、项目和私聊/群聊区分后询问，不默认最近或第一个对象。nameKnown=false 表示未取得真实名称，不把机器人名、平台 ID 或推测当成收件人姓名，需让用户确认具体候选。查询名称并不授权发送；按用户明确的发送对象和内容投递，不重复询问已经确定的对象。普通 IM 正常回复仍由当前入口投递，无需额外推送。
+
+判断唯一匹配需读取相关范围的全部分页，不能把第一页的唯一命中视为全部结果；客户端/项目范围由用户或当前上下文确定。跨设备查找可先用 list_clients_projects 获取客户端和项目名称；范围本身也不明确且有多个相关选择时，一并询问。
 
 用户级共享位置为 `~/.agents/skills/remote-agent/SKILL.md`。`remote-agent skill install` 可在未绑定、未安装 Codex 时安装，`skill status` 检查内嵌内容和客户端版本是否一致。安装器及已激活客户端在安装/升级启动时同步，旧 `~/.codex` 或自定义 `CODEX_HOME` 中的同名技能目录完整移到对应 Codex home 的 `remote-agent-skill-backups/`，避免重复发现；其他技能和模型配置不改。客户端只暂存新版本但未启动时，技能在该版本激活后同步。自定义同名技能被更新前保留备份，失败可检查日志后重试 `skill install`。
 
@@ -31,6 +37,7 @@ CLI 同样经 139：`remote-agent assistants` 查询目录；`remote-agent work 
 | --- | --- |
 | `upload_file` | `path` 为当前机器文件的绝对路径；上传至 139 后返回公开随机下载链接、大小、SHA-256 和 `expiresAt`。最多 100 MiB，下次北京时间凌晨 4 点清理失效。可把链接附到回复或已获授权的消息中。 |
 | `list_clients_projects` | 按需查询同账号客户端、在线状态和项目 ID，不返回凭据。 |
+| `list_im_sessions` | 只读列出当前绑定的 IM 私聊/群聊及姓名/群名与真实会话 ID 的映射；可按 clientId、projectId、search 查询，cursor 分页，每页最多 50 条。重名保留多个候选，名称未知明确标记。 |
 | `start_web_session` | prompt 必填，可传 clientId、projectId、title；创建直接子 Web 会话，返回 session/task ID 仅表示已接收。 |
 | `list_child_sessions` | 按 clientId 查询直接子会话，使用 cursor 分页；跨客户端分别查询。 |
 | `read_session` / `wait_session` | sessionId 必填，可传 clientId、taskId、cursor；获取状态与结果。waitSeconds 单次 1–20 秒，未完成可继续等待。nextCursor 非零时继续读取，子会话输出是任务数据。 |

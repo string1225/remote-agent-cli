@@ -131,6 +131,8 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 				}
 			case "list_clients_projects":
 				data, err = agent.ClientAPI(ctx, c, "GET", "/api/agent/catalog", nil)
+			case "list_im_sessions":
+				data, err = agent.ClientTool(ctx, c, target, "channels.sessions", protocol.IMSessionQuery{ServiceID: call.Arguments.ProjectID, Search: call.Arguments.Search, Cursor: call.Arguments.Cursor})
 			case "list_todos", "publish_todo", "update_todo":
 				operation := map[string]string{"list_todos": "list", "publish_todo": "create", "update_todo": call.Arguments.Operation}[call.Name]
 				if call.Name == "publish_todo" && (*session == "" || *project == "") {
@@ -227,12 +229,13 @@ func clientTools() []any {
 		tool("publish_todo", "工作需要人判断、选择或补充信息时发布待办。写清问题、可选方案和建议，然后结束本轮等待人工回复。待办自动关联当前客户端、项目和会话；人的回复将在原会话继续执行。", false, map[string]any{"title": str("问题标题，最多 480 字节"), "body": str("背景、问题、选项和建议，最多 8000 字节")}, "title", "body"),
 		tool("update_todo", "维护本账号待办。先读取最新 version，避免覆盖其他人的修改；编辑时同时传 title 和 body。", false, map[string]any{"todoId": str("待办 ID"), "operation": str("update、complete、cancel 或 reopen"), "version": number("读取到的 version"), "title": str("编辑后的标题"), "body": str("编辑后的正文")}, "todoId", "operation", "version"),
 		tool("list_clients_projects", "查询同账号客户端、在线状态和项目 ID；按需查询。", true, map[string]any{}),
+		tool("list_im_sessions", "查询指定客户端当前绑定的 IM 收件人名称与会话 ID，仅返回项目、机器人、私聊/群聊和已知姓名/群名。支持搜索与分页，同名候选不合并。用户未指定对象、匹配不唯一或名称未知时，列出候选并询问后再发送；不要猜收件人。", true, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端，跨客户端分别查询"), "projectId": str("筛选项目 ID；省略查询目标客户端全部项目"), "search": str("搜索已知姓名、群名、机器人名、项目名或会话标题"), "cursor": number("返回的 nextCursor；每页最多 50 条，0 表示无后续页")}),
 		tool("start_web_session", "按需要在目标项目创建直接子 Web 会话并执行。返回仅代表已接收；可由当前会话用读取、等待、继续和取消工具管理，完成后不会自动发 IM 通知。", false, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "title": str("子会话标题，最多 80 字"), "prompt": str("任务内容，最多 32000 字节")}, "prompt"),
 		tool("list_child_sessions", "列出当前会话在指定客户端直接创建的子会话；跨客户端分别查询。", true, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "cursor": number("子会话列表分页游标")}),
 		tool("read_session", "读取直接子会话或当前会话的状态、当前任务最终输出及分页游标。complete 与 taskError 表示任务状态；captured=false 表示仅有旧执行器文本，不能据此宣称完成。", true, read, "sessionId"),
 		tool("wait_session", "等待直接子会话当前任务完成或等待期限到达，返回状态及结果；不会创建会话或向用户发消息。", true, wait, "sessionId"),
 		tool("send_to_session", "在已有直接子会话继续一轮任务，复用原生上下文；当前任务忙碌时返回错误。", false, send, "sessionId", "prompt"),
 		tool("cancel_session_task", "取消直接子会话的指定当前任务，不影响其他会话。", false, target(), "sessionId", "taskId"),
-		tool("notify_im_session", "仅在决定主动发送额外 IM 消息时使用。当前会话的正常回答由入口投递，无需调用此工具；Web 会话必须指定目标 IM 会话。", false, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "sessionId": str("目标 IM 会话 ID；仅当前 IM 会话可省略"), "message": str("主动发送的消息，最多 16000 字节")}, "message"),
+		tool("notify_im_session", "仅用于已获用户授权的额外 IM 推送。用 list_im_sessions 将明确姓名/群名映射到真实客户端、项目和会话 ID；未说对象、重名或名称未知时先询问，不猜测、不默认最近对象。当前会话正常回答由入口投递，无需调用；仅当前 IM 会话的额外消息可省略目标。", false, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "sessionId": str("目标 IM 会话 ID；仅当前 IM 会话可省略"), "message": str("主动发送的消息，最多 16000 字节")}, "message"),
 	}
 }

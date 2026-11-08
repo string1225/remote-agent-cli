@@ -392,6 +392,8 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		a.handleAttachment(req, send)
 	case "channels.get", "channels.configure", "channels.notify":
 		a.handleChannel(p, req, send)
+	case "channels.sessions":
+		a.handleIMSessionList(req, send)
 	case "tasks.cancel":
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: a.cancelTask(req.RunID)})
 	case "tasks.promote", "tasks.edit":

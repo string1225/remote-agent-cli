@@ -65,6 +65,9 @@ func TestProviderToolsAreInvocationScopedAndPreserveLocalPermissions(t *testing.
 	if !strings.Contains(string(data), "web-session") {
 		t.Fatal("lost caller session")
 	}
+	if !strings.Contains(string(data), `"list_im_sessions"`) {
+		t.Fatal("Qoder cannot discover IM recipients")
+	}
 	cleanup()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("temporary MCP config retained")

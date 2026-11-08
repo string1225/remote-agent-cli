@@ -52,7 +52,7 @@ func (s *Server) agentToolCall(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if in.Type != "tasks.start" && in.Type != "sessions.spawn" && in.Type != "channels.notify" && in.Type != "sessions.control" {
+	if in.Type != "tasks.start" && in.Type != "sessions.spawn" && in.Type != "channels.notify" && in.Type != "channels.sessions" && in.Type != "sessions.control" {
 		fail(w, 400, "unsupported client capability")
 		return
 	}
