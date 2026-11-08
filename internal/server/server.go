@@ -114,6 +114,11 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	mux.HandleFunc("POST /api/agent/channels/{sync}", s.agentChannel)
 	mux.HandleFunc("GET /api/agent/catalog", s.agentCatalog)
 	mux.HandleFunc("POST /api/agent/tools", s.agentToolCall)
+	mux.HandleFunc("GET /api/agents/{id}/projects/{project}/session-token", s.projectSessionToken)
+	mux.HandleFunc("PUT /api/agents/{id}/projects/{project}/session-token", s.projectSessionToken)
+	mux.HandleFunc("POST /api/agents/{id}/projects/{project}/session-token/reveal", s.projectSessionToken)
+	mux.HandleFunc("DELETE /api/agents/{id}/projects/{project}/session-token", s.projectSessionToken)
+	mux.HandleFunc("POST /api/agents/{id}/projects/{project}/sessions", s.createProjectSession)
 	mux.HandleFunc("GET /api/default-host", s.defaultHost)
 	mux.HandleFunc("PUT /api/default-host", s.defaultHost)
 	mux.HandleFunc("GET /api/agent/default-host", s.defaultHost)
@@ -167,7 +172,11 @@ func fail(w http.ResponseWriter, status int, msg string) {
 	reply(w, status, map[string]string{"error": msg})
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 128*1024)
+	return decodeLimit(w, r, v, 128*1024)
+}
+
+func decodeLimit(w http.ResponseWriter, r *http.Request, v any, maxBytes int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if err := d.Decode(v); err != nil {

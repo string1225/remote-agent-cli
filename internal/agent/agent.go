@@ -469,6 +469,13 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			return
 		}
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: page})
+	case "sessions.create-external":
+		result, err := a.createProjectSession(p.ctx, req)
+		if err != nil {
+			fail(err)
+			return
+		}
+		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: result})
 	case "sessions.create":
 		var service protocol.Service
 		for _, s := range a.services() {

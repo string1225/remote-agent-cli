@@ -76,7 +76,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, name := range []string{"users", "accounts", "usernames", "sessions", "agents", "enrollments", "codex_tokens", "codex_verifiers", "codex_secrets", "meta", "channel_projects", "channel_bots"} {
+		for _, name := range []string{"users", "accounts", "usernames", "sessions", "agents", "enrollments", "codex_tokens", "codex_verifiers", "codex_secrets", "meta", "channel_projects", "channel_bots", "project_session_tokens"} {
 			if _, e := tx.CreateBucketIfNotExists([]byte(name)); e != nil {
 				return e
 			}

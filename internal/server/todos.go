@@ -310,10 +310,14 @@ func (s *Server) todoCall(ctx context.Context, target string, in protocol.TodoSt
 }
 
 func (s *Server) accountRelay(parent context.Context, target, userID string, req protocol.Request, check func() bool) (json.RawMessage, error) {
+	return s.relayRequest(parent, target, userID, req, check, true)
+}
+
+func (s *Server) relayRequest(parent context.Context, target, userID string, req protocol.Request, check func() bool, accountTools bool) (json.RawMessage, error) {
 	req.ID = store.Token()
 	data, _ := json.Marshal(req)
 	if len(data) > protocol.MaxRequestBytes {
-		return nil, errors.New("待办请求超出传输限制")
+		return nil, errors.New("请求超出传输限制")
 	}
 	ctx, cancel := context.WithTimeout(parent, 25*time.Second)
 	defer cancel()
@@ -344,7 +348,7 @@ func (s *Server) accountRelay(parent context.Context, target, userID string, req
 		s.hub.mu.Unlock()
 		_ = agent.send(protocol.Signal{Type: "close", PeerID: peerID})
 	}()
-	if e := agent.send(protocol.Signal{Type: "open", PeerID: peerID, LeaseSeconds: 30, AccountTools: true}); e != nil {
+	if e := agent.send(protocol.Signal{Type: "open", PeerID: peerID, LeaseSeconds: 30, AccountTools: accountTools}); e != nil {
 		return nil, errors.New("客户端连接已断开")
 	}
 	sent := false
@@ -377,10 +381,13 @@ func (s *Server) accountRelay(parent context.Context, target, userID string, req
 				}
 				switch msg.Event.Type {
 				case "error":
+					if msg.Event.Error == "unknown request type" && req.Type == "sessions.create-external" {
+						return nil, errors.New("目标客户端不支持外部创建会话，请先升级客户端后重试")
+					}
 					if msg.Event.Error == "unknown request type" && strings.HasPrefix(req.Type, "todos.") {
 						return nil, fmt.Errorf("目标客户端版本不支持账号待办（%s），请先升级该客户端后重试；若检查更新显示已是最新版本，需要先发布包含待办协议的新客户端安装包", req.Type)
 					}
-					return nil, fmt.Errorf("待办操作失败：%s", msg.Event.Error)
+					return nil, fmt.Errorf("客户端操作失败：%s", msg.Event.Error)
 				case "chunk":
 					var encoded string
 					raw, _ := json.Marshal(msg.Event.Data)

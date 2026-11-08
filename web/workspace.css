@@ -282,4 +282,12 @@ input:focus,select:focus,textarea:focus { outline-color:#a6bcff; border-color:#9
  .platform-card { gap:10px; }.platform-card .small { font-size:11px; }.device-name { font-size:14px; }
  dialog { max-height:92dvh; overflow:auto; }.connection-progress { padding:24px; }.auth-card { padding:35px 24px; }
 }
+.project-session-api { border-top:1px solid var(--line); padding-top:18px; margin-top:22px; }
+.project-session-api summary { cursor:pointer; font-weight:600; }
+.project-session-api[open] { display:grid; gap:12px; }
+.project-session-api input,.project-session-api textarea { width:100%; min-width:0; font-family:Consolas,monospace; font-size:12px; }
+.project-session-api form { margin-top:0; }
+.project-api-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.project-api-actions button { font-size:12px; padding:8px 10px; }
+#project-settings-dialog { max-height:90dvh; overflow:auto; }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation:none!important; transition:none!important; } }

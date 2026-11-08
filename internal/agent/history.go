@@ -62,6 +62,10 @@ func saveSession(tx *bolt.Tx, s protocol.Conversation) error {
 	return tx.Bucket([]byte("sessions")).Put([]byte(s.ID), b)
 }
 func (h historyStore) create(service protocol.Service, title string) (s protocol.Conversation, err error) {
+	return h.createWithMessage(service, title, "")
+}
+
+func (h historyStore) createWithMessage(service protocol.Service, title, message string) (s protocol.Conversation, err error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		title = "新会话"
@@ -71,13 +75,33 @@ func (h historyStore) create(service protocol.Service, title string) (s protocol
 	}
 	now := time.Now().UnixMilli()
 	s = protocol.Conversation{ID: store.Token(), ServiceID: service.ID, Title: title, Provider: service.Provider, Workspace: service.Workspace, CreatedAt: now, UpdatedAt: now}
+	var pending []protocol.QueuedMessage
 	err = h.transact(true, func(tx *bolt.Tx) error {
+		if strings.TrimSpace(message) != "" {
+			s.TaskID, s.TaskStatus, s.Kind, s.Source = store.Token(), "paused", "web", "web"
+			queue, err := tx.CreateBucketIfNotExists([]byte("task_queue"))
+			if err != nil {
+				return err
+			}
+			order, err := queue.NextSequence()
+			if err != nil {
+				return err
+			}
+			row := queueRecord{QueuedMessage: protocol.QueuedMessage{ID: s.TaskID, Prompt: message, Status: "paused", Source: "web", CreatedAt: now}, SessionID: s.ID, ServiceID: service.ID, Order: order}
+			if err := saveQueueRecord(tx, row); err != nil {
+				return err
+			}
+			pending = []protocol.QueuedMessage{row.QueuedMessage}
+		}
 		if err := saveSession(tx, s); err != nil {
 			return err
 		}
 		_, err := tx.Bucket([]byte("entries")).CreateBucket([]byte(s.ID))
 		return err
 	})
+	if err == nil {
+		s.QueuedMessages = pending
+	}
 	return
 }
 func (h historyStore) get(id string) (s protocol.Conversation, err error) {

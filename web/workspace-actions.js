@@ -12,6 +12,9 @@
     projectForm.elements.workspace.value = current.workspace;
     $("project-settings-roots").textContent = "允许的根目录：" + state.roots.join("、");
     projectDialog.showModal();
+    const target = editingProject;
+    const valid = () => editingProject === target && target.peer === state.peer && target.account === state.user?.id && projectDialog.open;
+    import("./project-session-api.js").then(module => { if (valid()) module.open(client.id, current.id, valid); }).catch(error => { if (valid()) notice(error.message); });
     projectForm.elements.name.focus();
   };
   projectForm.onsubmit = async event => {
