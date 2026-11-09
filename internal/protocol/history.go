@@ -30,9 +30,13 @@ type Conversation struct {
 	ActionID        string          `json:"actionId,omitempty"`
 	TaskStatus      string          `json:"taskStatus,omitempty"`
 	TaskError       string          `json:"taskError,omitempty"`
+	TaskAcceptedAt  int64           `json:"taskAcceptedAt,omitempty"`
+	TaskStartedAt   int64           `json:"taskStartedAt,omitempty"`
+	TaskCompletedAt int64           `json:"taskCompletedAt,omitempty"`
 }
 
 type ChatEntry struct {
+	Activity    *RunActivity `json:"activity,omitempty"`
 	Report      *WorkReport  `json:"report,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 	Seq         uint64       `json:"seq"`

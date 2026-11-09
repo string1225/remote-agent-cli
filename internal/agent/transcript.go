@@ -4,11 +4,15 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+
+	"github.com/string1225/remote-agent-cli/internal/protocol"
 )
 
 // Decode provider JSONL without storing credentials or protocol boilerplate.
 // The output remains plain text so the web UI never executes model-produced HTML.
 type transcript struct {
+	activity   func(protocol.RunActivity) error
+	activities map[string]protocol.RunActivity
 	mu         sync.Mutex
 	pending    map[string]string
 	dropping   map[string]bool
@@ -124,6 +128,9 @@ func (t *transcript) line(stream, line string) error {
 	}
 	if e.Item.Type == "reasoning" {
 		return nil
+	}
+	if handled, err := t.recordActivity([]byte(line)); err != nil || handled {
+		return err
 	}
 	if e.Item.Command != "" && e.Type == "item.completed" {
 		// Record the invocation, never the returned file/skill contents.

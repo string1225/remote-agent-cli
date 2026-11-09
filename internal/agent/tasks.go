@@ -14,6 +14,8 @@ import (
 )
 
 type queuedTask struct {
+	newSession  bool
+	requestKey  string
 	priority    bool
 	attachments []string
 	recorded    bool
@@ -34,7 +36,7 @@ func (a *Agent) enqueueTask(task queuedTask) bool {
 }
 
 func (a *Agent) enqueueTaskLocked(task queuedTask) bool {
-	if task.ctx.Err() != nil || a.maintenance || a.toolInstalling || a.removingProjects[task.start.ServiceID] || len(a.taskCancels) >= maxBackgroundTasks {
+	if task.ctx.Err() != nil || a.maintenance || a.toolInstalling || a.removingProjects[task.start.ServiceID] || len(a.taskCancels) >= maxBackgroundTasks || len(a.tasks) >= cap(a.tasks) {
 		return false
 	}
 	if a.taskCancels == nil {
@@ -158,10 +160,8 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 	if strings.TrimSpace(in.Title) == "" {
 		in.Title = soBound(in.Prompt, 80)
 	}
-	session, err := a.historyStore().create(service, in.Title)
-	if err != nil {
-		return result, err
-	}
+	now := time.Now().UnixMilli()
+	session := protocol.Conversation{ID: store.Token(), ServiceID: service.ID, Title: soBound(strings.TrimSpace(in.Title), 80), Provider: service.Provider, Workspace: service.Workspace, CreatedAt: now, UpdatedAt: now, TaskAcceptedAt: now}
 	session.Kind = "web"
 	session.Source = in.Source
 	session.ParentAgentID = in.ParentAgentID
@@ -169,24 +169,12 @@ func (a *Agent) startTask(ctx context.Context, in protocol.TaskStart, complete f
 	session.ActionID = in.ActionID
 	session.TaskStatus = "queued"
 	session.TaskID = store.Token()
-	if err = a.historyStore().update(session.ID, func(v *protocol.Conversation) { *v = session }); err != nil {
-		return result, err
-	}
 	result = protocol.TaskStarted{Session: session, TaskID: session.TaskID}
-	if _, err = a.historyStore().append(session.ID, protocol.ChatEntry{TurnID: result.TaskID, Role: "user", Text: in.Prompt, Kind: "message"}); err != nil {
-		return result, err
-	}
-	if requestKey != "" {
-		if err = a.historyStore().rememberTask(requestKey, result); err != nil {
-			return result, err
-		}
-	}
 	taskCtx, taskCancel := context.WithCancel(a.taskCtx)
-	if a.enqueueTask(queuedTask{ctx: taskCtx, cancel: taskCancel, recorded: true, start: in, result: result, complete: complete}) {
+	if a.enqueueTask(queuedTask{ctx: taskCtx, cancel: taskCancel, recorded: true, newSession: true, requestKey: requestKey, start: in, result: result, complete: complete}) {
 		return result, nil
 	}
 	taskCancel()
-	_ = a.historyStore().update(session.ID, func(v *protocol.Conversation) { v.TaskStatus = "failed" })
 	return result, errors.New("客户端任务队列已满，请稍后重试")
 }
 func (a *Agent) workTasks(ctx context.Context) {
@@ -260,17 +248,9 @@ func (a *Agent) finishTask(task queuedTask) {
 		err = errTaskInterrupted
 		status = "interrupted"
 	}
-	_ = a.historyStore().setQueueStatus(task.result.TaskID, status)
-	_ = a.historyStore().update(task.result.Session.ID, func(v *protocol.Conversation) {
-		if v.TaskID != task.result.TaskID {
-			return
-		}
-		v.TaskStatus = status
-		v.TaskError = ""
-		if err != nil {
-			v.TaskError = err.Error()
-		}
-	})
+	if saveErr := a.historyStore().finishQueuedTask(task, status, err); saveErr != nil {
+		err = errors.Join(err, saveErr)
+	}
 	if task.complete != nil {
 		task.complete(err)
 	}
@@ -281,10 +261,9 @@ func (a *Agent) workTask(ctx context.Context, task queuedTask) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		_ = a.historyStore().update(task.result.Session.ID, func(s *protocol.Conversation) {
-			s.TaskID, s.TaskStatus, s.TaskError = task.result.TaskID, "running", ""
-		})
-		_ = a.historyStore().setQueueStatus(task.result.TaskID, "running")
+		if err := a.historyStore().markTaskRunning(task); err != nil {
+			return err
+		}
 		turnCtx, cancel := context.WithCancel(ctx)
 		p := &peer{ctx: turnCtx, cancel: cancel}
 		finished := make(chan protocol.Event, 1)

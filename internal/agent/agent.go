@@ -366,6 +366,7 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 		if a.accessErr != nil {
 			data["credentialManagementError"] = "凭据目录暂不可用，请在本机修复客户端权限并重启服务"
 		}
+		data["runActivities"], data["workspaceReview"], data["workbenchDiagnostics"] = true, true, true
 		a.mu.Unlock()
 		_ = send(protocol.Event{ID: req.ID, Type: "result", Data: data})
 		return
@@ -377,6 +378,8 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 	}
 	defer a.endOperation()
 	switch req.Type {
+	case "workspace.changes", "workspace.diff", "sessions.children", "diagnostics.snapshot":
+		a.handleWorkbench(p.ctx, req, send)
 	case "todos.call", "todos.validate", "todos.deliver":
 		if !p.accountTools {
 			fail(errors.New("待办操作必须通过账号入口"))
@@ -610,6 +613,14 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			log.Printf("task start session=%s provider=%s permissions=full client=%s", conversation.ID, service.Provider, buildinfo.Current())
 			_ = send(protocol.Event{ID: req.ID, Type: "started", Data: map[string]string{"sessionId": conversation.ID}})
 			decoder := &transcript{
+				activity: func(activity protocol.RunActivity) error {
+					text := "工具调用：" + activity.Name
+					if activity.Kind == "command_execution" {
+						text = "$ " + activity.Name
+					}
+					_, err := history.append(conversation.ID, protocol.ChatEntry{TurnID: req.ID, Role: "system", Kind: "tool", Text: text + "\n", Activity: &activity})
+					return err
+				},
 				native: func(id string) error { return history.nativeID(conversation.ID, id) },
 				final:  func(text string) error { return history.saveTaskResult(req.ID, text) },
 				text: func(stream, text string) error {
@@ -650,6 +661,9 @@ func (a *Agent) handle(p *peer, req protocol.Request, send func(protocol.Event) 
 			}
 			if errors.Is(context.Cause(ctx), errTaskRunTimeout) {
 				err = taskTimeoutError()
+			}
+			if activityErr := decoder.closeActivities(); err == nil {
+				err = activityErr
 			}
 			ending := protocol.ChatEntry{TurnID: req.ID, Role: "system", Kind: "done"}
 			if err != nil {

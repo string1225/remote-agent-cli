@@ -32,6 +32,7 @@ jobs:
       - run: go vet ./...
       - run: node --check web/app.js
       - run: node --check web/platform.js
+      - run: node --check web/workbench.js
       - run: node --check web/access.js
       - run: node --check web/todos.js
       - run: node --check web/android-app.js

@@ -94,6 +94,37 @@ func (a *Agent) persistQueuedTask(task queuedTask) error {
 		return err
 	}
 	return a.historyStore().transact(true, func(tx *bolt.Tx) error {
+		if task.newSession {
+			// Accept identity, prompt, retry receipt and durable queue together.
+			if tx.Bucket([]byte("sessions")).Get([]byte(task.result.Session.ID)) != nil {
+				return errors.New("会话 ID 已存在")
+			}
+			if err := saveSession(tx, task.result.Session); err != nil {
+				return err
+			}
+			if _, err := tx.Bucket([]byte("entries")).CreateBucket([]byte(task.result.Session.ID)); err != nil {
+				return err
+			}
+			if _, err := appendHistory(tx, task.result.Session.ID, protocol.ChatEntry{TurnID: task.result.TaskID, Role: "user", Kind: "message", Text: task.start.Prompt}); err != nil {
+				return err
+			}
+			if task.requestKey != "" {
+				b, err := tx.CreateBucketIfNotExists([]byte("task_requests"))
+				if err != nil {
+					return err
+				}
+				if b.Get([]byte(task.requestKey)) != nil {
+					return errors.New("任务请求已被接收")
+				}
+				data, err := json.Marshal(task.result)
+				if err != nil {
+					return err
+				}
+				if err = b.Put([]byte(task.requestKey), data); err != nil {
+					return err
+				}
+			}
+		}
 		row, found, err := queueRecordFrom(tx, task.result.TaskID)
 		if err != nil {
 			return err
@@ -129,6 +160,7 @@ func (a *Agent) persistQueuedTask(task queuedTask) error {
 		session.ArchivedAt = 0
 		if session.TaskStatus != "running" && session.TaskStatus != "queued" {
 			session.TaskID, session.TaskStatus, session.TaskError = row.ID, "queued", ""
+			session.TaskAcceptedAt, session.TaskStartedAt, session.TaskCompletedAt = row.CreatedAt, 0, 0
 		}
 		return saveSession(tx, session)
 	})
