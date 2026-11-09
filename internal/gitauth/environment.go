@@ -4,6 +4,8 @@ package gitauth
 import (
 	"runtime"
 	"strings"
+
+	"github.com/string1225/remote-agent-cli/internal/serviceaccess"
 )
 
 // Environment never contains a credential. Git's own -c environment format
@@ -54,6 +56,7 @@ func Environment(base []string, store string, interactive bool) []string {
 	for _, pair := range []string{"credential.https://github.com.helper=", "credential.https://github.com.helper=manager", "core.askPass="} {
 		parameters += " '" + pair + "'"
 	}
+	parameters += serviceaccess.IncludeParameter()
 	for _, key := range []string{"GCM_CREDENTIAL_STORE", "GCM_DPAPI_STORE_PATH", "GCM_INTERACTIVE", "GIT_TERMINAL_PROMPT", "GIT_ASKPASS", "SSH_ASKPASS"} {
 		if value, ok := values[key]; ok {
 			env = append(env, key+"="+value)

@@ -53,6 +53,7 @@ func run() error {
 		fmt.Println("files upload --path FILE [--config PATH]：上传文件并返回公开下载链接，最多 100 MiB，下次北京时间凌晨 4 点失效。")
 		fmt.Println("skill install/update/status：安装或检查用户级 ~/.agents/skills/remote-agent，随客户端激活版本同步。")
 		fmt.Println("ssh configure --alias NAME --host HOST --user USER --identity PATH --known-hosts PATH：为 Windows 后台服务导入指定 SSH 连接，保留原文件。")
+		accessHelp(os.Stdout)
 		fmt.Println(tr("Windows service GitHub authorization: remote-agent git login | git status | git logout --username ACCOUNT"))
 		fmt.Println(tr("remote-agent: connect --server URL --token-prompt | enroll | run | start | stop | status | version | mcp | update [--check] | service profile/configure/status | autostart install/remove | codex install/update/setup [--server URL --token-prompt] | app install/upgrade\nUse <command> --help for options.\nWindows: install the MSI first, then run a token/setup command in a new PowerShell. The MSI installs PATH and an automatic Windows Service."))
 		return nil
@@ -71,6 +72,9 @@ func run() error {
 	}
 	if os.Args[1] == "ssh" {
 		return runSSH(context.Background(), os.Args[2:], os.Stdout)
+	}
+	if os.Args[1] == "access" {
+		return runAccess(context.Background(), os.Args[2:], os.Stdout, agent.ServiceAccess)
 	}
 	if os.Args[1] == "git" {
 		return runGitCommand(os.Args[2:], os.Stdout, agent.ManagedGitAuthorization)

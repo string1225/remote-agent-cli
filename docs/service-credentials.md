@@ -6,6 +6,8 @@ Windows Service 的自动启动与运行账号是两个独立配置。本项目�
 
 以下方案不用在 Remote Agent 中保存 Windows 用户密码，保留原设备、配置、历史与录音。
 
+目录访问拒绝与 Git 属主不一致可使用 [`remote-agent access grant/list/restore`](windows-service-access.md)：明确选择文件/目录、read/modify 与单个仓库信任，自动备份并支持恢复。它只授 RemoteAgent 服务 SID，不复制凭据、不更改服务身份；ACL、Git 信任和下面的 GitHub 登录分别管理。
+
 ## GitHub HTTPS
 
 先升级到包含本次修复的业务 core，再在设备属主的普通终端执行：
