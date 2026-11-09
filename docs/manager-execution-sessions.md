@@ -40,6 +40,8 @@ CEO、客户端管家、项目管家理解目标、拆题、创建/复用执行 
 
 本轮在仅包含本任务改动的归档源码上运行 `gofmt`、相关测试、`go test ./...`、`go vet ./...` 和 Windows/Linux/macOS amd64/arm64 六平台构建。全量测试的唯一失败是既有 `TestUserSkillServiceAccessIsLimitedAndInherited`：执行身份本身为 LocalService，该测试用 LocalService SID 验证临时目录权限隔离，父目录已因当前用户身份拥有写权限；未改动此测试或真实 ACL。跳过这一项的 `go test ./... -skip '^TestUserSkillServiceAccessIsLimitedAndInherited$'` 通过。内置 skill 的 `quick_validate.py` 通过。
 
-实际已同步客户端数为 **0**，未激活任何真实角色。139 HTTPS `/agents/healthz` 返回 `ok=true`；公开 Windows 更新渠道仍为 `20261109-workbench`、序号 `2026110901`。服务身份的 SSH 预检因 `No ED25519 host key is known ... Host key verification failed` 失败；未关闭严格校验、导入信任记录或读取/复制桌面凭据。此为客户端包发布阻塞，不能以本地提交或构建宣称上线。
+首次交付时尚未激活客户端，SSH 默认路径预检曾返回 `No ED25519 host key is known ... Host key verification failed`。此判断未使用项目已授权的服务专用连接，不能据此认定缺少凭据或可信主机密钥。后续复用 `docs/service-credentials.md` 记录的 `C:/Users/junte/.remote-agent/git-auth/ssh-139/config`、别名 `deploy-139`，正常严格主机校验、登录和 `sudo -n true` 均成功；未导入凭据、改 ACL 或读取桌面 `.ssh`。
 
-交付时用 `tools/publish-runtime.ps1 -Version VERSION -Sequence SEQUENCE -PrepareOnly` 从已提交源码准备六平台 runtime、Windows 宿主和校验清单（不安装、不修改服务）。父会话后续应通过已授权的服务端连接配置执行 `tools/publish-runtime.ps1 -PreparedPath PREPARED -SSHConfig SERVICE_SSH_CONFIG -SSHHost HOST`，发布前重新核对序号。既有发布脚本保留原 dist，并在 `/var/backups/remote-agent-clients/runtime-REVISION-TIMESTAMP/rollback.sh` 准备渠道回滚；客户端 runtime 回滚仍是独立步骤。发布后检查六平台渠道/下载摘要及 healthz，再在任务与录音空闲时按正常更新流程激活客户端，检查 `skill status` 和三个管理角色下轮的实际 MCP 指令，并由父会话登记上述两个旧 topic。角色 AGENTS 原文件备份及 history.db 应随客户端恢复点一并保留。
+2026-11-10 已将包含管理规则 `beccf8a` 和 Windows 授权 `dd93783` 的已提交 main 发布为 **`20261110-manager-access-dd93783`，序号 `2026111002`**。六平台 runtime、两种 Windows 宿主的清单、公开下载、大小/摘要和 HTTPS healthz 均通过。确认激活 **1/5 台**（139 Linux）；另 4 台待升级或实际版本核验。本机服务承载父会话及两个执行主题，本轮未触发更新或重启，保持等待正常空闲自动检查。
+
+139 已安装程序的 CEO、客户端管家、项目管家各两次 MCP 初始化验证通过，普通执行者不注入管理强制规则；共享 skill 为新版，专用角色 AGENTS 已同步且有备份。这不代表所有已安装客户端或正在运行的模型轮次已经切换。渠道/程序恢复点、可复用命令、实际覆盖及剩余验收见 [合并发布记录](deployments/2026-11-10-manager-access-runtime.md)。上述两个旧 topic 仍由父会话在本机升级后自行 `bind_execution_topic` 登记，本执行 session 未代写父会话 history.db。
