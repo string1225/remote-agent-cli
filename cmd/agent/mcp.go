@@ -39,10 +39,15 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 	if err != nil {
 		return err
 	}
-	role := ""
+	manager := false
+	instructions := agent.SessionInstructions
 	for _, service := range c.Services {
 		if service.ID == *project {
-			role = agent.AssistantInstructions(service)
+			manager = agent.AssistantInstructions(service) != ""
+			if err := agent.SyncAssistantInstructions(service); err != nil {
+				return err
+			}
+			instructions = agent.SessionInstructionsFor(service)
 		}
 	}
 	scanner := bufio.NewScanner(input)
@@ -65,7 +70,7 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 		var failure string
 		switch request.Method {
 		case "initialize":
-			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{"tools": map[string]bool{}}, "serverInfo": map[string]string{"name": "remote_agent", "version": "3.0"}, "instructions": fmt.Sprintf("当前客户端=%s，项目=%s，会话=%s，入口=%s；父客户端=%s，父会话=%s。%s\n%s", c.ID, *project, *session, *source, *parentClient, *parentSession, agent.SessionInstructions, role)}
+			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{"tools": map[string]bool{}}, "serverInfo": map[string]string{"name": "remote_agent", "version": "3.0"}, "instructions": fmt.Sprintf("当前客户端=%s，项目=%s，会话=%s，入口=%s；父客户端=%s，父会话=%s。%s", c.ID, *project, *session, *source, *parentClient, *parentSession, instructions)}
 		case "ping":
 			result = map[string]bool{}
 		case "tools/list":
@@ -92,6 +97,7 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 					Version     uint64                `json:"version"`
 					PageCursor  string                `json:"pageCursor"`
 					Search      string                `json:"search"`
+					Topic       string                `json:"topic"`
 					Scope       string                `json:"scope"`
 					WorkID      string                `json:"workId"`
 					ReplyHandle string                `json:"replyHandle"`
@@ -110,6 +116,18 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 			}
 			var data json.RawMessage
 			switch call.Name {
+			case "list_execution_topics":
+				var page agent.ExecutionTopicPage
+				page, err = agent.ListExecutionTopics(c, *project, *session, call.Arguments.Cursor)
+				if err == nil {
+					data, err = json.Marshal(page)
+				}
+			case "bind_execution_topic":
+				var mapping agent.ExecutionTopic
+				mapping, err = agent.BindExecutionTopic(ctx, c, *project, *session, call.Arguments.Topic, target, call.Arguments.ProjectID, call.Arguments.SessionID)
+				if err == nil {
+					data, err = json.Marshal(mapping)
+				}
 			case "list_assistants":
 				data, err = agent.ClientAPI(ctx, c, "GET", "/api/agent/assistants", nil)
 			case "delegate_work", "read_work", "reply_work", "cancel_work":
@@ -157,7 +175,16 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 					break
 				}
 				requestID := store.Hash(*session + "\x00" + *turn + "\x00" + string(request.ID))
-				data, err = agent.ClientTool(ctx, c, target, "sessions.spawn", protocol.TaskStart{RequestID: requestID, ServiceID: serviceID, Title: call.Arguments.Title, Prompt: call.Arguments.Prompt, Source: *source, ParentSessionID: *session})
+				start := protocol.TaskStart{RequestID: requestID, ServiceID: serviceID, Title: call.Arguments.Title, Prompt: call.Arguments.Prompt, Source: *source, ParentSessionID: *session}
+				if manager {
+					var accepted agent.ExecutionTopicResult
+					accepted, err = agent.StartExecutionTopic(ctx, c, *project, *session, requestID, call.Arguments.Topic, target, start)
+					if err == nil {
+						data, err = json.Marshal(accepted)
+					}
+				} else {
+					data, err = agent.ClientTool(ctx, c, target, "sessions.spawn", start)
+				}
 			case "list_child_sessions", "read_session", "wait_session", "send_to_session", "cancel_session_task":
 				operation := map[string]string{"list_child_sessions": "list", "read_session": "read", "wait_session": "wait", "send_to_session": "send", "cancel_session_task": "cancel"}[call.Name]
 				requestID := store.Hash(*session + "\x00" + *turn + "\x00" + string(request.ID))
@@ -220,7 +247,7 @@ func clientTools() []any {
 	wait["waitSeconds"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 20, "description": "单次等待 1–20 秒，默认 20 秒；未结束可继续调用"}
 	send := target()
 	send["prompt"] = str("发送给子会话的新指令，最多 32000 字节；忙碌时需先等待")
-	return []any{
+	tools := []any{
 		tool("list_assistants", "查询 CEO、客户端管家和项目管家目录。CEO 位于默认主机，各管家独立会话。", true, map[string]any{}),
 		tool("delegate_work", "向指定管家委派任务，返回 workId、replyHandle 和执行会话。工程会持久化回报并唤醒当前会话；返回接收不表示完成。按需直接派项目管家。", false, map[string]any{"scope": str("account=CEO、client=客户端管家、project=项目管家"), "clientId": str("目标客户端 ID"), "projectId": str("项目管家的原项目 ID；其他层省略"), "title": str("任务标题"), "prompt": str("任务、范围与验收，最多 32000 字节")}, "scope", "clientId", "prompt"),
 		tool("read_work", "读取当前会话派出的分层任务；保留 workId，不操作无关工作。", true, map[string]any{"workId": str("派工返回的 workId")}, "workId"),
@@ -232,7 +259,7 @@ func clientTools() []any {
 		tool("update_todo", "维护本账号待办。先读取最新 version，避免覆盖其他人的修改；编辑时同时传 title 和 body。", false, map[string]any{"todoId": str("待办 ID"), "operation": str("update、complete、delete 或 reopen；完成与删除均不唤醒 Agent"), "version": number("读取到的 version"), "title": str("编辑后的标题"), "body": str("编辑后的正文")}, "todoId", "operation", "version"),
 		tool("list_clients_projects", "查询同账号客户端、在线状态和项目 ID；按需查询。", true, map[string]any{}),
 		tool("list_im_sessions", "查询指定客户端当前绑定的 IM 收件人名称与会话 ID，仅返回项目、机器人、私聊/群聊和已知姓名/群名。支持搜索与分页，同名候选不合并。用户未指定对象、匹配不唯一或名称未知时，列出候选并询问后再发送；不要猜收件人。", true, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端，跨客户端分别查询"), "projectId": str("筛选项目 ID；省略查询目标客户端全部项目"), "search": str("搜索已知姓名、群名、机器人名、项目名或会话标题"), "cursor": number("返回的 nextCursor；每页最多 50 条，0 表示无后续页")}),
-		tool("start_web_session", "按需要在目标项目创建直接子 Web 会话并执行。返回仅代表已接收；可由当前会话用读取、等待、继续和取消工具管理，完成后不会自动发 IM 通知。", false, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "title": str("子会话标题，最多 80 字"), "prompt": str("任务内容，最多 32000 字节")}, "prompt"),
+		tool("start_web_session", "在目标原项目创建直接子执行会话。CEO/管家必须传稳定 topic：首次创建，同 topic 自动复用原 session 续办，忙碌时先等待，目标冲突保留原映射。普通执行会话可按需创建子任务。返回仅表示接收，父会话须主动读取/等待；不会自动发 IM 通知。", false, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "title": str("子会话标题，最多 80 字"), "topic": str("CEO/管家必填的稳定 topic/方向；相同方向复用，其他方向新建"), "prompt": str("任务内容，最多 32000 字节")}, "prompt"),
 		tool("list_child_sessions", "列出当前会话在指定客户端直接创建的子会话；跨客户端分别查询。", true, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "cursor": number("子会话列表分页游标")}),
 		tool("read_session", "读取直接子会话或当前会话的状态、当前任务最终输出及分页游标。complete 与 taskError 表示任务状态；captured=false 表示仅有旧执行器文本，不能据此宣称完成。", true, read, "sessionId"),
 		tool("wait_session", "等待直接子会话当前任务完成或等待期限到达，返回状态及结果；不会创建会话或向用户发消息。", true, wait, "sessionId"),
@@ -240,4 +267,5 @@ func clientTools() []any {
 		tool("cancel_session_task", "取消直接子会话的指定当前任务，不影响其他会话。", false, target(), "sessionId", "taskId"),
 		tool("notify_im_session", "仅用于已获用户授权的额外 IM 推送。用 list_im_sessions 将明确姓名/群名映射到真实客户端、项目和会话 ID；未说对象、重名或名称未知时先询问，不猜测、不默认最近对象。当前会话正常回答由入口投递，无需调用；仅当前 IM 会话的额外消息可省略目标。", false, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "sessionId": str("目标 IM 会话 ID；仅当前 IM 会话可省略"), "message": str("主动发送的消息，最多 16000 字节")}, "message"),
 	}
+	return append(tools, executionTopicTools()...)
 }
