@@ -15,7 +15,7 @@
   button.id = "todos-entry"; button.type = "button";
   document.querySelector(".platform-nav").prepend(button);
   dialog.id = "todos-dialog"; close.type = "button"; close.setAttribute("aria-label", "关闭待办");
-  headerTitle.append(title, count); headerActions.append(createButton, close); heading.append(headerTitle, headerActions); close.onclick = () => dialog.close();
+  headerTitle.append(title, count); headerActions.append(hostBar, createButton, close); heading.append(headerTitle, headerActions); close.onclick = () => dialog.close();
   hostInfo.append(node("span", "默认主机", "todo-host-label"), hostLine); hostBar.append(hostInfo, hostButton);
   hostButton.type = createButton.type = refreshButton.type = "button";
   dialog.setAttribute("aria-label", "账号待办清单");
@@ -26,7 +26,7 @@
   const searchIcon = node("span", "⌕", "todo-search-icon"); searchIcon.setAttribute("aria-hidden", "true"); searchBox.append(searchIcon, search);
   toolbar.append(searchBox, filter, refreshButton);
   errorLine.setAttribute("role", "alert"); list.setAttribute("aria-label", "待办列表");
-  dialog.append(heading, hostBar, toolbar, errorLine, list, more); document.body.append(dialog);
+  dialog.append(heading, toolbar, errorLine, list, more); document.body.append(dialog);
   more.hidden = true;
   async function readHost() {
     const user = state.user?.id; if (!user) return;

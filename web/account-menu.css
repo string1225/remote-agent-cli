@@ -1,0 +1,18 @@
+.brand-heading { gap:8px; }
+.brand-heading .wordmark { min-width:0; }
+.sidebar-help { display:grid; place-items:center; flex-shrink:0; width:25px; height:25px; padding:0; border:1px solid #d6deec; border-radius:50%; background:transparent; color:#73809a; font-size:14px; font-weight:600; line-height:1; }
+.brand-heading .close-drawer { margin-left:auto; }
+.platform-nav { padding:10px 12px; }
+.account { display:block; padding:8px 12px 12px; }
+.account-toggle { display:flex; align-items:center; gap:10px; width:100%; min-width:0; padding:9px 10px; border-radius:9px; background:transparent; color:var(--ink); text-align:left; font:inherit; }
+.account-toggle:hover,.account-toggle[aria-expanded=true] { background:#e9eef8; }
+.account-toggle #account-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.account-toggle .avatar { flex-shrink:0; }
+.account-chevron { color:#8190a7; font-size:15px; }
+.account-popover { position:fixed; inset:auto; margin:0; padding:6px; overflow:auto; border:1px solid #dce3ee; border-radius:12px; background:#fff; color:var(--ink); box-shadow:0 10px 36px #1c304026; }
+.account-popover:popover-open { display:grid; gap:3px; }
+.account-popover button { display:block; width:100%; padding:11px 12px; border-radius:7px; background:transparent; color:#52627a; text-align:left; font:inherit; font-size:12px; }
+.account-popover button:hover,.account-popover button:focus-visible { background:#edf2fb; outline:none; }
+.account-popover button[hidden] { display:none; }
+.account-popover .account-logout { margin-top:4px; border-top:1px solid var(--line); border-radius:0 0 7px 7px; color:#a14e4e; }
+@media(max-width:760px) { .account-toggle { min-height:44px; } .account-popover button { min-height:44px; } }

@@ -48,12 +48,14 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(await dialog.locator('.todo-body a[href^="javascript:"]').count(),0,'Markdown links must remain sanitized');
       const layout = await dialog.evaluate(el => {
         const box = selector => el.querySelector(selector).getBoundingClientRect().toJSON();
-        return {search:box('input[type=search]'),filter:box('select'),refresh:box('.todo-toolbar button')};
+        return {search:box('input[type=search]'),filter:box('select'),refresh:box('.todo-toolbar button'),header:box('.todo-dialog-header'),host:box('.todo-host'),create:box('.todo-header-actions .primary')};
       });
       assert.equal(layout.filter.y,layout.refresh.y,'status and refresh align');
       assert.equal(layout.search.height,layout.filter.height,'controls share a height');
       assert.equal(layout.filter.height,layout.refresh.height);
       if (width === 1440) assert.equal(layout.search.y,layout.filter.y,'desktop toolbar stays on one row');
+      assert(layout.host.bottom <= layout.header.bottom,'default host stays inside the heading');
+      assert(layout.host.right <= layout.create.x,'default host sits beside the new-todo action');
       assert.equal(await dialog.locator('.todo-count').textContent(),'1 项');
       assert.equal(await dialog.locator('.todo-session-ref').getAttribute('title'),'Session session-with-a-long-persistent-identifier');
       await dialog.getByRole('button',{name:'回复',exact:true}).click(); await dialog.getByRole('textbox',{name:'回复内容'}).fill('周五发布，保留回滚');
