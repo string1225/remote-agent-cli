@@ -278,7 +278,16 @@ func (s *Store) Heartbeat(id string, msg protocol.Signal) error {
 			a.MachineID = msg.MachineID
 			a.Hostname = cleanHostname(msg.Hostname)
 		}
-		a.Services = msg.Services
+		// Clients of every version keep reporting the complete local catalog.
+		// Preserve server-owned archive flags, including across stale heartbeats.
+		archived := make(map[string]int64, len(a.Services))
+		for _, project := range a.Services {
+			archived[project.ID] = project.ArchivedAt
+		}
+		a.Services = append([]protocol.Service(nil), msg.Services...)
+		for i := range a.Services {
+			a.Services[i].ArchivedAt = archived[a.Services[i].ID]
+		}
 		return put(tx, "agents", id, a)
 	})
 }

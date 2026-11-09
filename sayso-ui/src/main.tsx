@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App, { type WorkspaceScope } from "./App";
 import { configure, type Transport } from "./transport";
 import "./styles.css";
+import "./theme.css";
 
 export function mount(
   host: HTMLElement,
@@ -22,8 +23,11 @@ export function mount(
   const root = createRoot(container);
   let close: (() => Promise<boolean>) | undefined;
   host.toggleAttribute("data-embedded", !!scope);
+  const syncTheme = () => { host.dataset.theme = document.documentElement.dataset.theme || "dark"; };
+  syncTheme();
+  window.addEventListener("remote-agent-theme", syncTheme);
   root.render(<App onClose={onClose} deviceLabel={label} scope={scope} registerClose={handler => { close = handler; }} />);
-  const dispose = () => root.unmount();
+  const dispose = () => { window.removeEventListener("remote-agent-theme", syncTheme); root.unmount(); };
   dispose.close = async () => close ? close() : false;
   return dispose;
 }

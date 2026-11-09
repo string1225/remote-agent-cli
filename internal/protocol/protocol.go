@@ -3,6 +3,8 @@ package protocol
 import "encoding/json"
 
 type Service struct {
+	// ArchivedAt is account workspace metadata, owned by the control server.
+	ArchivedAt        int64        `json:"archivedAt,omitempty"`
 	Scope             string       `json:"scope,omitempty"`
 	ManagedProject    string       `json:"managedProject,omitempty"`
 	OwnerAccount      string       `json:"ownerAccount,omitempty"`

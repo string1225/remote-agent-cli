@@ -1,0 +1,56 @@
+/* Shared palette. The saved setting, rather than the OS theme, controls the UI. */
+:root { --panel:#fff; --hover:#edf2fb; --surface:#f5f7fb; }
+html[data-theme="light"] { color-scheme:light; }
+html[data-theme="dark"] {
+  color-scheme:dark;
+  --ink:#dfe5ef; --muted:#99a6ba; --line:#303947; --green:#78d3aa;
+  --accent:#25334e; --blue:#8caaff; --panel:#191f29; --hover:#263043; --surface:#11151d;
+  color:var(--ink); background:var(--surface);
+}
+html[data-theme="dark"] :is(.auth-layout,.chat-pane,.conversations-pane) { background:var(--surface); }
+html[data-theme="dark"] :is(.devices-pane,.pane-resizer,.composer) { background:#151b25; }
+html[data-theme="dark"] :is(dialog,.account-popover,.context-menu,.notice,.todo-card,.secondary,.ceo-entry button,.client-steward,.project-steward,.work-report-actions button,.directory-picker,.directory-toolbar button) { background:var(--panel); color:var(--ink); border-color:var(--line); }
+html[data-theme="dark"] :is(input,textarea,select,.channel-fields input,.channel-fields select) { background:var(--surface); color:var(--ink); border-color:var(--line); }
+html[data-theme="dark"] :is(input,textarea)::placeholder { color:#8592a7; }
+html[data-theme="dark"] :is(button,a,input,textarea,select,summary):focus-visible { outline-color:var(--blue); }
+html[data-theme="dark"] :is(label,.channel-fields label,.brand-heading .wordmark b,.conversation-card strong,.conversation-card.im-session strong,.chat-empty h2,.platform-panel h3,.platform-card strong,.repair-section h3,.platform-note strong,.todo-heading h3,.todo-empty h3,.todo-body.markdown-body strong) { color:var(--ink); }
+html[data-theme="dark"] :is(.message-text,.todo-body.markdown-body,.queued-message-text) { color:#c7d1e0; }
+html[data-theme="dark"] :is(.project-button,.project-label,.icon-button,.eyebrow,.device-tools .eyebrow,.conversation-card p,.session-section,.history-note,.chat-heading p,.chat-empty p,.composer-footer,.composer-note,.composer-options,.text-button,.account-popover button,.context-menu button,.run-details,.run-details-toggle,.run-timing,.message.system,.message.system summary,.search-box>span,.queued-message-header,.queue-action,.queued-message-files,.cli-help span,.repair-steps,.progress-message,.platform-note,.platform-tabs button,.todo-host-name,.todo-host-change,.todo-route,.todo-reply) { color:var(--muted); }
+html[data-theme="dark"] :is(.device-add,.device-menu-button,.project-settings,.sidebar-help,.account-chevron,.code-copy,.message-label,.session-id,.attachment-name,.attachment-file,.ceo-button span) { color:#9cb3dc; }
+html[data-theme="dark"] :is(.search-box,.platform-note,.repair-steps,.admin-create,.token-secret,.expiry,.attachment-chip,.attachment-file,.todo-empty,.todo-reply,.queued-message,.markdown-body pre,.markdown-body th,.markdown-body code,.status.neutral,.todo-count,.todo-status) { background:#202836; border-color:var(--line); }
+html[data-theme="dark"] :is(.device-node.selected>.device-row,.project-button.active,.conversation-card.active,.message.user,.ceo-entry .ceo-button,.ceo-button.active,.platform-tabs button[aria-current=true],.todo-actions .todo-action-primary,.todo-empty-icon,.orbit,.avatar) { background:var(--accent); color:var(--ink); border-color:#425b87; }
+html[data-theme="dark"] .message.user .message-label { color:#a2b9e1; }
+html[data-theme="dark"] :is(.secondary:hover,.icon-button:hover,.device-add:hover,.device-menu-button:hover,.project-settings:hover,.project-button:hover,.conversation-card:hover,.platform-nav button:hover,.account-toggle:hover,.account-toggle[aria-expanded=true],.account-popover button:hover,.account-popover button:focus-visible,.context-menu button:hover,.context-menu button:focus,.queue-action:hover,.code-copy:hover) { background:var(--hover); color:var(--ink); }
+html[data-theme="dark"] :is(.primary,#channel-dialog .primary) { background:#486bdc; color:#fff; }
+html[data-theme="dark"] .primary:hover { background:#587cf0; }
+html[data-theme="dark"] :is(.markdown-body a,.platform-panel a,.attachment-name,.todo-host-change:hover,.project-settings:hover,.maintenance-steps .current,.progress-steps li.current) { color:var(--blue); }
+html[data-theme="dark"] .markdown-body code { color:#b6caff; }
+html[data-theme="dark"] .markdown-body pre code { background:transparent; color:#ccd7e8; }
+html[data-theme="dark"] .markdown-body blockquote { color:var(--muted); border-color:#4b618d; }
+html[data-theme="dark"] :is(.markdown-body th,.markdown-body td,.repair-section,.repair-section details,.repair-steps details,.platform-card,.cli-help,.todo-footer,.channel-actions,.account-popover .account-logout,.context-menu .danger-action,.todo-actions .secondary,.session-id,.todo-empty-icon,.sidebar-help) { border-color:var(--line); }
+html[data-theme="dark"] :is(.repair-checks code,#install-result textarea,#device-settings-form select:disabled) { color:var(--muted); background:#202836; }
+html[data-theme="dark"] .status,
+html[data-theme="dark"] .default-host-badge,
+html[data-theme="dark"] .todo-card[data-status=completed] .todo-status { color:#8ee2b7; background:#1c392e; }
+html[data-theme="dark"] .status.neutral { background:#202836; color:var(--muted); }
+html[data-theme="dark"] :is(.device-status,.token-state,.channel-state[data-state=connected],.maintenance-steps .done,.progress-steps li.done,.workbench-status[data-status=running],.activity-row[data-status=running] .activity-state) { color:#8ee2b7; }
+html[data-theme="dark"] :is(.device-status.offline,.token-state.revoked,.channel-state,.chat-empty>span,.todo-session-ref) { color:var(--muted); }
+html[data-theme="dark"] .todo-card[data-status=open] .todo-status { color:#f0ce86; background:#3b3220; }
+html[data-theme="dark"] :is(.todo-error,.channel-error,.todo-dialog>.todo-error) { color:#ffa5ae; background:#3a252d; border-color:#73414b; }
+html[data-theme="dark"] :is(.attachment-error,.progress-message.error,.channel-state[data-state=error],.context-menu .danger-action,.account-popover .account-logout,.token-actions .token-revoke,.workbench-error,.workbench-status[data-status=failed],.activity-row[data-status=failed] .activity-state) { color:#ffa5ae; }
+html[data-theme="dark"] :is(.token-actions .token-revoke:hover,.context-menu .danger-action:hover,.channel-actions .secondary:hover) { color:#ffc2c7; background:#3a252d; }
+html[data-theme="dark"] .work-report { background:#202f46!important; border-color:#425b87; }
+html[data-theme="dark"] .work-report .message-label { color:#a4c0ef; }
+html[data-theme="dark"] .work-source { color:var(--muted); }
+html[data-theme="dark"] .work-reply-dialog textarea { background:var(--surface); color:var(--ink); border-color:var(--line); }
+html[data-theme="dark"] .auth-story { background:#19253b; }
+html[data-theme="dark"] .auth-story h1 { color:#e3ebfa; }
+html[data-theme="dark"] .directory-toolbar { background:var(--surface); }
+html[data-theme="dark"] :is(.directory-option,.directory-browse) { border-color:var(--line); color:var(--ink); }
+html[data-theme="dark"] :is(.directory-option.active,.directory-browse:hover) { background:var(--hover); }
+html[data-theme="dark"] :is(#directory-base,.directory-select span) { color:var(--muted); }
+html[data-theme="dark"] #directory-create-error { color:#ffa5ae; }
+html[data-theme="dark"] .attach-button { background:var(--accent); color:#b6caff; }
+html[data-theme="dark"] #sayso-root { background:var(--surface); }
+html[data-theme="dark"] dialog::backdrop { background:#050911b3; }
+html[data-theme="dark"] ::selection { background:#3d5690; color:#fff; }

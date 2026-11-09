@@ -128,10 +128,11 @@ async function refresh() {
   if ($("app").hidden) return;
   const account = state.user?.id;
   try {
+    const revision = state.catalogRevision || 0;
     const agents = await api("/api/agents");
     const signature = rows => JSON.stringify(rows.map(a => [a.id,a.name,a.os,a.online,a.enrolled,a.services]));
     const changed = signature(agents) !== signature(state.agents);
-    if (!account || state.user?.id !== account || $("app").hidden) return;
+    if (!account || state.user?.id !== account || $("app").hidden || revision !== (state.catalogRevision || 0)) return;
     state.agents = agents;
     WorkspaceCache.write("agents", [state.user.id], agents);
     if (changed) renderDevices();
@@ -157,6 +158,10 @@ function folderName(path) {
 }
 function service() {
   return state.services.find((s) => s.id === state.serviceId);
+}
+function isProjectArchived(agentId, project) {
+  const catalog = state.agents.find(a => a.id === agentId)?.services?.find(s => s.id === project.id);
+  return !!(catalog ? catalog.archivedAt : project.archivedAt);
 }
 function renderDevices() {
   window.renderHierarchy?.();
@@ -196,7 +201,7 @@ function renderDevices() {
     window.appendAssistantButton?.(children, {scope:"client",clientId:a.id,name:a.name+" · 管家"}, a.online);
     const services = selected ? state.services : a.services || WorkspaceCache.read("client", [state.user?.id, a.id])?.services || [];
     for (const project of services) {
-      if (project.scope) continue;
+      if (project.scope || isProjectArchived(a.id, project)) continue;
       const button = node("button", undefined, "project-button" + (selected && state.serviceId === project.id ? " active" : ""));
       button.title = project.workspace;
       const provider = node("span", project.provider === "qoder" ? "◇" : "◈", "project-provider");
@@ -434,7 +439,8 @@ async function connectDevice(agent, selection = {}) {
   state.selected = agent;
   state.expanded.add(agent.id);
   refreshServices(cached || {services:agent.services || []});
-  const initialProject = state.services.find(s => s.id === projectId) || state.services[0];
+  const visible = s => !isProjectArchived(agent.id, s) || selection.projectId === s.id;
+  const initialProject = state.services.find(s => s.id === projectId && visible(s)) || state.services.find(visible);
   if (initialProject) await selectProject(initialProject.id, {localOnly:true, sessionId:selection.sessionId || (!selection.projectId && sameClient ? state.session?.id : undefined)});
   else { resetWorkspace(); renderDevices(); }
   if (revision !== state.navigationRevision) return;
@@ -480,7 +486,7 @@ async function connectDevice(agent, selection = {}) {
         setRunning(state.running);
         peer.resolve(data);
         peer.reject = null;
-        const project = state.services.find(s => s.id === state.serviceId) || state.services.find(s => s.id === projectId) || state.services[0];
+        const project = state.services.find(s => s.id === state.serviceId && visible(s)) || state.services.find(s => s.id === projectId && visible(s)) || state.services.find(visible);
         if (project) {
           if (project.id !== state.serviceId) await selectProject(project.id, {sessionId:selection.sessionId});
           else await refreshProjectView();

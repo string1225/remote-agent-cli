@@ -24,6 +24,12 @@
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", "账号菜单");
   for (const action of [...nav.children]) if (action.id !== "todos-entry") menu.append(action);
+  for (const [id, title, action] of [
+    ["archived-projects-entry", "已归档项目", () => window.openArchivedProjects()],
+    ["appearance-entry", "界面设置", () => window.openAppearanceSettings()],
+  ]) {
+    const button = node("button", title); button.id = id; button.onclick = action; menu.append(button);
+  }
   const logout = $("logout");
   logout.className = "account-logout";
   logout.textContent = "退出登录";
@@ -34,6 +40,7 @@
   account.replaceChildren(trigger, menu);
   const items = () => [...menu.querySelectorAll("button")].filter(action => !action.hidden && !action.disabled);
   const isOpen = () => menu.matches(":popover-open");
+  let focusLast = false;
   function position() {
     const bounds = trigger.getBoundingClientRect();
     const width = Math.min(260, innerWidth - 24);
@@ -46,7 +53,7 @@
   menu.addEventListener("toggle", event => {
     const open = event.newState === "open";
     trigger.setAttribute("aria-expanded", String(open));
-    if (open) items()[0]?.focus({preventScroll:true});
+    if (open) { const rows = items(); (focusLast ? rows.at(-1) : rows[0])?.focus({preventScroll:true}); focusLast = false; }
     else if (menu.contains(document.activeElement)) trigger.focus({preventScroll:true});
   });
   // Close before an existing action opens a dialog or starts signing out.
@@ -54,9 +61,9 @@
   trigger.addEventListener("keydown", event => {
     if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
     event.preventDefault();
+    focusLast = event.key === "ArrowUp";
     if (!isOpen()) menu.showPopover();
-    const rows = items();
-    requestAnimationFrame(() => (event.key === "ArrowUp" ? rows.at(-1) : rows[0])?.focus());
+    else { const rows = items(); (focusLast ? rows.at(-1) : rows[0])?.focus(); focusLast = false; }
   });
   menu.addEventListener("keydown", event => {
     const rows = items(), index = rows.indexOf(document.activeElement);

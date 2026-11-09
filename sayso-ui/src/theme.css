@@ -1,0 +1,29 @@
+/* The embedded workspace follows the account's browser theme through its host. */
+:host([data-theme="dark"]) {
+  color-scheme:dark;
+  color:#dfe5ef; background:#11151d;
+  --ink:#dfe5ef; --muted:#99a6ba; --line:#303947; --surface:#191f29; --warm:#11151d;
+  --green:#8bceb0; --green-dark:#a0dec2; --green-soft:#21382f; --navy:#dfe5ef;
+  --shadow:0 18px 55px #0005;
+}
+:host([data-theme="dark"]) :is(.sidebar,.workspace,.transcript-panel,.action-panel,.remote-header,.modal,.settings-modal,.project-menu,.action-card,.analysis-trace-section,.recording-row,.setting-group select,.manual-discussion textarea) { background:var(--surface); color:var(--ink); border-color:var(--line); }
+:host([data-theme="dark"]) :is(.topbar,.panel-header,.sidebar-bottom,.action-card-footer,.modal-header,.modal-actions,.setting-group,.session-tree::before,.utterance:not(:last-of-type)::before,.recording-row) { border-color:var(--line); }
+:host([data-theme="dark"]) :is(input,textarea,select,.project-switcher,.icon-button.bordered,.ghost-button) { background:#11151d; color:var(--ink); border-color:var(--line); }
+:host([data-theme="dark"]) :is(.session-row.active,.tree-session.active,.project-menu button:hover,.project-switcher:hover,.session-row:hover,.tree-session:hover,.action-card:hover,.analysis-strip,.analysis-trace-section pre,.analysis-live-log,.analysis-detail-lines,.requirement-analysis,.action-card blockquote,.compact-search.expanded,.pause-button,.setting-fixed-value) { background:#242e3d; border-color:var(--line); }
+:host([data-theme="dark"]) :is(.project-select strong,.session-select strong,.utterance>p,.action-card h3,.setting-copy strong,.recording-info strong,.transcript-empty h3,.empty-workspace h1,.action-empty strong,.modal h2) { color:var(--ink); }
+:host([data-theme="dark"]) :is(.project-copy small,.session-row-copy small,.session-select small,.session-label,.project-path,.eyebrow,.panel-header>div:first-child span,.transcript-empty p,.utterance>time,.analysis-detail-lines p,.analysis-live-log p,.requirement-analysis-lines p,.action-detail,.action-card blockquote,.card-tools button,.action-footnote,.setting-copy small,.recording-info small,.manual-discussion small,.remote-header>span,.analysis-strip button,.icon-button,.tree-chevron,.tree-edit,.action-empty small,.recordings-empty,.analysis-status-copy span) { color:var(--muted); }
+:host([data-theme="dark"]) :is(.record-button,.dispatch-button,.primary-button,.new-session-button,.manual-discussion button,.brand-mark) { background:#3f715a; color:#fff; }
+:host([data-theme="dark"]) :is(.record-button:hover,.dispatch-button:hover,.primary-button:hover,.new-session-button:hover) { background:#4d886d; }
+:host([data-theme="dark"]) :is(.status-ready,.status-done,.live-chip.on,.run-complete) { background:#21382f; color:#9bdfbc; }
+:host([data-theme="dark"]) :is(.stop-button,.status-failed,.run-error) { background:#3a252d; color:#ffabb6; }
+:host([data-theme="dark"]) :is(.status-running,.audio-recovery,.discussion-search-highlight) { background:#3b3220; color:#f0ce86; }
+:host([data-theme="dark"]) .modal-backdrop { background:#050911b3; }
+:host([data-theme="dark"]) .sound-wave i { background:#8bceb0; }
+:host([data-theme="dark"]) :is(.manual-discussion,.compact-search,.action-empty:hover,.icon-button:hover,.search-navigation button:hover,.pause-button:hover) { background:var(--surface); color:var(--ink); border-color:var(--line); }
+:host([data-theme="dark"]) :is(.action-heading,.topbar,.panel-header) { background:var(--surface); border-color:var(--line); }
+:host([data-theme="dark"]) :is(.utterance.interim>p,.recording-time,.complete-label,.status-pill,.priority,.ready-toggle,.run-progress,.modal-heading p,.action-empty-compact,.tree-empty,.overline,.empty-lead) { color:var(--muted); }
+:host([data-theme="dark"]) :is(.session-title-line h1,.panel-header h2,.action-heading h2) { color:var(--ink); }
+:host([data-theme="dark"]) .live-chip { background:#26322e; color:#afc4b8; }
+:host([data-theme="dark"]) .mobile-tabs { background:var(--surface); border-color:var(--line); }
+:host([data-theme="dark"]) .embedded .mobile-tabs button { color:var(--muted); }
+:host([data-theme="dark"]) .embedded .mobile-tabs button.active { color:var(--ink); border-color:var(--green); }

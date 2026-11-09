@@ -2,6 +2,14 @@
 (() => {
   let device, project, opener;
   const menu = $("device-menu"), dialog = $("device-settings-dialog"), form = $("device-settings-form");
+  const archive = node("button", "归档项目");
+  archive.id = "device-menu-archive"; archive.type = "button"; archive.hidden = true;
+  archive.setAttribute("role", "menuitem");
+  $("device-menu-delete").before(archive);
+  archive.onclick = () => {
+    const current = device, target = project; closeMenu();
+    window.archiveProject(current, target).catch(error => notice(error.message));
+  };
   function closeMenu(restore = false) {
     menu.hidden = true;
     if (restore) opener?.focus();
@@ -14,6 +22,7 @@
     event.preventDefault(); event.stopPropagation(); device = nextDevice; opener = anchor;
     window.prepareMaintenanceMenu?.(device,project);
     $("device-menu-settings").hidden=false;
+    archive.hidden = !project || !!project.scope;
     $("device-menu-settings").disabled=!!project&&!device.online;
     $("device-menu-channel").hidden=!project;$("device-menu-channel").disabled=!device.online;
     $("device-menu-delete").textContent=project?"删除项目":"删除客户端";
