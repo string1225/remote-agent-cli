@@ -108,8 +108,8 @@ async function signedIn() {
   renderDevices();
   const revision = state.navigationRevision;
   const restore = () => {
-    if (location.hash.startsWith("#client=")) {
-      const route = new URLSearchParams(location.hash.slice(1));
+    const route = linkedSessionRoute();
+    if (route) {
       const client = state.agents.find(a => a.id === route.get("client"));
       return client && openWorkspace(client, route.get("project"), route.get("session"));
     }
@@ -1661,11 +1661,16 @@ document.addEventListener("pointerdown", (event) => {
 });
 
 async function openLinkedSession() {
-  if (!location.hash.startsWith("#client=") || $("app").hidden) return;
-  const route = new URLSearchParams(location.hash.slice(1));
+  const route = linkedSessionRoute();
+  if (!route || $("app").hidden) return;
   const client = state.agents.find(a => a.id === route.get("client"));
   if (!client) return;
   return openWorkspace(client, route.get("project"), route.get("session"));
+}
+function linkedSessionRoute() {
+  const query = new URLSearchParams(location.search);
+  if (query.get("client")) return query;
+  return location.hash.startsWith("#client=") ? new URLSearchParams(location.hash.slice(1)) : null;
 }
 async function pollSession() {
   const session = state.session, peer = state.peer, revision = state.readRevision;

@@ -3,17 +3,23 @@ package protocol
 // Todos belong to an account, independent of projects. Routing is optional for
 // personal notes and mandatory for replies that continue an agent session.
 type Todo struct {
-	ID        string     `json:"id"`
-	Title     string     `json:"title"`
-	Body      string     `json:"body"`
-	Status    string     `json:"status"`
-	ClientID  string     `json:"clientId,omitempty"`
-	ProjectID string     `json:"projectId,omitempty"`
-	SessionID string     `json:"sessionId,omitempty"`
-	Version   uint64     `json:"version"`
-	CreatedAt int64      `json:"createdAt"`
-	UpdatedAt int64      `json:"updatedAt"`
-	Reply     *TodoReply `json:"reply,omitempty"`
+	Options   []TodoOption `json:"options,omitempty"`
+	ID        string       `json:"id"`
+	Title     string       `json:"title"`
+	Body      string       `json:"body"`
+	Status    string       `json:"status"`
+	ClientID  string       `json:"clientId,omitempty"`
+	ProjectID string       `json:"projectId,omitempty"`
+	SessionID string       `json:"sessionId,omitempty"`
+	Version   uint64       `json:"version"`
+	CreatedAt int64        `json:"createdAt"`
+	UpdatedAt int64        `json:"updatedAt"`
+	Reply     *TodoReply   `json:"reply,omitempty"`
+}
+
+type TodoOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
 }
 
 type TodoReply struct {
@@ -24,19 +30,20 @@ type TodoReply struct {
 }
 
 type TodoCommand struct {
-	Operation string `json:"operation"`
-	ID        string `json:"id,omitempty"`
-	RequestID string `json:"requestId,omitempty"`
-	Version   uint64 `json:"version,omitempty"`
-	Title     string `json:"title,omitempty"`
-	Body      string `json:"body,omitempty"`
-	Status    string `json:"status,omitempty"`
-	Message   string `json:"message,omitempty"`
-	ClientID  string `json:"clientId,omitempty"`
-	ProjectID string `json:"projectId,omitempty"`
-	SessionID string `json:"sessionId,omitempty"`
-	Cursor    string `json:"cursor,omitempty"`
-	Search    string `json:"search,omitempty"`
+	Options   []TodoOption `json:"options,omitempty"`
+	Operation string       `json:"operation"`
+	ID        string       `json:"id,omitempty"`
+	RequestID string       `json:"requestId,omitempty"`
+	Version   uint64       `json:"version,omitempty"`
+	Title     string       `json:"title,omitempty"`
+	Body      string       `json:"body,omitempty"`
+	Status    string       `json:"status,omitempty"`
+	Message   string       `json:"message,omitempty"`
+	ClientID  string       `json:"clientId,omitempty"`
+	ProjectID string       `json:"projectId,omitempty"`
+	SessionID string       `json:"sessionId,omitempty"`
+	Cursor    string       `json:"cursor,omitempty"`
+	Search    string       `json:"search,omitempty"`
 }
 
 type TodoPage struct {

@@ -196,6 +196,10 @@ func (s *Server) protect(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		if (r.URL.Path == "/" || r.URL.Path == "/index.html") && r.URL.Query().Get("view") == "todo-session" {
+			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+			w.Header().Set("Content-Security-Policy", strings.Replace(w.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'", "frame-ancestors 'self'", 1))
+		}
 		if strings.HasPrefix(s.Config.PublicURL, "https:") {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}

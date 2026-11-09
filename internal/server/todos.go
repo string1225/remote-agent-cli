@@ -215,6 +215,9 @@ func (s *Server) todos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch in.Operation {
+	case "delete":
+		// Keep the record and delivery receipts for recovery; never send a task.
+		in.Operation = "cancel"
 	case "list", "get", "create", "update", "complete", "cancel", "reopen", "reply":
 	default:
 		fail(w, 400, "不支持的待办操作")
@@ -297,16 +300,71 @@ func (s *Server) todos(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if json.Unmarshal(raw, &row) != nil {
+			fail(w, 502, "默认主机返回无效待办")
+			return
+		}
+		if row.Status == "open" {
+			call.Operation, call.Version = "complete", row.Version
+			raw, err = s.todoCall(r.Context(), host.AgentID, call, check)
+			if err != nil {
+				fail(w, 409, "回复已送入会话，待办状态尚未保存；重试同一回复即可："+err.Error())
+				return
+			}
+		}
 	}
 	reply(w, 200, json.RawMessage(raw))
 }
 
 func (s *Server) todoCall(ctx context.Context, target string, in protocol.TodoStorageCall, check func() bool) (json.RawMessage, error) {
+	if in.Operation == "update" && in.Options == nil {
+		lookup := in
+		lookup.Operation = "get"
+		raw, err := s.todoCall(ctx, target, lookup, check)
+		if err != nil {
+			return nil, err
+		}
+		var current protocol.Todo
+		if err = json.Unmarshal(raw, &current); err != nil {
+			return nil, err
+		}
+		in.Options = current.Options
+	}
+	if in.Operation == "create" || in.Operation == "update" {
+		body, err := encodeTodoOptions(in.Body, in.Options)
+		if err != nil {
+			return nil, err
+		}
+		in.Body, in.Options = body, nil
+	}
 	body, err := json.Marshal(in)
 	if err != nil {
 		return nil, err
 	}
-	return s.accountRelay(ctx, target, in.AccountID, protocol.Request{Type: "todos.call", Body: body}, check)
+	raw, err := s.accountRelay(ctx, target, in.AccountID, protocol.Request{Type: "todos.call", Body: body}, check)
+	if err != nil {
+		return nil, err
+	}
+	if in.Operation == "list" {
+		var page protocol.TodoPage
+		if err = json.Unmarshal(raw, &page); err != nil {
+			return nil, err
+		}
+		for i := range page.Todos {
+			decodeTodoOptions(&page.Todos[i])
+		}
+		return json.Marshal(page)
+	}
+	switch in.Operation {
+	case "get", "create", "update", "complete", "cancel", "reopen", "reply", "ack":
+		var row protocol.Todo
+		if err = json.Unmarshal(raw, &row); err != nil {
+			return nil, err
+		}
+		decodeTodoOptions(&row)
+		return json.Marshal(row)
+	}
+	return raw, nil
 }
 
 func (s *Server) accountRelay(parent context.Context, target, userID string, req protocol.Request, check func() bool) (json.RawMessage, error) {

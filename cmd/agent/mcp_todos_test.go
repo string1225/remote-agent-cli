@@ -35,8 +35,8 @@ func TestMCPTodosUseCurrentSessionAndStablePublicationIdentity(t *testing.T) {
 	}
 	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_todos","arguments":{"status":"open","pageCursor":"next"}}}
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"publish_todo","arguments":{"title":"choose","body":"A or B?","projectId":"foreign","sessionId":"foreign"}}}
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"publish_todo","arguments":{"title":"choose","body":"A or B?"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"publish_todo","arguments":{"title":"choose","body":"A or B?","options":[{"label":"A","description":"推荐方案"},{"label":"B","description":"备选方案"}],"projectId":"foreign","sessionId":"foreign"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"publish_todo","arguments":{"title":"choose","body":"A or B?","options":[{"label":"A","description":"推荐方案"},{"label":"B","description":"备选方案"}]}}}
 {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"update_todo","arguments":{"todoId":"todo","operation":"complete","version":8}}}`)
 	var out bytes.Buffer
 	if err := runMCP(context.Background(), []string{"--config", c.Path, "--project", "current-project", "--session", "current-session", "--turn", "turn"}, input, &out); err != nil {
@@ -44,6 +44,9 @@ func TestMCPTodosUseCurrentSessionAndStablePublicationIdentity(t *testing.T) {
 	}
 	if len(commands) != 4 || commands[0].Operation != "list" || commands[0].Cursor != "next" || commands[1].ProjectID != "current-project" || commands[1].SessionID != "current-session" || commands[1].RequestID != commands[2].RequestID || commands[3].Operation != "complete" || commands[3].Version != 8 {
 		t.Fatal("MCP todos lost context/version/retry identity", commands)
+	}
+	if len(commands[1].Options) != 2 || commands[1].Options[0].Description != "推荐方案" {
+		t.Fatal("MCP dropped structured options", commands)
 	}
 	if strings.Contains(out.String(), "mock-secret") || !strings.Contains(out.String(), "publish_todo") {
 		t.Fatal("tool response is incomplete or leaked device credentials")

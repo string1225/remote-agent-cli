@@ -74,26 +74,27 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 			var call struct {
 				Name      string `json:"name"`
 				Arguments struct {
-					Path        string `json:"path"`
-					AgentID     string `json:"clientId"`
-					ProjectID   string `json:"projectId"`
-					Prompt      string `json:"prompt"`
-					Title       string `json:"title"`
-					Message     string `json:"message"`
-					TaskID      string `json:"taskId"`
-					Cursor      uint64 `json:"cursor"`
-					WaitSeconds int    `json:"waitSeconds"`
-					SessionID   string `json:"sessionId"`
-					TodoID      string `json:"todoId"`
-					Body        string `json:"body"`
-					Status      string `json:"status"`
-					Operation   string `json:"operation"`
-					Version     uint64 `json:"version"`
-					PageCursor  string `json:"pageCursor"`
-					Search      string `json:"search"`
-					Scope       string `json:"scope"`
-					WorkID      string `json:"workId"`
-					ReplyHandle string `json:"replyHandle"`
+					Path        string                `json:"path"`
+					AgentID     string                `json:"clientId"`
+					ProjectID   string                `json:"projectId"`
+					Prompt      string                `json:"prompt"`
+					Title       string                `json:"title"`
+					Message     string                `json:"message"`
+					TaskID      string                `json:"taskId"`
+					Cursor      uint64                `json:"cursor"`
+					WaitSeconds int                   `json:"waitSeconds"`
+					SessionID   string                `json:"sessionId"`
+					TodoID      string                `json:"todoId"`
+					Body        string                `json:"body"`
+					Options     []protocol.TodoOption `json:"options"`
+					Status      string                `json:"status"`
+					Operation   string                `json:"operation"`
+					Version     uint64                `json:"version"`
+					PageCursor  string                `json:"pageCursor"`
+					Search      string                `json:"search"`
+					Scope       string                `json:"scope"`
+					WorkID      string                `json:"workId"`
+					ReplyHandle string                `json:"replyHandle"`
 				} `json:"arguments"`
 			}
 			if json.Unmarshal(request.Params, &call) != nil {
@@ -139,12 +140,13 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 					err = errors.New("发布待办需要真实的当前项目和会话 ID")
 					break
 				}
-				if call.Name == "update_todo" && operation != "update" && operation != "complete" && operation != "cancel" && operation != "reopen" {
-					err = errors.New("待办操作应为 update、complete、cancel 或 reopen")
+				if call.Name == "update_todo" && operation != "update" && operation != "complete" && operation != "cancel" && operation != "delete" && operation != "reopen" {
+					err = errors.New("待办操作应为 update、complete、delete 或 reopen")
 					break
 				}
 				requestID := store.Hash(*session + "\x00" + *turn + "\x00" + string(request.ID))
 				command := protocol.TodoCommand{Operation: operation, RequestID: requestID, ID: call.Arguments.TodoID, Title: call.Arguments.Title, Body: call.Arguments.Body, Status: call.Arguments.Status, Search: call.Arguments.Search, Cursor: call.Arguments.PageCursor, Version: call.Arguments.Version}
+				command.Options = call.Arguments.Options
 				if call.Name == "publish_todo" {
 					command.ProjectID, command.SessionID = *project, *session
 				}
@@ -226,8 +228,8 @@ func clientTools() []any {
 		tool("cancel_work", "取消已核对的下游当前轮次，先读取任务 ID。", false, map[string]any{"workId": str("workId"), "taskId": str("当前 taskId")}, "workId", "taskId"),
 		tool("upload_file", "上传当前机器上的文件到 139，返回无需登录即可下载的随机链接、SHA-256 和 expiresAt。最多 100 MiB，下次北京时间凌晨 4 点失效；可在回复或已获授权的消息中附带链接。上传会公开文件内容，先核对分享范围。", false, map[string]any{"path": str("当前机器上要分享的普通文件的绝对路径")}, "path"),
 		tool("list_todos", "查询本账号唯一待办清单，存于默认主机；默认主机离线时返回明确错误。", true, map[string]any{"status": str("筛选 open、completed 或 cancelled；省略表示全部"), "search": str("搜索标题和正文"), "pageCursor": str("返回的 nextCursor，继续分页")}),
-		tool("publish_todo", "工作需要人判断、选择或补充信息时发布待办。写清问题、可选方案和建议，然后结束本轮等待人工回复。待办自动关联当前客户端、项目和会话；人的回复将在原会话继续执行。", false, map[string]any{"title": str("问题标题，最多 480 字节"), "body": str("背景、问题、选项和建议，最多 8000 字节")}, "title", "body"),
-		tool("update_todo", "维护本账号待办。先读取最新 version，避免覆盖其他人的修改；编辑时同时传 title 和 body。", false, map[string]any{"todoId": str("待办 ID"), "operation": str("update、complete、cancel 或 reopen"), "version": number("读取到的 version"), "title": str("编辑后的标题"), "body": str("编辑后的正文")}, "todoId", "operation", "version"),
+		tool("publish_todo", "工作需要人判断、选择或补充信息时发布待办。写清问题、可选方案和建议，然后结束本轮等待人工回复。待办自动关联当前客户端、项目和会话；人的回复将在原会话继续执行。", false, map[string]any{"title": str("问题标题，最多 480 字节"), "body": str("背景、问题和建议；纯通知无需选项"), "options": map[string]any{"type": "array", "maxItems": 12, "description": "可选方案，按顺序显示；通知省略。正文与选项编码后合计最多8000字节", "items": map[string]any{"type": "object", "properties": map[string]any{"label": str("选项名称，最多240字节"), "description": str("选项描述，最多1200字节")}, "required": []string{"label"}, "additionalProperties": false}}}, "title", "body"),
+		tool("update_todo", "维护本账号待办。先读取最新 version，避免覆盖其他人的修改；编辑时同时传 title 和 body。", false, map[string]any{"todoId": str("待办 ID"), "operation": str("update、complete、delete 或 reopen；完成与删除均不唤醒 Agent"), "version": number("读取到的 version"), "title": str("编辑后的标题"), "body": str("编辑后的正文")}, "todoId", "operation", "version"),
 		tool("list_clients_projects", "查询同账号客户端、在线状态和项目 ID；按需查询。", true, map[string]any{}),
 		tool("list_im_sessions", "查询指定客户端当前绑定的 IM 收件人名称与会话 ID，仅返回项目、机器人、私聊/群聊和已知姓名/群名。支持搜索与分页，同名候选不合并。用户未指定对象、匹配不唯一或名称未知时，列出候选并询问后再发送；不要猜收件人。", true, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端，跨客户端分别查询"), "projectId": str("筛选项目 ID；省略查询目标客户端全部项目"), "search": str("搜索已知姓名、群名、机器人名、项目名或会话标题"), "cursor": number("返回的 nextCursor；每页最多 50 条，0 表示无后续页")}),
 		tool("start_web_session", "按需要在目标项目创建直接子 Web 会话并执行。返回仅代表已接收；可由当前会话用读取、等待、继续和取消工具管理，完成后不会自动发 IM 通知。", false, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "title": str("子会话标题，最多 80 字"), "prompt": str("任务内容，最多 32000 字节")}, "prompt"),
