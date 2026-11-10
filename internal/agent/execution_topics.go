@@ -36,6 +36,7 @@ type ExecutionTopicResult struct {
 }
 
 type executionTopicRecord struct {
+	Subscribed bool `json:"subscribed,omitempty"`
 	ExecutionTopic
 	Owner          string               `json:"owner"`
 	Initial        protocol.TaskStart   `json:"initial"`
@@ -188,7 +189,7 @@ func claimExecutionTopic(h historyStore, key string, proposed executionTopicReco
 
 // StartExecutionTopic creates once or continues the mapped ordinary session.
 // Busy/deleted/offline sessions are errors, never a reason to spawn a replacement.
-func StartExecutionTopic(ctx context.Context, c Config, project, session, request, topic, client string, in protocol.TaskStart) (out ExecutionTopicResult, err error) {
+func startExecutionTopic(ctx context.Context, c Config, project, session, request, topic, client string, in protocol.TaskStart) (out ExecutionTopicResult, err error) {
 	h, owner, err := executionTopicStore(c, project, session)
 	if err != nil {
 		return out, err

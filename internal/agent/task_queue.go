@@ -153,6 +153,9 @@ func (a *Agent) persistQueuedTask(task queuedTask) error {
 		if err := saveQueueRecord(tx, row); err != nil {
 			return err
 		}
+		if err := attachExecutionTurn(tx, task.result, task.start.ServiceID); err != nil {
+			return err
+		}
 		session, err := sessionFrom(tx, row.SessionID)
 		if err != nil {
 			return err

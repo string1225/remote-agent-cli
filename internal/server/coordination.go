@@ -78,6 +78,10 @@ func (s *Server) coordination(w http.ResponseWriter, r *http.Request) {
 		a, e := s.Store.Agent(id)
 		return e == nil && a.UserID == userID && a.Enrolled && !a.Revoked
 	}
+	if in.Operation == "subscribe" {
+		s.subscribeExecution(w, r, in, clientID, check)
+		return
+	}
 	if in.Operation == "resolve" {
 		if in.Target.Scope == "account" {
 			host, e := s.Store.DefaultHost(userID)
@@ -190,6 +194,9 @@ func (s *Server) coordination(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lookup := in.WorkID
+	if in.Operation == "checkpoint" && lookup == "" {
+		lookup, _ = s.Store.CoordinationParent(userID, clientID, in.Source.SessionID)
+	}
 	if in.ReplyHandle != "" {
 		lookup = in.ReplyHandle
 	}
@@ -198,10 +205,48 @@ func (s *Server) coordination(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "任务或来源已不可用")
 		return
 	}
+	if in.Operation == "checkpoint" {
+		if !route.Direct || clientID != route.Target.ClientID || in.Source.SessionID != route.Target.SessionID || in.Source.ProjectID != route.Target.ProjectID {
+			fail(w, 403, "只能报告当前执行会话的事件")
+			return
+		}
+		in.Target, in.WorkID, in.ReplyHandle = route.Target, route.ID, route.ReplyHandle
+		raw, err := call(route.Target.ClientID, in)
+		if err != nil {
+			fail(w, 409, err.Error())
+			return
+		}
+		reply(w, 200, raw)
+		return
+	}
 	if in.Operation == "report" {
-		if clientID != route.Target.ClientID || in.Report == nil || in.Report.Origin.SessionID != route.Target.SessionID || in.Report.WorkID != route.ID || in.Report.ID != store.Hash(route.ID+"\x00"+in.Report.TaskID) || len(in.Report.TaskID) > 160 || len(in.Report.Summary) > 12000 || len(in.Report.Related) > 8 {
+		expectedID := ""
+		if in.Report != nil {
+			expectedID = store.Hash(route.ID + "\x00" + in.Report.TaskID)
+			if route.Direct && in.Report.Event != "completed" && in.Report.Event != "failed" {
+				key := "review"
+				if in.Report.Event == "checkpoint" {
+					key = in.Report.Stage
+				}
+				expectedID = store.Hash(route.ID + "\x00" + in.Report.TaskID + "\x00" + key)
+			}
+		}
+		if clientID != route.Target.ClientID || in.Report == nil || in.Report.Origin.SessionID != route.Target.SessionID || in.Report.WorkID != route.ID || in.Report.ID != expectedID || in.Report.TaskID == "" || len(in.Report.TaskID) > 160 || len(in.Report.Summary) > 12000 || len(in.Report.Related) > 8 || len(in.Report.Evidence) > 4 {
 			fail(w, 403, "结果来源不匹配")
 			return
+		}
+		for _, evidence := range in.Report.Evidence {
+			if len(evidence) > 512 {
+				fail(w, 400, "证据过长")
+				return
+			}
+		}
+		if route.Direct {
+			if !validExecutionReport(in.Report) {
+				fail(w, 400, "无效执行事件")
+				return
+			}
+			in.Report.Topic = route.Topic
 		}
 		in.Report.ReplyHandle = route.ReplyHandle
 		in.Report.Origin = route.Target
@@ -259,7 +304,7 @@ func (s *Server) coordination(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "只能管理当前会话派出的工作")
 		return
 	}
-	if time.Since(time.UnixMilli(route.CreatedAt)) > 30*24*time.Hour {
+	if !route.Direct && time.Since(time.UnixMilli(route.CreatedAt)) > 30*24*time.Hour {
 		fail(w, 410, "回复引用已过期，请打开原会话继续")
 		return
 	}

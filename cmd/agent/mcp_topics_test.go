@@ -72,7 +72,7 @@ func TestMCPDiscoversTopicRecoveryAndSchedulingTools(t *testing.T) {
 			}
 		}
 	}
-	for _, name := range []string{"list_execution_topics", "bind_execution_topic", "start_web_session", "delegate_work", "reply_work"} {
+	for _, name := range []string{"report_execution_event", "list_execution_topics", "bind_execution_topic", "start_web_session", "delegate_work", "reply_work"} {
 		if !found[name] {
 			t.Fatal("missing manager capability", name)
 		}

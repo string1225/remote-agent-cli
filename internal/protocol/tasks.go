@@ -11,7 +11,8 @@ type QueuedMessage struct {
 }
 
 type TaskStart struct {
-	RequestID string `json:"requestId,omitempty"`
+	Checkpoints []string `json:"checkpoints,omitempty"`
+	RequestID   string   `json:"requestId,omitempty"`
 	// Legacy notification fields are accepted but do not trigger delivery.
 	NotifyAgentID   string `json:"notifyAgentId,omitempty"`
 	NotifyServiceID string `json:"notifyServiceId,omitempty"`

@@ -231,6 +231,7 @@ func (a *Agent) finishTask(task queuedTask) {
 		delete(a.interruptedTasks, task.result.TaskID)
 		a.wakeTasksLocked()
 		a.mu.Unlock()
+		a.signalCoordination()
 	}()
 	err := a.workTask(task.ctx, task)
 	task.cancel()

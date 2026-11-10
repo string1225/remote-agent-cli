@@ -14,6 +14,12 @@ type AssistantRef struct {
 }
 
 type CoordinationCommand struct {
+	Topic       string       `json:"topic,omitempty"`
+	Checkpoints []string     `json:"checkpoints,omitempty"`
+	Stage       string       `json:"stage,omitempty"`
+	Status      string       `json:"status,omitempty"`
+	Summary     string       `json:"summary,omitempty"`
+	Evidence    []string     `json:"evidence,omitempty"`
 	Operation   string       `json:"operation"`
 	AccountID   string       `json:"accountId,omitempty"`
 	RequestID   string       `json:"requestId,omitempty"`
@@ -34,6 +40,14 @@ type AssistantResolved struct {
 }
 
 type WorkReport struct {
+	Recovered   bool         `json:"recovered,omitempty"`
+	Complete    bool         `json:"complete,omitempty"`
+	TaskStatus  string       `json:"taskStatus,omitempty"`
+	Topic       string       `json:"topic,omitempty"`
+	Event       string       `json:"event,omitempty"`
+	Stage       string       `json:"stage,omitempty"`
+	Evidence    []string     `json:"evidence,omitempty"`
+	Superseded  bool         `json:"superseded,omitempty"`
 	Related     []WorkLink   `json:"related,omitempty"`
 	ID          string       `json:"id"`
 	WorkID      string       `json:"workId"`

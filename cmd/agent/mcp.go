@@ -79,6 +79,10 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 			var call struct {
 				Name      string `json:"name"`
 				Arguments struct {
+					Checkpoints []string              `json:"checkpoints"`
+					Stage       string                `json:"stage"`
+					Summary     string                `json:"summary"`
+					Evidence    []string              `json:"evidence"`
 					Path        string                `json:"path"`
 					AgentID     string                `json:"clientId"`
 					ProjectID   string                `json:"projectId"`
@@ -116,6 +120,8 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 			}
 			var data json.RawMessage
 			switch call.Name {
+			case "report_execution_event":
+				data, err = agent.ClientAPI(ctx, c, "POST", "/api/agent/coordination", protocol.CoordinationCommand{Operation: "checkpoint", Source: protocol.AssistantRef{ClientID: c.ID, ProjectID: *project, SessionID: *session}, TaskID: *turn, Stage: call.Arguments.Stage, Status: call.Arguments.Status, Summary: call.Arguments.Summary, Evidence: call.Arguments.Evidence})
 			case "list_execution_topics":
 				var page agent.ExecutionTopicPage
 				page, err = agent.ListExecutionTopics(c, *project, *session, call.Arguments.Cursor)
@@ -175,7 +181,7 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 					break
 				}
 				requestID := store.Hash(*session + "\x00" + *turn + "\x00" + string(request.ID))
-				start := protocol.TaskStart{RequestID: requestID, ServiceID: serviceID, Title: call.Arguments.Title, Prompt: call.Arguments.Prompt, Source: *source, ParentSessionID: *session}
+				start := protocol.TaskStart{Checkpoints: call.Arguments.Checkpoints, RequestID: requestID, ServiceID: serviceID, Title: call.Arguments.Title, Prompt: call.Arguments.Prompt, Source: *source, ParentSessionID: *session}
 				if manager {
 					var accepted agent.ExecutionTopicResult
 					accepted, err = agent.StartExecutionTopic(ctx, c, *project, *session, requestID, call.Arguments.Topic, target, start)
@@ -248,6 +254,7 @@ func clientTools() []any {
 	send := target()
 	send["prompt"] = str("发送给子会话的新指令，最多 32000 字节；忙碌时需先等待")
 	tools := []any{
+		tool("report_execution_event", "执行会话发送有界关键事件到已订阅的来源管理会话。checkpoint 不暂停；review_required/blocked/needs_input 返回 endTurn=true 时必须结束本执行轮，等待管理者在同 topic 原 session 续办。不要逐条发送普通进度。", false, map[string]any{"stage": map[string]any{"type": "string", "enum": []string{"plan", "validation", "predeploy"}}, "status": map[string]any{"type": "string", "enum": []string{"checkpoint", "review_required", "blocked", "needs_input"}}, "summary": str("1–1800字节摘要"), "evidence": map[string]any{"type": "array", "maxItems": 4, "items": map[string]any{"type": "string", "maxLength": 512}}}, "stage", "status", "summary"),
 		tool("list_assistants", "查询 CEO、客户端管家和项目管家目录。CEO 位于默认主机，各管家独立会话。", true, map[string]any{}),
 		tool("delegate_work", "向指定管家委派任务，返回 workId、replyHandle 和执行会话。工程会持久化回报并唤醒当前会话；返回接收不表示完成。按需直接派项目管家。", false, map[string]any{"scope": str("account=CEO、client=客户端管家、project=项目管家"), "clientId": str("目标客户端 ID"), "projectId": str("项目管家的原项目 ID；其他层省略"), "title": str("任务标题"), "prompt": str("任务、范围与验收，最多 32000 字节")}, "scope", "clientId", "prompt"),
 		tool("read_work", "读取当前会话派出的分层任务；保留 workId，不操作无关工作。", true, map[string]any{"workId": str("派工返回的 workId")}, "workId"),
@@ -259,7 +266,7 @@ func clientTools() []any {
 		tool("update_todo", "维护本账号待办。先读取最新 version，避免覆盖其他人的修改；编辑时同时传 title 和 body。", false, map[string]any{"todoId": str("待办 ID"), "operation": str("update、complete、delete 或 reopen；完成与删除均不唤醒 Agent"), "version": number("读取到的 version"), "title": str("编辑后的标题"), "body": str("编辑后的正文")}, "todoId", "operation", "version"),
 		tool("list_clients_projects", "查询同账号客户端、在线状态和项目 ID；按需查询。", true, map[string]any{}),
 		tool("list_im_sessions", "查询指定客户端当前绑定的 IM 收件人名称与会话 ID，仅返回项目、机器人、私聊/群聊和已知姓名/群名。支持搜索与分页，同名候选不合并。用户未指定对象、匹配不唯一或名称未知时，列出候选并询问后再发送；不要猜收件人。", true, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端，跨客户端分别查询"), "projectId": str("筛选项目 ID；省略查询目标客户端全部项目"), "search": str("搜索已知姓名、群名、机器人名、项目名或会话标题"), "cursor": number("返回的 nextCursor；每页最多 50 条，0 表示无后续页")}),
-		tool("start_web_session", "在目标原项目创建直接子执行会话。CEO/管家必须传稳定 topic：首次创建，同 topic 自动复用原 session 续办，忙碌时先等待，目标冲突保留原映射。普通执行会话可按需创建子任务。返回仅表示接收，父会话须主动读取/等待；不会自动发 IM 通知。", false, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "title": str("子会话标题，最多 80 字"), "topic": str("CEO/管家必填的稳定 topic/方向；相同方向复用，其他方向新建"), "prompt": str("任务内容，最多 32000 字节")}, "prompt"),
+		tool("start_web_session", "在目标原项目创建直接子执行会话。CEO/管家传稳定topic，同topic复用并订阅持久关键事件；派工确认后结束管理轮次，等事件唤醒后验收。忙碌不覆盖，查询仅用于排查/用户问状态/恢复。接收不代表完成，不发额外IM。", false, map[string]any{"checkpoints": map[string]any{"type": "array", "maxItems": 3, "uniqueItems": true, "items": map[string]any{"type": "string", "enum": []string{"plan", "validation", "predeploy"}}}, "clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "title": str("子会话标题，最多 80 字"), "topic": str("CEO/管家必填的稳定 topic/方向；相同方向复用，其他方向新建"), "prompt": str("任务内容，最多 32000 字节")}, "prompt"),
 		tool("list_child_sessions", "列出当前会话在指定客户端直接创建的子会话；跨客户端分别查询。", true, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "cursor": number("子会话列表分页游标")}),
 		tool("read_session", "读取直接子会话或当前会话的状态、当前任务最终输出及分页游标。complete 与 taskError 表示任务状态；captured=false 表示仅有旧执行器文本，不能据此宣称完成。", true, read, "sessionId"),
 		tool("wait_session", "等待直接子会话当前任务完成或等待期限到达，返回状态及结果；不会创建会话或向用户发消息。", true, wait, "sessionId"),

@@ -9,6 +9,9 @@ import (
 
 // Routing metadata only: prompts, reports and recordings stay on clients.
 type WorkRoute struct {
+	Direct      bool                  `json:"direct,omitempty"`
+	Topic       string                `json:"topic,omitempty"`
+	Checkpoints []string              `json:"checkpoints,omitempty"`
 	ID          string                `json:"id"`
 	AccountID   string                `json:"accountId"`
 	ReplyHandle string                `json:"replyHandle"`
@@ -68,6 +71,28 @@ func (s *Store) SaveCoordinationTarget(id string, target protocol.AssistantRef) 
 		}
 		if e = b.Put([]byte(route.ReplyHandle), data); e != nil {
 			return e
+		}
+		return b.Put([]byte(id), data)
+	})
+}
+
+func (s *Store) SaveCoordinationCheckpoints(id string, checkpoints []string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("coordination_routes"))
+		if b == nil {
+			return errors.New("任务不存在")
+		}
+		var route WorkRoute
+		if json.Unmarshal(b.Get([]byte(id)), &route) != nil || !route.Direct {
+			return errors.New("执行订阅不存在")
+		}
+		route.Checkpoints = checkpoints
+		data, err := json.Marshal(route)
+		if err != nil {
+			return err
+		}
+		if err = b.Put([]byte(route.ReplyHandle), data); err != nil {
+			return err
 		}
 		return b.Put([]byte(id), data)
 	})

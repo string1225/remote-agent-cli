@@ -27,6 +27,10 @@ func topicFixture(t *testing.T) (*Agent, Config, protocol.Service, string, *atom
 	}
 	loseAck := new(atomic.Bool)
 	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/agent/coordination" {
+			json.NewEncoder(w).Encode(map[string]bool{"accepted": true})
+			return
+		}
 		var in struct {
 			AgentID string          `json:"agentId"`
 			Type    string          `json:"type"`

@@ -45,6 +45,9 @@ func TestManagerInstructionsRefreshExistingAndNewRolesWithoutExecutorRecursion(t
 			} else if strings.Contains(instructions, "你可以直接完成任务") || !strings.Contains(instructions, "list_execution_topics") || !strings.Contains(instructions, "delegate_work") {
 				t.Fatal("manager did not receive mandatory scheduling and layered dispatch")
 			}
+			if scope != "" && (!strings.Contains(instructions, "默认事件驱动") || !strings.Contains(instructions, "结束管理轮次") || strings.Contains(instructions, "结束汇总前须主动读取/等待")) {
+				t.Fatal("manager still holds a polling model")
+			}
 		})
 	}
 	root := t.TempDir()

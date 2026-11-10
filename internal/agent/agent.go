@@ -23,43 +23,46 @@ import (
 
 type Runner func(context.Context, Provider, protocol.Service, string, bool, func(protocol.Event) error, string) error
 type Agent struct {
-	coordinationOnce  sync.Once
-	coordinationMu    sync.Mutex
-	accessOnce        sync.Once
-	access            *access.Manager
-	accessErr         error
-	remoteOnce        sync.Once
-	remote            *maintenanceState
-	toolInstalling    bool
-	maintenance       bool
-	recordingActivity int
-	operations        int
-	runs              map[string]context.CancelFunc
-	removingProjects  map[string]bool
-	attachmentMu      sync.Mutex
-	notifyDone        chan struct{}
-	channelMu         sync.Mutex
-	channels          map[string]*channelRuntime
-	channelFactory    func(ChannelConfig) channelAdapter
-	mu                sync.Mutex
-	Config            Config
-	Providers         map[string]Provider
-	Execute           Runner
-	saysoOnce         sync.Once
-	sayso             *saysoStore
-	saysoErr          error
-	tasksOnce         sync.Once
-	taskStartMu       sync.Mutex
-	taskCtx           context.Context
-	tasks             chan queuedTask
-	taskCancels       map[string]context.CancelFunc
-	taskDone          chan struct{}
-	taskRecords       map[string]queuedTask
-	pendingTasks      map[string][]string
-	activeTasks       map[string]string
-	taskWake          chan struct{}
-	taskWorkers       sync.WaitGroup
-	interruptedTasks  map[string]bool
+	coordinationDone    chan struct{}
+	coordinationWake    chan struct{}
+	coordinationOnce    sync.Once
+	coordinationMu      sync.Mutex
+	coordinationFlushMu sync.Mutex
+	accessOnce          sync.Once
+	access              *access.Manager
+	accessErr           error
+	remoteOnce          sync.Once
+	remote              *maintenanceState
+	toolInstalling      bool
+	maintenance         bool
+	recordingActivity   int
+	operations          int
+	runs                map[string]context.CancelFunc
+	removingProjects    map[string]bool
+	attachmentMu        sync.Mutex
+	notifyDone          chan struct{}
+	channelMu           sync.Mutex
+	channels            map[string]*channelRuntime
+	channelFactory      func(ChannelConfig) channelAdapter
+	mu                  sync.Mutex
+	Config              Config
+	Providers           map[string]Provider
+	Execute             Runner
+	saysoOnce           sync.Once
+	sayso               *saysoStore
+	saysoErr            error
+	tasksOnce           sync.Once
+	taskStartMu         sync.Mutex
+	taskCtx             context.Context
+	tasks               chan queuedTask
+	taskCancels         map[string]context.CancelFunc
+	taskDone            chan struct{}
+	taskRecords         map[string]queuedTask
+	pendingTasks        map[string][]string
+	activeTasks         map[string]string
+	taskWake            chan struct{}
+	taskWorkers         sync.WaitGroup
+	interruptedTasks    map[string]bool
 }
 
 func New(c Config) *Agent {
@@ -106,7 +109,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		cancel()
 		timer := time.NewTimer(8 * time.Second)
 		defer timer.Stop()
-		for _, done := range []chan struct{}{a.taskDone, a.notifyDone} {
+		for _, done := range []chan struct{}{a.taskDone, a.notifyDone, a.coordinationDone} {
 			select {
 			case <-done:
 			case <-timer.C:
