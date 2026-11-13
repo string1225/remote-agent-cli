@@ -34,13 +34,13 @@ func assistantInstructions(s protocol.Service) string {
 	return role + "\n" + managerInstructions
 }
 
-// SessionInstructionsFor keeps execution autonomy out of manager invocations.
+// SessionInstructionsFor applies the manager's short-task execution boundary.
 // Service.Scope comes from the local configuration, never from a CLI role flag.
 func SessionInstructionsFor(s protocol.Service) string {
 	if !isManager(s) {
 		return SessionInstructions
 	}
-	guidance := strings.Replace(SessionInstructions, "你可以直接完成任务，也可以按需要自行创建和管理子会话。", "具体执行必须交给普通执行 session；按以下管理角色规则调度。", 1)
+	guidance := strings.Replace(SessionInstructions, "你可以直接完成任务，也可以按需要自行创建和管理子会话。", "预计5步以内的工作直接完成；超过5步交给原项目普通执行 session，按以下管理角色规则调度。", 1)
 	return guidance + "\n" + assistantInstructions(s)
 }
 

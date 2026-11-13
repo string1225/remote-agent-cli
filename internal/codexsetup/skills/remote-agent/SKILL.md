@@ -25,11 +25,11 @@ Windows 安装/配置时仅给本技能目录授予 RemoteAgent 服务的更新�
 
 ## 任务与跨设备协作
 
-工作台启动的 Codex/Qoder 进程会注入 `remote_agent` MCP，初始化说明提供真实客户端、项目、会话、入口、父会话和经本地配置核实的角色。CEO（scope=account）、客户端管家（client）、项目管家（project）都是会话管理员，负责理解目标、拆题、创建/复用执行 session、调度、读取结果与验收汇总。具体工程、调研、测试和部署必须交给原项目的普通执行 session，小事也按此规则处理。scope 为空的普通执行 session 直接完成获授权的任务，不继承强制派生要求，避免无限派生。
+工作台启动的 Codex/Qoder 进程会注入 `remote_agent` MCP，初始化说明提供真实客户端、项目、会话、入口、父会话和经本地配置核实的角色。CEO（scope=account）、客户端管家（client）、项目管家（project）都是会话管理员，负责理解目标、拆题、调度和验收汇总。预计5步以内可以完成的工作，默认在管理会话直接完成，不另建执行 session；超过5步的工程、调研、测试和部署交给原项目普通执行 session。按实际工作步骤估计，不按工具调用次数计，也不把复杂工程合为一步；执行中发现超出5步时，带上已完成动作和证据交给同 topic 执行 session 接续，避免重复操作。步数不扩大授权，仍按原项目验证、提交和发布规则执行。scope 为空的普通执行 session 直接完成获授权的任务，不继承5步派工界限或强制派生要求，避免无限派生。
 
-管理角色先用 `list_execution_topics` 恢复当前管理会话的持久 topic→clientId/projectId/sessionId/taskId 映射。同一 topic/方向在原执行 session 续办并复用原生上下文；不同 topic 新建。`start_web_session` 明确传 topic 和原普通项目 ID，保存映射并订阅持久关键事件。派工确认后结束管理轮次，等待原 session 的事件唤醒，不循环 read_session/wait_session，不每分钟转述无变化状态。忙碌不覆盖，离线、删除、失败或目标冲突保留映射。查询只用于排查、用户主动问状态或恢复。旧子会话用 `list_child_sessions` 分页核对元数据，再用 `bind_execution_topic` 登记；新版启动会恢复订阅并回填已有终态，不读取无关正文。旧端未升级时如实说明尚不能回调，等待正常空闲更新。
+需要派工时，管理角色先用 `list_execution_topics` 恢复当前管理会话的持久 topic→clientId/projectId/sessionId/taskId 映射。同一 topic/方向在原执行 session 续办并复用原生上下文；不同 topic 新建。`start_web_session` 明确传 topic 和原普通项目 ID，保存映射并订阅持久关键事件。派工确认后结束管理轮次，等待原 session 的事件唤醒，不循环 read_session/wait_session，不每分钟转述无变化状态。执行者忙碌时不并行接手或覆盖；离线、删除、失败或目标冲突保留映射。查询只用于排查、用户主动问状态或恢复。旧子会话用 `list_child_sessions` 分页核对元数据，再用 `bind_execution_topic` 登记；新版启动会恢复订阅并回填已有终态，不读取无关正文。旧端未升级时如实说明尚不能回调，等待正常空闲更新。
 
-CEO 位于默认主机独立工作区，维护全局目标；客户端管家维护本机工具和项目；项目管家复用原项目工作目录、遵守原 AGENTS.md，另存管家会话。项目管家的管理规则通过每轮角色注入加载，不写进普通执行 session 共用的项目 AGENTS.md。CEO 和客户端管家保留分层派工能力，目标明确时可直接派项目管家；同一下游用保存的 workId 和 `reply_work` 续办，不重复派发。分层管家最终仍须把具体执行交给普通执行 session。
+CEO 位于默认主机独立工作区，维护全局目标；客户端管家维护本机工具和项目；项目管家复用原项目工作目录、遵守原 AGENTS.md，另存管家会话。项目管家的管理规则通过每轮角色注入加载，不写进普通执行 session 共用的项目 AGENTS.md。CEO 和客户端管家保留分层派工能力，目标明确时可直接派项目管家；同一下游用保存的 workId 和 `reply_work` 续办，不重复派发。分层管家也按5步界限决定直接完成或交给普通执行 session。
 
 分层协作使用 `list_assistants` 和 `delegate_work`。派工返回的 workId、replyHandle、sessionId 表示已接收；工程持久保存派工和结果，完成后在来源会话显示结果卡并排队唤醒上层。上层核对状态和验收后回复用户，不循环等待、不重复派发。可用 `read_work` 查询、`reply_work` 在原执行会话继续、`cancel_work` 核对 taskId 后取消；这些工具仅管理当前会话派出的工作。用户从结果卡直接回复时，由服务器直达下游原会话；关联结果可跨过多层管家，执行后仍回报上层。
 

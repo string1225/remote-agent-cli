@@ -48,6 +48,9 @@ func TestMCPVerifiedManagerInstructionsOnEveryInvocationAndExecutorScopeIsolatio
 				} else if !strings.Contains(guidance, "你是会话管理员") || strings.Contains(guidance, "你可以直接完成任务") || strings.Contains(guidance, "小事可以直接处理") {
 					t.Fatal("manager invocation kept conflicting autonomy guidance")
 				}
+				if scope != "" && (!strings.Contains(guidance, "预计5步以内") || strings.Contains(guidance, "即使任务很小") || strings.Contains(guidance, "具体执行必须交给")) {
+					t.Fatal("manager MCP omitted the bounded direct-execution rule")
+				}
 			}
 			if scope == "project" || scope == "" {
 				got, _ := os.ReadFile(filepath.Join(root, "AGENTS.md"))
