@@ -51,7 +51,7 @@ func TestParentManagesChildWithoutIMDelivery(t *testing.T) {
 	}
 	for _, wrong := range []protocol.SessionControl{
 		{Operation: "read", CallerAgentID: "other-client", CallerSessionID: "parent-im", SessionID: child.Session.ID},
-		{Operation: "read", CallerAgentID: "client", CallerSessionID: "sibling", SessionID: child.Session.ID},
+		{Operation: "send", CallerAgentID: "client", CallerSessionID: "sibling", SessionID: child.Session.ID, RequestID: "unrelated", Prompt: "denied"},
 		{Operation: "cancel", CallerAgentID: "client", CallerSessionID: "parent-im", SessionID: child.Session.ID, TaskID: "other-task"},
 	} {
 		if _, err := a.sessionControl(context.Background(), wrong); err == nil {
@@ -93,6 +93,121 @@ func TestParentManagesChildWithoutIMDelivery(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestClientCanInspectAllLocalSessionsWithoutControllingSiblings(t *testing.T) {
+	a, project := managedSessionFixture(t)
+	for _, kind := range []string{"web", "im", ""} {
+		s, err := a.historyStore().create(project, "unrelated "+kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := a.historyStore().update(s.ID, func(s *protocol.Conversation) {
+			s.Kind, s.TaskID, s.TaskStatus = kind, "task-"+s.ID, "failed"
+			s.TaskError, s.NativeID = "executor interrupted", "private-native-id"
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := a.historyStore().saveTaskResult("task-"+s.ID, "saved result"); err != nil {
+			t.Fatal(err)
+		}
+		for _, op := range []string{"read", "wait"} {
+			control := protocol.SessionControl{Operation: op, CallerAgentID: "client", CallerSessionID: "sibling", SessionID: s.ID, TaskID: "task-" + s.ID}
+			got, err := a.sessionControl(context.Background(), control)
+			if err != nil {
+				t.Fatal(kind, op, err)
+			}
+			state := got.(protocol.SessionState)
+			if state.Result != "saved result" || !state.Complete || !state.Captured || state.Session.TaskError != "executor interrupted" || state.Session.NativeID != "" || state.Session.Workspace != "" {
+				t.Fatal("incorrect sibling state", state)
+			}
+			control.TaskID = "stale-task"
+			if _, err := a.sessionControl(context.Background(), control); err == nil {
+				t.Fatal("accepted stale task")
+			}
+			control.TaskID, control.CallerAgentID = "task-"+s.ID, "another-client"
+			if _, err := a.sessionControl(context.Background(), control); err == nil {
+				t.Fatal("remote sibling read accepted")
+			}
+		}
+		for _, op := range []string{"send", "cancel"} {
+			control := protocol.SessionControl{Operation: op, CallerAgentID: "client", CallerSessionID: "sibling", SessionID: s.ID, TaskID: "task-" + s.ID, RequestID: "denied", Prompt: "denied"}
+			if _, err := a.sessionControl(context.Background(), control); err == nil {
+				t.Fatal("sibling mutation accepted", kind, op)
+			}
+		}
+	}
+}
+
+func TestClientSessionListIncludesAllProjectsAndPaginatesMetadata(t *testing.T) {
+	a, project := managedSessionFixture(t)
+	ids := map[string]bool{}
+	for i := 0; i < 57; i++ {
+		p := project
+		if i%2 == 0 {
+			p.ID = "other-project"
+		}
+		s, err := a.historyStore().create(p, "inspectable")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[s.ID] = true
+		if err := a.historyStore().update(s.ID, func(s *protocol.Conversation) {
+			s.NativeID, s.NotifySessionID = "native-secret", "notify-private"
+			s.TaskID, s.TaskStatus = "task-"+s.ID, "running"
+			if i%3 == 0 {
+				s.Kind, s.ArchivedAt = "im", 1
+			} else if i%3 == 1 {
+				s.Kind, s.DeletedAt = "web", 2
+			}
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	control := protocol.SessionControl{Operation: "list_client", CallerAgentID: "client", CallerSessionID: "caller"}
+	pages := 0
+	for {
+		got, err := a.sessionControl(context.Background(), control)
+		if err != nil {
+			t.Fatal(err)
+		}
+		page := got.(protocol.ConversationPage)
+		if len(page.Sessions) == 0 || len(page.Sessions) > 50 {
+			t.Fatal("invalid page size", len(page.Sessions))
+		}
+		for _, s := range page.Sessions {
+			if !ids[s.ID] || s.NativeID != "" || s.Workspace != "" || s.NotifySessionID != "" || len(s.QueuedMessages) != 0 || s.TaskStatus != "running" {
+				t.Fatal("missing, duplicate or private metadata", s)
+			}
+			delete(ids, s.ID)
+		}
+		pages++
+		if page.NextCursor == 0 {
+			break
+		}
+		if page.NextCursor <= control.Cursor {
+			t.Fatal("cursor did not advance")
+		}
+		control.Cursor = page.NextCursor
+	}
+	if len(ids) != 0 || pages < 2 {
+		t.Fatal("lost sessions or pagination", len(ids), pages)
+	}
+	control.Cursor, control.ServiceID, control.Search = 0, "other-project", "INSPECTABLE"
+	got, err := a.sessionControl(context.Background(), control)
+	if err != nil || len(got.(protocol.ConversationPage).Sessions) != 29 {
+		t.Fatal("project/search filter failed", got, err)
+	}
+	first := got.(protocol.ConversationPage).Sessions[0]
+	control.Search = first.ID
+	got, err = a.sessionControl(context.Background(), control)
+	if err != nil || len(got.(protocol.ConversationPage).Sessions) != 1 {
+		t.Fatal("ID search failed", got, err)
+	}
+	control.CallerAgentID = "remote-client"
+	if _, err := a.sessionControl(context.Background(), control); err == nil {
+		t.Fatal("remote client listed unrelated local sessions")
 	}
 }
 

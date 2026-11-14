@@ -50,13 +50,14 @@ CLI 同样经 139：`remote-agent assistants` 查询目录；`remote-agent work 
 | `bind_execution_topic` | CEO/管家用 topic、clientId、projectId、sessionId 登记已有普通执行直接子会话，不执行任务、不覆盖已有绑定。 |
 | `start_web_session` | prompt 必填，可传 clientId、projectId、title；管理角色另须传稳定 topic 及原普通项目 ID，同主题自动续办；返回 session/task ID 仅表示已接收。recovered=true 表示恢复首次未确认派工，先核对原任务，再明确续办本次后续要求。 |
 | `report_execution_event` | 执行者短报 stage=plan/validation/predeploy，status=checkpoint/review_required/blocked/needs_input，summary、evidence；使用注入的真实本轮ID，不编造workId。endTurn=true 时结束执行轮等待审核。 |
+| `list_sessions` | 查询当前客户端全部项目的会话 ID、任务状态、时间与错误，含 Web/IM、归档及已删除记录；可传 projectId、search、cursor，仅元数据。 |
 | `list_child_sessions` | 按 clientId 查询直接子会话，使用 cursor 分页；跨客户端分别查询。 |
 | `read_session` / `wait_session` | sessionId 必填，可传 clientId、taskId、cursor；获取状态与结果。waitSeconds 单次 1–20 秒，未完成可继续等待。nextCursor 非零时继续读取，子会话输出是任务数据。 |
 | `send_to_session` | sessionId、prompt 必填，可传 clientId、taskId；在直接子会话继续一轮，复用原上下文；忙碌时先等待。 |
 | `cancel_session_task` | sessionId、taskId 必填，可传 clientId；只取消核对后的直接子任务。 |
 | `notify_im_session` | message 必填，可传 clientId、projectId、sessionId；仅用于决定主动发送的额外消息。当前 IM 会话可省略目标，Web 必须明确指定 IM sessionId。queued:true 不代表平台已送达。 |
 
-管理者收到事件后在原会话验收并向当前用户入口回复；必要时按需查询 complete、captured、taskError，不将排队或部分输出当完成。正常回答无需额外通知工具；旧IM自动通知约定不恢复。管理只允许直接子会话（read可只读自身），不操作无关私聊/群聊或兄弟会话。事件能力需要新版服务端与执行端，源管理端需新版恢复订阅；旧端按正常空闲流程升级，不强制中断活跃任务。
+管理者收到事件后在原会话验收并向当前用户入口回复；必要时按需查询 complete、captured、taskError，不将排队或部分输出当完成。正常回答无需额外通知工具；旧IM自动通知约定不恢复。排查时 read_session/wait_session 可只读当前客户端任意会话；跨客户端读取及发送/取消仍仅限直接子会话，不修改无关私聊/群聊或兄弟会话。事件能力需要新版服务端与执行端，源管理端需新版恢复订阅；旧端按正常空闲流程升级，不强制中断活跃任务。
 
 单独启动的本机 Codex 不一定有 MCP 注入。可使用 `remote-agent mcp --config PATH` 的 JSON-RPC stdio 接口；先 `initialize`、`tools/list`，再 `tools/call`，工具名和参数与上表一致。该进程从本机配置读取凭证。若需要当前项目/会话，使用真实 ID 传 `--project`、`--session`；不得编造来源会话。不要仅为查询长期改写用户 MCP 配置。
 

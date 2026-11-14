@@ -191,10 +191,10 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 				} else {
 					data, err = agent.ClientTool(ctx, c, target, "sessions.spawn", start)
 				}
-			case "list_child_sessions", "read_session", "wait_session", "send_to_session", "cancel_session_task":
-				operation := map[string]string{"list_child_sessions": "list", "read_session": "read", "wait_session": "wait", "send_to_session": "send", "cancel_session_task": "cancel"}[call.Name]
+			case "list_sessions", "list_child_sessions", "read_session", "wait_session", "send_to_session", "cancel_session_task":
+				operation := map[string]string{"list_sessions": "list_client", "list_child_sessions": "list", "read_session": "read", "wait_session": "wait", "send_to_session": "send", "cancel_session_task": "cancel"}[call.Name]
 				requestID := store.Hash(*session + "\x00" + *turn + "\x00" + string(request.ID))
-				data, err = agent.ClientTool(ctx, c, target, "sessions.control", protocol.SessionControl{Operation: operation, CallerSessionID: *session, SessionID: call.Arguments.SessionID, TaskID: call.Arguments.TaskID, RequestID: requestID, Prompt: call.Arguments.Prompt, Cursor: call.Arguments.Cursor, WaitSeconds: call.Arguments.WaitSeconds})
+				data, err = agent.ClientTool(ctx, c, target, "sessions.control", protocol.SessionControl{Operation: operation, CallerSessionID: *session, SessionID: call.Arguments.SessionID, ServiceID: call.Arguments.ProjectID, Search: call.Arguments.Search, TaskID: call.Arguments.TaskID, RequestID: requestID, Prompt: call.Arguments.Prompt, Cursor: call.Arguments.Cursor, WaitSeconds: call.Arguments.WaitSeconds})
 			case "notify_im_session":
 				conversation := call.Arguments.SessionID
 				if conversation == "" && *source == "im" && target == c.ID && serviceID == *project {
@@ -244,7 +244,7 @@ func clientTools() []any {
 		return map[string]any{"name": name, "description": description, "annotations": map[string]bool{"readOnlyHint": readOnly, "destructiveHint": false}, "inputSchema": schema}
 	}
 	target := func() map[string]any {
-		return map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "sessionId": str("直接子会话 ID；read_session 也可查询当前会话"), "taskId": str("预期任务 ID；防止操作已切换的任务")}
+		return map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "sessionId": str("目标会话 ID；read/wait 可查询当前客户端全部会话，其他操作或跨客户端仅限直接子会话"), "taskId": str("预期任务 ID；防止操作已切换的任务")}
 	}
 	read := target()
 	read["cursor"] = number("结果分页游标；使用返回的 nextCursor 继续读取")
@@ -268,8 +268,9 @@ func clientTools() []any {
 		tool("list_im_sessions", "查询指定客户端当前绑定的 IM 收件人名称与会话 ID，仅返回项目、机器人、私聊/群聊和已知姓名/群名。支持搜索与分页，同名候选不合并。用户未指定对象、匹配不唯一或名称未知时，列出候选并询问后再发送；不要猜收件人。", true, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端，跨客户端分别查询"), "projectId": str("筛选项目 ID；省略查询目标客户端全部项目"), "search": str("搜索已知姓名、群名、机器人名、项目名或会话标题"), "cursor": number("返回的 nextCursor；每页最多 50 条，0 表示无后续页")}),
 		tool("start_web_session", "在目标原项目创建直接子执行会话。CEO/管家传稳定topic，同topic复用并订阅持久关键事件；派工确认后结束管理轮次，等事件唤醒后验收。忙碌不覆盖，查询仅用于排查/用户问状态/恢复。接收不代表完成，不发额外IM。", false, map[string]any{"checkpoints": map[string]any{"type": "array", "maxItems": 3, "uniqueItems": true, "items": map[string]any{"type": "string", "enum": []string{"plan", "validation", "predeploy"}}}, "clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "title": str("子会话标题，最多 80 字"), "topic": str("CEO/管家必填的稳定 topic/方向；相同方向复用，其他方向新建"), "prompt": str("任务内容，最多 32000 字节")}, "prompt"),
 		tool("list_child_sessions", "列出当前会话在指定客户端直接创建的子会话；跨客户端分别查询。", true, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "cursor": number("子会话列表分页游标")}),
-		tool("read_session", "读取直接子会话或当前会话的状态、当前任务最终输出及分页游标。complete 与 taskError 表示任务状态；captured=false 表示仅有旧执行器文本，不能据此宣称完成。", true, read, "sessionId"),
-		tool("wait_session", "等待直接子会话当前任务完成或等待期限到达，返回状态及结果；不会创建会话或向用户发消息。", true, wait, "sessionId"),
+		tool("list_sessions", "分页查询当前客户端全部项目的会话 ID、任务状态、时间与错误，包含 Web、IM、归档及已删除记录；仅返回元数据。支持项目和 ID/标题搜索，不读取正文。", true, map[string]any{"projectId": str("筛选项目 ID；省略查询当前客户端全部项目"), "search": str("搜索会话 ID、标题或项目 ID"), "cursor": number("返回的 nextCursor；每页最多 50 条")}),
+		tool("read_session", "读取当前客户端任意会话的状态、当前任务最终输出及分页游标；跨客户端仅限直接子会话。complete 与 taskError 表示任务状态；captured=false 不能据此宣称完成。", true, read, "sessionId"),
+		tool("wait_session", "等待当前客户端任意会话或跨客户端直接子会话的当前任务完成，返回状态及结果；不会创建会话或向用户发消息。", true, wait, "sessionId"),
 		tool("send_to_session", "在已有直接子会话继续一轮任务，复用原生上下文；当前任务忙碌时返回错误。", false, send, "sessionId", "prompt"),
 		tool("cancel_session_task", "取消直接子会话的指定当前任务，不影响其他会话。", false, target(), "sessionId", "taskId"),
 		tool("notify_im_session", "仅用于已获用户授权的额外 IM 推送。用 list_im_sessions 将明确姓名/群名映射到真实客户端、项目和会话 ID；未说对象、重名或名称未知时先询问，不猜测、不默认最近对象。当前会话正常回答由入口投递，无需调用；仅当前 IM 会话的额外消息可省略目标。", false, map[string]any{"clientId": str("目标客户端 ID；默认当前客户端"), "projectId": str("目标项目 ID；默认当前项目"), "sessionId": str("目标 IM 会话 ID；仅当前 IM 会话可省略"), "message": str("主动发送的消息，最多 16000 字节")}, "message"),

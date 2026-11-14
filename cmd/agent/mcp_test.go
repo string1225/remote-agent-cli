@@ -103,3 +103,38 @@ func TestMCPWebSessionDoesNotInheritIMDelivery(t *testing.T) {
 		t.Fatal("legacy route sent an unsolicited message", err, out.String())
 	}
 }
+
+func TestMCPListsCurrentClientSessionsAcrossProjects(t *testing.T) {
+	calls := 0
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var in struct {
+			AgentID string `json:"agentId"`
+			Type    string `json:"type"`
+			Body    struct {
+				Operation       string `json:"operation"`
+				CallerSessionID string `json:"callerSessionId"`
+				ServiceID       string `json:"serviceId"`
+				Search          string `json:"search"`
+				Cursor          uint64 `json:"cursor"`
+			} `json:"body"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			t.Fatal(err)
+		}
+		if in.AgentID != "current-client" || in.Type != "sessions.control" || in.Body.Operation != "list_client" || in.Body.CallerSessionID != "current-session" || in.Body.ServiceID != "" || in.Body.Search != "stuck" || in.Body.Cursor != 50 {
+			t.Error("list lost local identity or inherited current project filter", in)
+		}
+		io.WriteString(w, `{"sessions":[{"id":"sibling","taskStatus":"running"}],"nextCursor":0}`)
+	}))
+	defer site.Close()
+	c := agent.Config{Path: filepath.Join(t.TempDir(), "config.json"), ID: "current-client", Credential: "mock", Server: site.URL}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_sessions","arguments":{"search":"stuck","cursor":50}}}`)
+	if err := runMCP(context.Background(), []string{"--config", c.Path, "--project", "current-project", "--session", "current-session"}, input, &out); err != nil || calls != 1 || !strings.Contains(out.String(), "sibling") || strings.Contains(out.String(), "isError") {
+		t.Fatal("local session list unavailable", err, calls, out.String())
+	}
+}

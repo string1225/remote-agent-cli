@@ -6,6 +6,8 @@ type SessionControl struct {
 	CallerAgentID   string `json:"callerAgentId"`
 	CallerSessionID string `json:"callerSessionId"`
 	SessionID       string `json:"sessionId,omitempty"`
+	ServiceID       string `json:"serviceId,omitempty"`
+	Search          string `json:"search,omitempty"`
 	TaskID          string `json:"taskId,omitempty"`
 	RequestID       string `json:"requestId,omitempty"`
 	Prompt          string `json:"prompt,omitempty"`

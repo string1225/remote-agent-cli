@@ -51,7 +51,7 @@ sequenceDiagram
 
 `directoryCreate` 能力标记控制新增项目弹窗的“新建文件夹”入口。`directories.create` 使用 `path` 指定已存在的授权父目录、`title` 指定单层名称，返回 `name/path/created`，创建成功自动选入项目目录。客户端使用 `os.Root` 锚定授权范围，拒绝路径穿越、非法名称及同名文件/链接；同名真实文件夹原样复用，便于响应丢失后重试，不覆盖原有内容。旧客户端不显示创建入口。
 
-设备凭证可访问 `/api/agent/catalog` 和 `/api/agent/tools`；后者只允许 `tasks.start`、`sessions.spawn`、`sessions.control` 与 `channels.notify`，源/目标设备必须属于同一有效账号。服务端覆盖父客户端和调用客户端身份，目标客户端核对直接父子关系；单次等待不超过 20 秒，长结果分页。用户文本不追加分工指令，身份及能力只在 MCP 初始化说明中提供。任务只保存结果和状态，父会话自主读取及交付，不自动发 IM 完成通知；旧队列原样归档，详见会话模型。服务端通过现有目标 WebSocket 建立短暂工具连接，等待 ready 后发送请求，最多 25 秒。设备离线明确失败，不向任意 URL/命令代理。详见 [会话模型](session-model.md)。
+设备凭证可访问 `/api/agent/catalog` 和 `/api/agent/tools`；后者只允许 `tasks.start`、`sessions.spawn`、`sessions.control` 与 `channels.notify`，源/目标设备必须属于同一有效账号。服务端覆盖父客户端和调用客户端身份，目标客户端允许认证源客户端只读列出和查询本机全部会话，跨客户端读取及发送/取消仍核对直接父子关系；单次等待不超过 20 秒，长结果分页。用户文本不追加分工指令，身份及能力只在 MCP 初始化说明中提供。任务只保存结果和状态，父会话自主读取及交付，不自动发 IM 完成通知；旧队列原样归档，详见会话模型。服务端通过现有目标 WebSocket 建立短暂工具连接，等待 ready 后发送请求，最多 25 秒。设备离线明确失败，不向任意 URL/命令代理。详见 [会话模型](session-model.md)。
 
 ## 本地数据与权限
 
