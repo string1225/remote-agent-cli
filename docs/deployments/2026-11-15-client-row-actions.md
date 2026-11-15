@@ -39,3 +39,21 @@ ssh -F 'C:/Users/junte/.remote-agent/git-auth/ssh-139/config' deploy-139 'sudo -
 ```
 
 ignored证据位于`.local/client-row-ui/`，含隔离/合并/线上资源截图、摘要、PID、发布和旧维护测试基线日志。共享脏改和他人的未跟踪测试全部保留，无额外IM、凭据读取、新会话或委派。
+
+## 后续：管家改为无框人像图标
+
+2026-11-15追加发布源码`5871f750eb7ceac43797e0e052be1d51e935f079`，已推送origin/main。客户端管家和项目管家均改为简单的人像线条SVG，去掉机器人头部的框形轮廓；按钮明确使用无边框、无原生按钮外观。修正暗色主题通用面板规则优先级过高导致管家按钮出现块状底色的问题，空闲时背景透明，悬停反馈和键盘焦点提示保留。
+
+- 从已提交归档验证，排除共享脏改；app/platform/coordination语法检查、coordination浏览器测试及compact-ui通过。后者覆盖1440/1280/1279/1024/390宽度、原点击/Enter路由、离线禁用和44px移动端目标等。线上下载的9项资源（index、app/platform、coordination.js/css、theme、device-settings及两个暗色平台图标）均200，SHA256与发布源码一致；覆盖下载资源的模拟页面再次通过compact-ui。
+- 额外等待主题切换过渡结束后，在1440/390下检查浅深主题的计算样式并复核截图：管家按钮背景均为透明、边框0、appearance:none、无阴影。所有业务数据均为模拟数据，未读取真实会话正文；原生Safari、真实触控设备、生产账号业务变更及实际回滚生命周期未验收。本题未修改Go或原生平台代码，不重复长测；发布脚本从提交归档构建Linux服务端和Windows上传辅助程序成功。
+- Release：`/opt/remote-agent/releases/5871f750eb7ceac43797e0e052be1d51e935f079-20261115193955`。正常SERVICE SSH部署，部署脚本先备份并设自动失败恢复；备份目录为`/var/backups/remote-agent/5871f750eb7ceac43797e0e052be1d51e935f079-20261115193955`。HTTPS healthz为ok，remote-agent/nginx active。
+- 同目录的`rollback-program.sh`为root:root/0700，bash -n通过，未执行；恢复上一`be69d77e970391bf863b84faec29a93dee8af21a-20261115180419`程序/网页，保留数据库及runtime渠道，并拒绝覆盖后续其他Release。
+- 本次只更新服务端内嵌网页，已打开工作台需刷新。未发布或主动激活客户端runtime；Windows amd64渠道发布前后摘要相同，仍为`20261115-file-sharing-d3671ea`、序号`2026111502`。本机RemoteAgent PID43020、Updater PID4872发布前后Running且不变，没有重启客户端活跃进程树。共享脏改及他人未跟踪文件全部保留。
+
+手动程序回滚命令（本轮未执行）：
+
+```powershell
+ssh -F 'C:/Users/junte/.remote-agent/git-auth/ssh-139/config' deploy-139 'sudo -n bash /var/backups/remote-agent/5871f750eb7ceac43797e0e052be1d51e935f079-20261115193955/rollback-program.sh'
+```
+
+本次证据位于ignored目录`.local/steward-icon/`：publish.log、live-assets.json、healthz.json、live-compact-test.log、live-style-probe.log、live-settled-screens和服务/渠道前后快照。
