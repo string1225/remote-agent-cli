@@ -1,7 +1,7 @@
 .ceo-entry{display:flex;gap:6px;align-items:center;margin:4px 10px 8px;padding-bottom:8px;border-bottom:1px solid var(--line,#e1e5eb)}
 .ceo-entry button,.client-steward,.project-steward,.work-report-actions button{border:1px solid #dce2eb;border-radius:8px;background:#fff;color:#33425c;padding:8px 10px;cursor:pointer;font:inherit}
 .ceo-entry .ceo-button{display:flex;align-items:center;gap:6px;flex:1;text-align:left;padding:8px;background:#eef3fb;border-color:transparent}.ceo-button span{font-size:11px;color:#65738b}.ceo-button.active{border-color:#7895c0;background:#e2ebfb}
-.client-steward,.project-steward{display:inline-flex;align-items:center;justify-content:center;width:28px;min-width:28px;min-height:28px;flex-shrink:0;margin:0;padding:4px;background:transparent;border-color:transparent;color:#52627a}
+.client-steward,.project-steward{display:inline-flex;align-items:center;justify-content:center;width:28px;min-width:28px;min-height:28px;flex-shrink:0;margin:0;padding:4px;appearance:none;background:transparent;border:0;color:#52627a}
 .client-steward svg,.project-steward svg{display:block;width:17px;height:17px;pointer-events:none}
 .client-steward:hover,.project-steward:hover{background:var(--hover,#edf2fb);color:var(--blue,#315ee9)}
 @media(width < 1280px){.device-row .device-add{display:none}}

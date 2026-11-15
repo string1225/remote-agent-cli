@@ -28,9 +28,11 @@
     svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("aria-hidden","true");svg.setAttribute("focusable","false");
     svg.setAttribute("fill","none");svg.setAttribute("stroke","currentColor");svg.setAttribute("stroke-width","1.7");
     svg.setAttribute("stroke-linecap","round");svg.setAttribute("stroke-linejoin","round");
-    const path=document.createElementNS(svg.namespaceURI,"path");
-    path.setAttribute("d","M12 8V4H9 M2 12v4 M22 12v4 M9 13h.01 M15 13h.01 M9 17h6 M6 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z");
-    svg.append(path);b.append(svg);
+    const head=document.createElementNS(svg.namespaceURI,"circle");
+    head.setAttribute("cx","12");head.setAttribute("cy","8");head.setAttribute("r","4");
+    const shoulders=document.createElementNS(svg.namespaceURI,"path");
+    shoulders.setAttribute("d","M5 21v-2a7 7 0 0 1 14 0v2");
+    svg.append(head,shoulders);b.append(svg);
     b.type="button"; b.title=ref.name; b.setAttribute("aria-label","打开"+ref.name); b.disabled=!online;
     b.onclick=event=>{event.preventDefault();event.stopPropagation();window.openAssistant(ref).catch(e=>notice(e.message));}; parent.append(b);
   };
