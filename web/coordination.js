@@ -23,9 +23,22 @@
   };
   window.renderHierarchy = () => $("ceo-open").classList.toggle("active",service()?.scope==="account");
   window.appendAssistantButton = (parent,ref,online,compact=false) => {
-    const b=node("button",compact?"管家":"◉ 客户端管家",compact?"project-steward":"client-steward");
+    const b=node("button","管家",compact?"project-steward":"client-steward");
     b.type="button"; b.title=ref.name; b.setAttribute("aria-label","打开"+ref.name); b.disabled=!online;
-    b.onclick=()=>window.openAssistant(ref).catch(e=>notice(e.message)); parent.append(b);
+    b.onclick=event=>{event.preventDefault();event.stopPropagation();window.openAssistant(ref).catch(e=>notice(e.message));}; parent.append(b);
+  };
+  const baseDevices = renderDevices;
+  renderDevices = function(...args) {
+    const result = baseDevices(...args);
+    for (const card of $("device-list").children) {
+      const row = card.querySelector(".device-row"), steward = card.querySelector(".client-steward");
+      if (!row || !steward) continue;
+      row.append(steward);
+      const name = row.querySelector(".device-name"), connection = row.querySelector(".device-status");
+      if (name) name.title = name.textContent;
+      if (connection) { connection.setAttribute("role", "img"); connection.setAttribute("aria-label", connection.title); }
+    }
+    return result;
   };
   window.renderWorkReport = (report,existing) => {
     if(existing) return existing;
@@ -69,5 +82,5 @@
     };
     buttons.append(send,cancel);form.append(input,buttons);dialog.append(title,hint,form);document.body.append(dialog);dialog.showModal();input.focus();
   }
-  renderHierarchy();
+  renderDevices();
 })();

@@ -10,7 +10,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       const page = await browser.newPage({viewport:{width, height:900}, timezoneId:'Asia/Shanghai'}), errors = [];
       page.setDefaultTimeout(5000);
       page.on('pageerror', error => errors.push(error.message));
-      await page.addInitScript(() => { window.setInterval = () => 0; });
+      await page.addInitScript(() => { window.setInterval = () => 0; localStorage.setItem('remote-agent.theme','light'); });
       await page.route('https://chat-ui.test/**', route => {
         const file = new URL(route.request().url()).pathname.slice(1) || 'index.html';
         if (file.startsWith('api/')) return route.fulfill({status:401, json:{error:'please sign in'}});
@@ -89,8 +89,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(await timing.textContent(), '完成于 2026/11/04 10:02:03 · 总耗时 2分3秒');
       assert.equal(await timing.isVisible(), true);
       assert.equal(await details.isVisible(), true, 'completion metadata preserves expanded details');
-      const timingLayout = await timing.boundingBox(), toggleLayout = await toggle.boundingBox();
-      assert(timingLayout.x >= toggleLayout.x + toggleLayout.width, 'completion metadata sits to the right of run details');
+      const status = page.locator('.message-run-footer .workbench-status');
+      assert.equal(await timing.evaluate(element=>element.parentElement.classList.contains('message-run-footer')),true);
+      assert.equal(await status.evaluate(element=>element.nextElementSibling?.classList.contains('run-timing')),true,'completion metadata follows status beneath the response');
       if (process.env.UI_TEST_SCREENSHOT_DIR) {
         fs.mkdirSync(process.env.UI_TEST_SCREENSHOT_DIR, {recursive:true});
         await page.screenshot({path:path.join(process.env.UI_TEST_SCREENSHOT_DIR, `chat-${width}.png`)});

@@ -1,6 +1,6 @@
 /* The workbench adds bounded inspection to the existing relay, history and drafts. */
 (() => {
-  const labels = {queued:"排队中", running:"执行中", done:"已完成", failed:"需检查", cancelled:"已停止", interrupted:"已插队中断", paused:"等待继续"};
+  const labels = {queued:"排队中", running:"执行中", done:"已完成", failed:"执行失败", cancelled:"已停止", interrupted:"已插队中断", paused:"等待继续"};
   const activityLabels = {running:"进行中", completed:"已完成", failed:"失败", stopped:"已结束，状态未确认"};
   let capabilities = {}, freshness, lastScope = "", view;
   const scope = () => JSON.stringify([state.user?.id, state.selected?.id, state.serviceId, state.session?.id]);
@@ -15,30 +15,25 @@
   const bar = node("div", undefined, "workbench-bar");
   bar.setAttribute("aria-label", "会话状态和检查工具");
   const status = node("span", "", "workbench-status"), sync = node("span", "", "workbench-sync");
+  const statusLabel = node("span", "", "run-state-label"), elapsed = node("span", "", "run-elapsed");
+  statusLabel.setAttribute("role", "status"); statusLabel.setAttribute("aria-live", "polite");
+  elapsed.setAttribute("aria-live", "off"); status.append(statusLabel, elapsed);
   const actions = node("div", undefined, "workbench-actions");
   const changes = button("工作区变更", () => openChanges());
   const children = button("子任务", () => openChildren());
   const reference = button("引用会话", () => openReferences());
   const diagnostics = button("连接检查", () => openDiagnostics());
-  actions.append(changes, children, reference, diagnostics); bar.append(status, sync, actions);
+  actions.append(changes, children, reference, diagnostics); bar.append(sync, actions);
   $("chat-scroll").before(bar);
+  for (const id of ["devices-resizer", "conversations-resizer"]) $(id).title = "拖动或用方向键调整；双击恢复紧凑默认列宽";
 
   function update() {
     const currentScope = scope();
     if (lastScope !== currentScope) { lastScope = currentScope; freshness = null; closeView(); }
     bar.hidden = !state.session || state.mode === "sayso";
-    if (bar.hidden) return;
+    if (bar.hidden) { status.remove(); return; }
     const session = state.session;
-    status.textContent = labels[session.taskStatus] || "会话就绪";
-    status.dataset.status = session.taskStatus || "idle";
-    if (session.taskStartedAt && (session.taskStatus === "running" || session.taskCompletedAt)) {
-      status.textContent += " · " + duration((session.taskCompletedAt || Date.now()) - session.taskStartedAt);
-    } else if (session.taskStatus === "queued" && session.taskAcceptedAt) {
-      status.textContent += " · 已等待 " + duration(Date.now() - session.taskAcceptedAt);
-    }
-    const paused = session.queuedMessages?.filter(row => row.status === "paused").length || 0;
-    if (paused) status.textContent += ` · ${paused} 条待继续`;
-    if (!online() && session.taskStatus) status.textContent += "（上次状态）";
+    renderRunFooters(session);
     sync.textContent = !online() ? "离线 · 已保留草稿" : freshness?.error ? "连接正常 · 历史同步失败" : state.historyLocal ? "连接已建立 · 正在校对历史" : freshness?.at ? "历史已同步" : "正在同步历史";
     sync.title = freshness?.error || (freshness?.at ? "最近同步：" + new Date(freshness.at).toLocaleTimeString("zh-CN") : "");
     changes.hidden = !capabilities.workspaceReview;
@@ -46,6 +41,68 @@
     changes.disabled = children.disabled = reference.disabled = !online();
     diagnostics.disabled = !state.selected;
     if (view && view.scope !== currentScope) closeView();
+  }
+
+  function renderRunFooters(session) {
+    const container = $("messages"), suffix = "/assistant/stdout", outcomes = new Map();
+    for (const entry of state.entries) {
+      if (entry.role === "system" && entry.kind === "error") outcomes.set(entry.turnId, "failed");
+      else if (entry.role === "system" && entry.kind === "done" && outcomes.get(entry.turnId) !== "failed") outcomes.set(entry.turnId, "done");
+    }
+    let articles = [...container.children].filter(article => article.dataset.key?.endsWith(suffix));
+    const task = session.taskId || state.running || articles.at(-1)?.dataset.key.slice(0, -suffix.length);
+    const terminal = labels[session.taskStatus] && !["queued", "running"].includes(session.taskStatus);
+    const phase = terminal ? session.taskStatus : outcomes.get(task) || session.taskStatus || (state.running ? "running" : "idle");
+    let current = articles.find(article => article.dataset.key === task + suffix);
+    // Keep the new turn's status beneath its own user message while the first
+    // output is pending, rather than making the preceding answer look busy.
+    if (!current && task && labels[phase]) {
+      current = node("article", undefined, "message assistant run-status-placeholder");
+      current.dataset.key = task + suffix;
+      const header = node("div", service()?.provider?.toUpperCase() || "AGENT", "message-label");
+      const toggle = button("运行详情", () => {
+        details.hidden = !details.hidden; toggle.setAttribute("aria-expanded", String(!details.hidden));
+      }, "run-details-toggle");
+      const details = node("div", "", "run-details"), timing = node("span", "", "run-timing");
+      details.id = `run-details-${session.id}-${task}`; details.hidden = timing.hidden = toggle.hidden = true;
+      toggle.setAttribute("aria-controls", details.id); toggle.setAttribute("aria-expanded", "false");
+      header.append(toggle, timing); current.append(header, details, node("div", "", "message-text"));
+      container.append(current); articles.push(current);
+    }
+    for (const article of articles) {
+      const turn = article.dataset.key.slice(0, -suffix.length);
+      const hasOutput = !!article.querySelector(".message-text")?.textContent.trim() || !!article.querySelector(".run-details")?.textContent.trim();
+      if (article.classList.contains("run-status-placeholder")) {
+        if (hasOutput) article.classList.remove("run-status-placeholder");
+        else if (article !== current) { article.remove(); continue; }
+      }
+      let footer = article.querySelector(".message-run-footer");
+      if (!footer) { footer = node("div", undefined, "message-run-footer"); article.append(footer); }
+      const timing = article.querySelector(".run-timing");
+      if (timing && timing.parentElement !== footer) footer.append(timing);
+      if (article.lastElementChild !== footer) article.append(footer);
+      let historical = footer.querySelector(".turn-status");
+      if (article === current) {
+        historical?.remove();
+        if (status.parentElement !== footer) footer.prepend(status);
+        if (timing && !timing.textContent && session.taskCompletedAt) {
+          timing.textContent = turnTimingText({startedAt:session.taskAcceptedAt || session.taskStartedAt, completedAt:session.taskCompletedAt});
+          timing.hidden = !timing.textContent;
+        }
+      } else if (outcomes.has(turn)) {
+        if (!historical) { historical = node("span", "", "turn-status"); footer.prepend(historical); }
+        historical.dataset.status = outcomes.get(turn); historical.textContent = labels[outcomes.get(turn)];
+      }
+      footer.hidden = article !== current && !historical && (!timing || timing.hidden);
+    }
+    if (!current) { status.remove(); return; }
+    status.dataset.status = phase; status.dataset.live = String(online());
+    const text = (labels[phase] || "会话就绪") + (!online() ? "（上次状态）" : "");
+    if (statusLabel.textContent !== text) statusLabel.textContent = text;
+    const timing = current.querySelector(".run-timing");
+    elapsed.textContent = phase === "running" && session.taskStartedAt ? " · " + duration(Date.now() - session.taskStartedAt)
+      : phase === "queued" && session.taskAcceptedAt ? " · 已等待 " + duration(Date.now() - session.taskAcceptedAt)
+      : timing && !timing.hidden ? "" : session.taskStartedAt && session.taskCompletedAt ? " · " + duration(session.taskCompletedAt - session.taskStartedAt) : "";
   }
 
   const baseServices = refreshServices;

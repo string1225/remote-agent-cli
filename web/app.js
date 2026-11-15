@@ -956,7 +956,7 @@ function initPaneResizers() {
     panes = [$("devices-pane"), $("conversations-pane"), $("chat-pane")],
     resizers = [$("devices-resizer"), $("conversations-resizer")],
     properties = ["--devices-width", "--conversations-width", "--chat-width"],
-    defaults = [0.21, 0.23, 0.56],
+    defaults = [0.1575, 0.1725, 0.67],
     storageKey = `remote-agent:column-widths:${basePath || "/"}`;
   let ratios = [...defaults],
     drag = null;
