@@ -126,6 +126,13 @@ button:focus-visible,a:focus-visible,summary:focus-visible { outline:3px solid #
 .markdown-body li { margin:5px 0; }
 .markdown-body li>p { margin:8px 0; }
 .markdown-body a { color:#2f60d2; text-decoration:underline; text-underline-offset:3px; }
+.markdown-body .local-file-link { display:inline-block; max-width:100%; min-height:24px; border:0; border-radius:3px; padding:0; background:transparent; color:var(--blue,#2f60d2); font:inherit; line-height:inherit; text-align:left; text-decoration:underline; text-underline-offset:3px; overflow-wrap:anywhere; vertical-align:baseline; }
+.markdown-body .local-file-link:hover { background:var(--hover); }
+#local-file-dialog { width:min(600px,calc(100vw - 32px)); }
+#local-file-dialog textarea { width:100%; resize:vertical; overflow-wrap:anywhere; font-family:"Cascadia Code",Consolas,monospace; }
+#local-file-dialog .local-file-copy { min-height:44px; }
+#local-file-dialog [role=status] { overflow-wrap:anywhere; }
+@media(pointer:coarse) { .markdown-body .local-file-link { min-height:44px; } }
 .markdown-body blockquote { border-left:3px solid #bdccef; padding:3px 16px; color:#64758e; }
 .markdown-body hr { border:0; border-top:1px solid var(--line); margin:22px 0; }
 .markdown-body code { font-family:"Cascadia Code",Consolas,monospace; font-size:.88em; background:#f0f3f8; color:#35528a; border-radius:4px; padding:2px 5px; }
