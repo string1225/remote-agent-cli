@@ -84,22 +84,27 @@ func (s *Store) RevealCodexToken(userID, id string) (string, error) {
 		if !ownedToken(tx, userID, id) {
 			return ErrDenied
 		}
-		data := tx.Bucket([]byte("codex_secrets")).Get([]byte(id))
-		if data == nil {
-			return ErrTokenNotSaved
-		}
-		n := s.tokenCipher.NonceSize()
-		if len(data) < n {
-			return errors.New("invalid saved token")
-		}
-		plain, err := s.tokenCipher.Open(nil, data[:n], data[n:], []byte(id))
-		if err != nil {
-			return err
-		}
-		secret = string(plain)
-		return nil
+		var err error
+		secret, err = s.openToken(tx, id)
+		return err
 	})
 	return secret, err
+}
+
+func (s *Store) openToken(tx *bolt.Tx, id string) (string, error) {
+	data := tx.Bucket([]byte("codex_secrets")).Get([]byte(id))
+	if data == nil {
+		return "", ErrTokenNotSaved
+	}
+	n := s.tokenCipher.NonceSize()
+	if len(data) < n {
+		return "", errors.New("invalid saved token")
+	}
+	plain, err := s.tokenCipher.Open(nil, data[:n], data[n:], []byte(id))
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
 }
 
 // SaveCodexToken backfills an old hash-only record without issuing or rotating

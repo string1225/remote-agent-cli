@@ -19,6 +19,7 @@ type CodexToken struct {
 	Revoked    bool   `json:"revoked"`
 	AgentID    string `json:"agentId,omitempty"`
 	Copyable   bool   `json:"copyable"`
+	Purpose    string `json:"purpose,omitempty"`
 }
 
 func revokeAgentTokens(tx *bolt.Tx, agentID string) error {

@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="./account-menu.css" />
     <link rel="stylesheet" href="./preferences.css" />
     <link rel="stylesheet" href="./theme.css" />
+    <link rel="stylesheet" href="./dialogs.css" />
     <script src="./vendor/marked.umd.js" defer></script>
     <script src="./vendor/purify.min.js" defer></script>
     <script src="./markdown.js" defer></script>
@@ -28,6 +29,7 @@
     <script src="./device-settings.js" defer></script>
     <script src="./device-maintenance.js" defer></script>
     <script src="./platform.js" defer></script>
+    <script src="./dialogs.js" defer></script>
     <script src="./channels.js" defer></script>
     <script src="./binding-code.js" defer></script>
     <script src="./workspace-actions.js" defer></script>
@@ -367,7 +369,7 @@
         </nav>
         <section id="admin-users-panel" class="platform-panel" role="tabpanel" aria-labelledby="admin-users-tab">
           <h3>平台账号管理</h3>
-          <p class="small muted">每个账号旁可复制两种使用指引，包含用户名与初始密码占位符。复制后请填写初始密码再发送。</p>
+          <p class="small muted">每个账号可复制网页版或 Endpoint / Codex 指引。网页版需补写初始密码；Endpoint 指引自带专用 Token，下载安装后填写即可，无需网页登录。</p>
           <form id="admin-create-form" class="admin-create"><label>用户名<input name="username" required maxlength="64" autocomplete="off"></label><label>初始密码<input name="password" required type="password" minlength="6" maxlength="72" autocomplete="new-password"></label><label class="check-label"><input name="admin" type="checkbox">管理员</label><button class="primary" type="submit">创建账号</button></form>
           <form id="admin-search-form" class="inline-form"><label>查询账号<input name="search" type="search" placeholder="按用户名查询"></label><button class="secondary" type="submit">查询</button></form>
           <div id="admin-guide-box" class="platform-note" hidden><label>手动复制使用指引<textarea id="admin-guide-text" readonly rows="10"></textarea></label><button id="admin-guide-close" class="secondary" type="button">收起指引</button></div>

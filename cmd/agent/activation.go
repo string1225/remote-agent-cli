@@ -19,10 +19,12 @@ import (
 type activationOptions struct {
 	Server         string `json:"server"`
 	BindingCode    string `json:"bindingCode,omitempty"`
+	APIToken       string `json:"apiToken,omitempty"`
 	AutoStart      bool   `json:"autoStart"`
 	WebProxy       bool   `json:"webProxy"`
 	ConfigureCodex bool   `json:"configureCodex"`
 	InstallCodex   bool   `json:"installCodex"`
+	InstallApp     bool   `json:"installApp"`
 }
 type activationEvent struct {
 	Type    string             `json:"type"`
@@ -38,6 +40,9 @@ type activationSteps struct {
 	Service   func(agent.Config, bool) error
 	Proxy     func(agent.Config, bool) error
 	Online    func(agent.Config) error
+	Personal  func(string, string) (codexsetup.Connection, error)
+	Apply     func(codexsetup.Connection) error
+	App       func() error
 }
 
 func activationPreferences(path string) string { return path + ".activation-options.json" }
@@ -47,6 +52,8 @@ func activationDefaults(path string) activationOptions {
 		_ = json.Unmarshal(data, &o)
 	}
 	o.BindingCode = ""
+	o.APIToken = ""
+	o.InstallApp = false // Opening the Store is a one-time opt-in, never a saved default.
 	if cfg, err := agent.Load(path); err == nil {
 		o.Server = cfg.Server
 	}
@@ -81,9 +88,15 @@ func runActivation(args []string, input io.Reader, output io.Writer) error {
 }
 
 func activateDevice(path string, o activationOptions, steps activationSteps, emit func(activationEvent)) error {
+	if o.APIToken != "" {
+		return activateEndpoint(path, o, steps, emit)
+	}
 	progress := func(message string) { emit(activationEvent{Type: "progress", Message: message}) }
 	finish := func(c agent.Config, err error) error {
 		message := "设备「" + c.Name + "」已激活并在线"
+		if err == nil && o.InstallApp {
+			message += "。已打开 Microsoft Store，请在商店完成 Codex App 安装"
+		}
 		if err != nil {
 			message = err.Error()
 			for _, secret := range []string{o.BindingCode, c.Credential} {
@@ -112,6 +125,7 @@ func activateDevice(path string, o activationOptions, steps activationSteps, emi
 	// Persist only choices, never the binding code or device credential.
 	saved := o
 	saved.BindingCode = ""
+	saved.APIToken = ""
 	raw, _ := json.MarshalIndent(saved, "", "  ")
 	if err = os.WriteFile(activationPreferences(path), raw, 0600); err != nil {
 		return finish(c, err)
@@ -130,6 +144,9 @@ func activateDevice(path string, o activationOptions, steps activationSteps, emi
 	}
 	if o.ConfigureCodex {
 		step("正在备份并配置 Codex…", func() error { return steps.Configure(c) })
+	}
+	if o.InstallApp {
+		step("正在打开 Codex App 商店页…", steps.App)
 	}
 	if step("正在配置并启动 Windows Service，目录授权可能需要数分钟…", func() error { return steps.Service(c, o.AutoStart) }) {
 		step("正在应用网页代理选项…", func() error { return steps.Proxy(c, o.WebProxy) })
@@ -165,6 +182,21 @@ func defaultActivationSteps() activationSteps {
 		},
 		Proxy:  func(c agent.Config, on bool) error { return applyActivationProxy(c, on) },
 		Online: waitActivationOnline,
+		Personal: func(server, token string) (codexsetup.Connection, error) {
+			return codexsetup.PersonalConnection(&http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, server, token)
+		},
+		Apply: func(connection codexsetup.Connection) error {
+			home, err := codexsetup.Home()
+			if err != nil {
+				return err
+			}
+			if err = installRemoteAgentSkill(); err != nil {
+				return err
+			}
+			_, err = codexsetup.Apply(home, connection)
+			return err
+		},
+		App: func() error { return runApp([]string{"install"}) },
 	}
 }
 

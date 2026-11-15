@@ -1,0 +1,31 @@
+/* One scroll container below a fixed heading. These rules also override legacy
+ * dialog-specific overflow/padding on small screens. */
+dialog.fixed-dialog-header {
+  padding:0 !important;
+  overflow:hidden !important;
+  max-height:calc(100dvh - 32px);
+}
+dialog.fixed-dialog-header[open] { display:flex; flex-direction:column; }
+.fixed-dialog-header > .fixed-dialog-heading {
+  flex:none; min-width:0; margin:0; padding:20px 24px 16px;
+  border-bottom:1px solid var(--line); background:inherit; gap:16px;
+}
+.fixed-dialog-heading :is(h2,h3) { margin:0; overflow-wrap:anywhere; }
+.fixed-dialog-heading > :first-child { min-width:0; }
+.fixed-dialog-heading :is(.icon-button,button:last-child) { flex-shrink:0; }
+.dialog-scroll-body { min-height:0; overflow:auto; overscroll-behavior:contain; padding:20px 24px 24px; scroll-padding-block:12px; }
+.dialog-scroll-body > :first-child { margin-top:0; }
+.workbench-dialog > .dialog-scroll-body,.todo-dialog > .dialog-scroll-body,.todo-session-dialog > .dialog-scroll-body { padding:0; }
+.workbench-dialog-body { max-height:none; overflow:visible; }
+.todo-dialog > .dialog-scroll-body { display:flex; flex-direction:column; }
+.todo-dialog .dialog-scroll-body > .todo-error { margin:0 24px 12px; }
+.todo-dialog .dialog-scroll-body > button.text-button { flex:none; margin:0 24px 12px; }
+.todo-session-dialog > .dialog-scroll-body { flex:1; display:flex; overflow:hidden; }
+@media(max-width:600px) {
+  dialog.fixed-dialog-header { max-height:calc(100dvh - 16px); }
+  dialog.platform-dialog.fixed-dialog-header { max-height:100dvh; }
+  .fixed-dialog-header > .fixed-dialog-heading { padding:16px; gap:12px; }
+  .dialog-scroll-body { padding:16px; }
+  .fixed-dialog-heading .icon-button { min-width:44px; min-height:44px; }
+  .todo-dialog-header .icon-button { top:12px; right:12px; }
+}

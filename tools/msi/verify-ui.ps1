@@ -11,12 +11,12 @@ $session = $null
 function Set-SessionProperty([string]$Name, [string]$Value) {
     $session.GetType().InvokeMember('Property', [Reflection.BindingFlags]::SetProperty, $null, $session, @($Name,$Value)) | Out-Null
 }
-function Read-Scalar([string]$Query) {
+function Read-Scalar([string]$Query, [switch]$AllowMissing) {
     $view = $database.OpenView($Query)
     try {
         $null = $view.Execute()
         $record = $view.Fetch()
-        if (!$record) { throw "MSI query returned no row: $Query" }
+        if (!$record) { if ($AllowMissing) { return '' }; throw "MSI query returned no row: $Query" }
         try { return $record.StringData(1) } finally { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($record) | Out-Null }
     } finally { $null = $view.Close(); [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) | Out-Null }
 }
@@ -43,6 +43,9 @@ try {
     if ($hidden -notmatch '(^|;)BINDING_CODE(;|$)') { throw 'Binding code must be hidden from MSI logs.' }
     $activate = Read-Scalar 'SELECT `Argument` FROM `ControlEvent` WHERE `Dialog_`=''AgentComplete'' AND `Control_`=''Activate'' AND `Event`=''DoAction'''
     if ($activate -ne 'ActivateDevice') { throw 'Activation must execute inside the existing MSI UI.' }
+    if ((Read-Scalar 'SELECT `Property` FROM `Control` WHERE `Dialog_`=''AgentComplete'' AND `Control`=''InstallCodexApp''') -ne 'INSTALL_CODEX_APP') { throw 'Missing optional Codex App choice.' }
+    if (Read-Scalar 'SELECT `Value` FROM `Property` WHERE `Property`=''INSTALL_CODEX_APP''' -AllowMissing) { throw 'Codex App must default to unchecked.' }
+    if (Read-Scalar 'SELECT `Argument` FROM `ControlEvent` WHERE `Dialog_`=''AgentComplete'' AND `Control_`=''Activate'' AND `Event`=''NewDialog''' -AllowMissing) { throw 'Activation must not recreate the active completion dialog.' }
     if ($TablesOnly) {
         $view = $database.OpenView('SELECT `Value` FROM `Property` WHERE `Property`=''WEB_PROXY''')
         try { $null=$view.Execute(); $row=$view.Fetch(); if ($row -and $row.StringData(1)) { throw 'Web proxy must default to off.' } }

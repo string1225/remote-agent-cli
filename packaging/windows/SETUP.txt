@@ -3,8 +3,13 @@ Remote Agent for Windows
 1. Download and install the x64 or ARM64 MSI. No installation script is needed.
    The installer adds Program Files\Remote Agent to the machine PATH and installs
    the automatic RemoteAgent Windows Service. It runs after logout.
-2. The completion window stays open and displays the following commands.
-   Open a new PowerShell (restart Windows Terminal completely if it was open):
+2. In the completion window, paste a device binding code or the Endpoint Token
+   from your account guide, then click Activate / Apply options. Endpoint Tokens
+   configure local Codex only, without website login or remote-device enrollment.
+   Install Codex CLI and Configure Codex are enabled by default. Install Codex App
+   is optional and unchecked: selecting it opens Microsoft Store for you to finish.
+   If the completion window fails, the CLI installation is retained. Open a new
+   PowerShell (restart Windows Terminal completely if it was open):
 
    remote-agent version
    remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt

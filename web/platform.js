@@ -14,9 +14,11 @@
     $("token-secret-box").hidden = true;
   }
   function clearGuide() {
+    guideRevision++;
     $("admin-guide-text").value = "";
     $("admin-guide-box").hidden = true;
   }
+  let guideRevision = 0;
   window.platformSignedIn = (account) => {
     user = account;
     $("admin-entry").hidden = !user.admin;
@@ -208,24 +210,38 @@
       await api("/api/account", "PATCH", values); signedOut(); notice("账号已更新，请重新登录。");
     } catch (e) { notice(e.message); } finally { button.disabled = false; }
   };
-  function accountGuide(account, mode) {
+  function accountGuide(account, mode, token) {
     const credentials = `登录地址：${server}/\n用户名：${account.username}\n初始密码：<请填写初始密码>\n首次登录后，请在「账号设置」修改密码。`;
     if (mode === "web") return `【网页版使用指引】\n${credentials}\n\n1. 用浏览器打开上述地址并登录。\n2. 在左侧「客户端」添加设备，选择实际使用的 Windows 或 macOS。Windows 先下载安装对应架构的 MSI，再打开新的 PowerShell；macOS 打开终端。将网页生成的绑定命令复制到这台电脑执行，按提示完成安装和绑定。\n3. 设备上线后，添加项目，选择这台电脑上的工作目录和 Codex / Qoder CLI。Codex 会自动配置；如提示缺少 CLI，按页面安装指引完成后重新连接。\n4. 打开项目下的 Web 会话，输入需求即可开始。Enter 发送，Shift+Enter 换行；可以创建多个会话。任务在绑定的电脑上执行，使用时请保持该电脑开机联网。`;
-    return `【Endpoint / Codex 本地使用指引（Windows / macOS）】\n${credentials}\n\n一、获取自己的 API Token\n登录后进入「我的 Token」，创建一个 Token 并复制。下方配置命令运行时会提示粘贴 Token，输入不会回显。\n\n二、仅使用 Endpoint\nBase URL：${server}/codex/v1\n接口类型：OpenAI Responses API（/responses）\nAPI Key：填写刚创建的个人 Token（不是登录密码）。\n在支持该接口的工具中填写以上信息；模型以 ${server}/codex/v1/models 返回的列表为准。\n\n三、自动安装并配置本地 Codex（二选一）\nWindows：\n1. 根据系统架构下载并安装 MSI：\nx64：${server}/downloads/remote-agent-windows-amd64.msi\nARM64：${server}/downloads/remote-agent-windows-arm64.msi\n2. 安装后打开新的 PowerShell，运行：\nremote-agent codex setup --server ${psQuote(server)} --token-prompt\n3. 提示时粘贴自己的 Token 并回车，等待安装与配置完成。\n\nmacOS：\n1. 打开终端，运行：\ncurl -fsSL ${shellQuote(server + "/install/cli-macos.sh")} | bash\n2. 安装成功后运行：\n"$HOME/.remote-agent/bin/remote-agent" codex setup --server ${shellQuote(server)} --token-prompt\n3. 提示时粘贴自己的 Token 并回车，等待安装与配置完成。\n\n四、开始使用\n打开新的终端，进入项目目录后运行 codex。若使用已安装的 Codex App，请完全退出并重开，再新建本地会话。配置前会备份原 config.toml；失败可按终端显示的备份路径恢复后重试。\n此方式无需添加或绑定远程设备。Windows MSI 会安装后台服务，未绑定时服务等待配置。请妥善保管个人 Token。`;
+    return `【Endpoint / Codex 本地使用指引（无需网页登录）】\n账号：${account.username}\nAPI Token：${token}\n\n一、下载安装客户端并填写 Token\nWindows：\nx64：${server}/downloads/remote-agent-windows-amd64.msi\nARM64：${server}/downloads/remote-agent-windows-arm64.msi\n安装最后一页，在「设备绑定码 / Endpoint Token」填入上述 Token，保留「安装 Codex CLI」和「配置 Codex」勾选，点击「激活 / 应用选项」。可选「安装 Codex App」，默认不勾选；选择后会打开 Microsoft Store，由你完成安装。\nToken 仅配置本机 Codex 的模型账号，不新增远程设备，也不需要网页登录。已有远程绑定保持不变；开机启动和网页代理选项仅用于设备绑定码激活。\n\nmacOS：\ncurl -fsSL ${shellQuote(server + "/install/cli-macos.sh")} | bash\n安装后运行：\n"$HOME/.remote-agent/bin/remote-agent" codex setup --server ${shellQuote(server)} --token-prompt\n按提示粘贴上述 Token，等待 CLI 安装和配置完成。\n\n二、仅使用 Endpoint\nBase URL：${server}/codex/v1\n接口类型：OpenAI Responses API（/responses）\nAPI Key：${token}\n模型以 ${server}/codex/v1/models 返回的列表为准。\n\n三、开始使用与恢复\n打开新的终端，进入项目目录后运行 codex。Codex App 请完全退出并重开，新建本地会话。配置前会备份原 config.toml；配置失败可恢复备份后重试。\n安装末页无法打开时，可在新的 PowerShell 运行：\nremote-agent codex setup --server ${psQuote(server)} --token-prompt\n按提示粘贴上述 Token。\n此指引含个人 Token，请仅私下交给该账号使用者；可在「我的 Token」或管理员 Token 管理中撤销。`;
   }
-  async function copyAccountGuide(account, mode) {
-    const text = accountGuide(account, mode);
+  async function copyAccountGuide(account, mode, button) {
+    const stamp = revision, actor = user?.id;
+    if (!actor || !user.admin || account.disabled) return;
+    if (button) button.disabled = true;
     clearGuide();
-    try { await navigator.clipboard.writeText(text); notice((mode === "web" ? "网页版" : "Endpoint / Codex") + "指引已复制，请填写初始密码后发送"); }
-    catch {
-      if (!dialog.open || tab !== "admin" || adminTab !== "users" || !user?.admin) return;
-      $("admin-guide-text").value = text;
-      $("admin-guide-box").hidden = false;
-      $("admin-guide-text").focus(); $("admin-guide-text").select();
-      notice("请按 Ctrl / ⌘ + C 复制，并填写初始密码后发送");
-    }
+    const guideStamp = guideRevision;
+    const current = () => dialog.open && tab === "admin" && adminTab === "users" && user?.id === actor && user.admin && revision === stamp && guideRevision === guideStamp;
+    try {
+      const result = mode === "endpoint" ? await api(`/api/admin/users/${account.id}/endpoint-guide`, "POST", {}) : null;
+      if (!current()) return;
+      if (mode === "endpoint" && !result?.token) throw Error("服务器未返回指引 Token，请刷新后重试");
+      const text = accountGuide(account, mode, result?.token);
+      try {
+        await navigator.clipboard.writeText(text);
+        if (current()) notice(mode === "web" ? "网页版指引已复制，请填写初始密码后发送" : "Endpoint 指引已复制，含专用 Token，请仅交给该账号使用者");
+      } catch {
+        if (!current()) return;
+        $("admin-guide-text").value = text;
+        $("admin-guide-box").hidden = false;
+        $("admin-guide-text").focus(); $("admin-guide-text").select();
+        notice(mode === "web" ? "请按 Ctrl / ⌘ + C 复制，并填写初始密码后发送" : "请按 Ctrl / ⌘ + C 复制，指引含专用 Token");
+      }
+    } catch (e) { if (current()) notice(e.message); }
+    finally { if (button) button.disabled = account.disabled; }
   }
   $("admin-guide-close").onclick = clearGuide;
+
   async function loadAdmin() {
     if (adminTab === "codex") return loadCodexAccounts();
     if (adminTab === "tokens") {
@@ -243,7 +259,8 @@
       for (const [mode, label] of [["web","复制网页版指引"],["endpoint","复制 Endpoint / Codex 指引"]]) {
         const button = node("button", label, "secondary"); button.type = "button";
         button.setAttribute("aria-label", `为 ${account.username} ${label}`);
-        button.onclick = () => copyAccountGuide(account, mode);
+        button.disabled = account.disabled;
+        button.onclick = () => copyAccountGuide(account, mode, button);
         guides.append(button);
       }
       heading.append(info, guides);

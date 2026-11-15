@@ -24,7 +24,7 @@ func TestActivationRejectsWrongWindowsIdentityBeforeReadingUserState(t *testing.
 }
 
 func TestActivationIndependentChoicesAndPreservedBinding(t *testing.T) {
-	for _, options := range []activationOptions{{AutoStart: true}, {InstallCodex: true}, {ConfigureCodex: true, WebProxy: true}} {
+	for _, options := range []activationOptions{{AutoStart: true}, {InstallCodex: true}, {ConfigureCodex: true, WebProxy: true}, {InstallApp: true}} {
 		root := t.TempDir()
 		path := filepath.Join(root, "config.json")
 		c := agent.Config{ID: "device", Name: "PC", Server: "https://example.test/agents", Credential: "private-test-credential", Path: path}
@@ -38,6 +38,7 @@ func TestActivationIndependentChoicesAndPreservedBinding(t *testing.T) {
 		steps := activationSteps{
 			Install:   func(agent.Config) error { calls = append(calls, "install"); return nil },
 			Configure: func(agent.Config) error { calls = append(calls, "configure"); return nil },
+			App:       func() error { calls = append(calls, "app"); return nil },
 			Service: func(_ agent.Config, automatic bool) error {
 				if automatic != options.AutoStart {
 					t.Fatal("startup choice lost")
@@ -64,6 +65,9 @@ func TestActivationIndependentChoicesAndPreservedBinding(t *testing.T) {
 		}
 		if options.ConfigureCodex {
 			expected = append(expected, "configure")
+		}
+		if options.InstallApp {
+			expected = append(expected, "app")
 		}
 		expected = append(expected, "service", "proxy", "online")
 		if !reflect.DeepEqual(calls, expected) || !result.Success || !result.Bound {
@@ -98,7 +102,7 @@ func TestActivationPartialFailureRetainsBindingAndAllowsRetry(t *testing.T) {
 		t.Fatal(result)
 	}
 	defaults := activationDefaults(filepath.Join(t.TempDir(), "new.json"))
-	if !defaults.AutoStart || !defaults.InstallCodex || !defaults.ConfigureCodex || defaults.WebProxy {
+	if !defaults.AutoStart || !defaults.InstallCodex || !defaults.ConfigureCodex || defaults.WebProxy || defaults.InstallApp {
 		t.Fatal(defaults)
 	}
 }
