@@ -23,7 +23,14 @@
   };
   window.renderHierarchy = () => $("ceo-open").classList.toggle("active",service()?.scope==="account");
   window.appendAssistantButton = (parent,ref,online,compact=false) => {
-    const b=node("button","管家",compact?"project-steward":"client-steward");
+    const b=node("button",undefined,compact?"project-steward":"client-steward");
+    const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+    svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("aria-hidden","true");svg.setAttribute("focusable","false");
+    svg.setAttribute("fill","none");svg.setAttribute("stroke","currentColor");svg.setAttribute("stroke-width","1.7");
+    svg.setAttribute("stroke-linecap","round");svg.setAttribute("stroke-linejoin","round");
+    const path=document.createElementNS(svg.namespaceURI,"path");
+    path.setAttribute("d","M12 8V4H9 M2 12v4 M22 12v4 M9 13h.01 M15 13h.01 M9 17h6 M6 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z");
+    svg.append(path);b.append(svg);
     b.type="button"; b.title=ref.name; b.setAttribute("aria-label","打开"+ref.name); b.disabled=!online;
     b.onclick=event=>{event.preventDefault();event.stopPropagation();window.openAssistant(ref).catch(e=>notice(e.message));}; parent.append(b);
   };

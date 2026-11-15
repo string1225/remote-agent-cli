@@ -12,6 +12,7 @@ async function fixture(page) {
   const clients = [
     {id:'client',name:'主力工作站',os:'windows',online:true,enrolled:true,services:projects},
     {id:'laptop',name:'随身笔记本',os:'darwin',online:false,enrolled:true,services:[{id:'lab',name:'实验项目',provider:'codex'}]},
+    {id:'linux',name:'构建服务器',os:'linux',online:false,enrolled:true,services:[]},
   ];
   const now = Date.now();
   const session = {id:'current',serviceId:'project',title:'工作台布局与运行状态',taskId:'current-task',taskStatus:'running',taskAcceptedAt:now-15000,taskStartedAt:now-14000,createdAt:now-500000,updatedAt:now};
@@ -57,7 +58,7 @@ async function fixture(page) {
   const browser = await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL || 'msedge'});
   try {
     if (screenshots) fs.mkdirSync(screenshots,{recursive:true});
-    for (const width of [1440,1024,390]) {
+    for (const width of [1440,1280,1279,1024,390]) {
       const page = await browser.newPage({viewport:{width,height:960},timezoneId:'Asia/Shanghai'}), errors=[];
       page.setDefaultTimeout(6000); page.on('pageerror',error=>errors.push(error.message));
       try { await fixture(page); } catch(error) {
@@ -68,6 +69,38 @@ async function fixture(page) {
         if (screenshots) await page.screenshot({path:path.join(screenshots,`before-${width}.png`),fullPage:true});
         await page.close(); continue;
       }
+      if (width <= 760) await page.locator('#open-devices').click();
+      const clientRow=page.locator('.device-node').first().locator('.device-row');
+      assert.equal(await clientRow.locator('.device-add').isVisible(),width>=1280,'inline add moves into menu below 1280px');
+      for (const button of [clientRow.locator('.client-steward'),page.locator('.project-steward').first()]) {
+        assert.equal(await button.textContent(),'');
+        assert.equal(await button.locator('svg[aria-hidden=true]').count(),1);
+        assert.match(await button.getAttribute('aria-label'),/打开.*管家/);
+      }
+      await clientRow.locator('.device-menu-button').click();
+      assert.equal(await page.locator('#device-menu-add-project').isVisible(),width<1280);
+      if (width<1280) await page.locator('#device-menu-add-project').click();
+      else { await page.keyboard.press('Escape');await clientRow.locator('.device-add').click(); }
+      await page.locator('#service-dialog').waitFor({state:'visible'});
+      assert.equal(await page.evaluate(()=>state.selected.id),'client');
+      await page.locator('#service-dialog .close-dialog').click();
+      await page.locator('.device-node').nth(1).locator('.device-menu-button').click();
+      if (width<1280) assert(await page.locator('#device-menu-add-project').isDisabled());
+      assert.equal(await page.evaluate(()=>document.activeElement.id),'device-menu-settings','offline menu focuses an enabled action');
+      await page.keyboard.press('Escape');
+      if (width<=760 && await page.locator('#open-devices').getAttribute('aria-expanded')!=='true') await page.locator('#open-devices').click();
+      await page.locator('.project-settings').first().click();
+      assert(await page.locator('#device-menu-add-project').isHidden(),'project menu cannot expose client-level add');
+      await page.keyboard.press('Escape');
+      if (width<=760 && await page.locator('#open-devices').getAttribute('aria-expanded')!=='true') await page.locator('#open-devices').click();
+      await page.evaluate(()=>{document.documentElement.dataset.theme='dark';document.documentElement.style.colorScheme='dark';});
+      for (const [os,file] of [['macOS','macos-dark.svg'],['Linux','linux-dark.svg']]) {
+        const logo=page.locator(`.device-icon[alt="${os}"]`);
+        assert((await logo.evaluate(element=>getComputedStyle(element).content)).includes(file));
+        assert.equal(await page.evaluate(async file=>(await fetch('icons/'+file)).status,file),200);
+      }
+      if (screenshots) await page.screenshot({path:path.join(screenshots,`sidebar-dark-${width}.png`),fullPage:true});
+      await page.evaluate(()=>{document.documentElement.dataset.theme='light';document.documentElement.style.colorScheme='light';closeDrawers();});
       const badge = page.locator('.workbench-status');
       assert.equal(await page.locator('.workbench-bar .workbench-status').count(),0);
       assert.match(await badge.textContent(),/执行中.*秒/);

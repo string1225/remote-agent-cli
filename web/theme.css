@@ -53,4 +53,8 @@ html[data-theme="dark"] #directory-create-error { color:#ffa5ae; }
 html[data-theme="dark"] .attach-button { background:var(--accent); color:#b6caff; }
 html[data-theme="dark"] #sayso-root { background:var(--surface); }
 html[data-theme="dark"] dialog::backdrop { background:#050911b3; }
+html[data-theme="dark"] :is(.client-steward,.project-steward) { background:transparent; border-color:transparent; color:var(--muted); }
+html[data-theme="dark"] :is(.client-steward,.project-steward):hover { background:var(--hover); color:var(--ink); }
+html[data-theme="dark"] .device-icon[src$="/macos.svg"] { content:url("./icons/macos-dark.svg"); }
+html[data-theme="dark"] .device-icon[src$="/linux.svg"] { content:url("./icons/linux-dark.svg"); }
 html[data-theme="dark"] ::selection { background:#3d5690; color:#fff; }

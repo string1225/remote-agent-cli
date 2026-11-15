@@ -2,6 +2,19 @@
 (() => {
   let device, project, opener;
   const menu = $("device-menu"), dialog = $("device-settings-dialog"), form = $("device-settings-form");
+  const compactClient = window.matchMedia("(width < 1280px)");
+  const addProject = node("button", "新增项目");
+  addProject.id = "device-menu-add-project"; addProject.type = "button";
+  addProject.setAttribute("role", "menuitem"); addProject.hidden = true;
+  menu.prepend(addProject);
+  addProject.onclick = async () => {
+    const current = device, account = state.user?.id; closeMenu();
+    if (!current?.online || !account) return;
+    try {
+      await connectDevice(current);
+      if (state.user?.id === account && state.selected?.id === current.id) showService();
+    } catch (error) { notice(error.message); }
+  };
   const archive = node("button", "归档项目");
   archive.id = "device-menu-archive"; archive.type = "button"; archive.hidden = true;
   archive.setAttribute("role", "menuitem");
@@ -21,6 +34,8 @@
   function openMenu(event,nextDevice,anchor) {
     event.preventDefault(); event.stopPropagation(); device = nextDevice; opener = anchor;
     window.prepareMaintenanceMenu?.(device,project);
+    addProject.hidden = !!project || !compactClient.matches;
+    addProject.disabled = !device.online;
     $("device-menu-settings").hidden=false;
     archive.hidden = !project || !!project.scope;
     $("device-menu-settings").disabled=!!project&&!device.online;
@@ -32,7 +47,7 @@
     const rect = anchor.getBoundingClientRect();
     menu.style.left = Math.max(8, Math.min(event.type === "contextmenu" ? event.clientX : rect.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + "px";
     menu.style.top = Math.max(8, Math.min(event.type === "contextmenu" ? event.clientY : rect.bottom + 4, innerHeight - menu.offsetHeight - 8)) + "px";
-    menu.querySelector("button:not([hidden])").focus();
+    menu.querySelector("button:not([hidden]):not(:disabled)")?.focus();
   }
   $("device-menu-settings").onclick = () => {
     if(project){const current=device,target=project;closeMenu();window.openProjectSettings(current,target).catch(e=>notice(e.message));return}
