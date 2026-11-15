@@ -115,6 +115,9 @@ func TestExecutionEventsCheckpointsGateDedupFollowupAndRestart(t *testing.T) {
 }
 
 func TestExecutionInboxBusyUserRaceDedupAndInterruptedReviewRecovery(t *testing.T) {
+	// Serial queue transitions persist several records before the next model
+	// starts. Match waitWork's budget for disk I/O on shared CI runners.
+	const eventTimeout = 5 * time.Second
 	a, p := managedSessionFixture(t)
 	source, err := a.historyStore().create(p, "source")
 	if err != nil {
@@ -166,7 +169,7 @@ func TestExecutionInboxBusyUserRaceDedupAndInterruptedReviewRecovery(t *testing.
 		if !strings.Contains(v, "下游工作结果") {
 			t.Fatal("lost queue ordering", v)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(eventTimeout):
 		t.Fatal("review missing")
 	}
 	select {
@@ -174,7 +177,7 @@ func TestExecutionInboxBusyUserRaceDedupAndInterruptedReviewRecovery(t *testing.
 		if v != "user second" {
 			t.Fatal(v)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(eventTimeout):
 		t.Fatal("user message lost")
 	}
 	a.flushCoordination(context.Background())
@@ -201,10 +204,10 @@ func TestExecutionInboxBusyUserRaceDedupAndInterruptedReviewRecovery(t *testing.
 	a.flushCoordination(context.Background())
 	select {
 	case <-started:
-	case <-time.After(time.Second):
+	case <-time.After(eventTimeout):
 		t.Fatal("paused review not recovered")
 	}
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(eventTimeout)
 	for reviews.Load() < 2 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
