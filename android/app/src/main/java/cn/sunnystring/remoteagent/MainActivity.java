@@ -91,7 +91,7 @@ public final class MainActivity extends Activity {
             }
             @Override public void onPageFinished(WebView view, String url) {
                 CookieManager.getInstance().flush(); publishAppState();
-                if (trusted(url)) view.evaluateJavascript("document.documentElement.dataset.theme === 'light'", value -> applyTheme(!"true".equals(value)));
+                if (trusted(url) && web.getVisibility() == View.VISIBLE) view.evaluateJavascript("!!document.documentElement && document.documentElement.dataset.theme === 'light'", value -> applyTheme(!"true".equals(value)));
             }
         });
         web.setWebChromeClient(new WebChromeClient() {

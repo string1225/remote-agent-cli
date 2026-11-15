@@ -68,7 +68,11 @@ final class AppUpdater {
                     activity.alert().setTitle("更新已就绪 · " + versionName).setMessage("已通过校验。安装将保留登录状态与本地草稿，电脑上的任务继续运行。")
                         .setPositiveButton("安装更新", (d, which) -> install(apk)).setNegativeButton("稍后", null).show();
                 });
-            } catch (Exception e) { if (!closed) activity.updateStatus("更新失败：" + (e.getMessage() == null ? "请检查网络后重试" : e.getMessage()), false); }
+            } catch (Exception e) {
+                String message = e instanceof java.net.UnknownHostException || e instanceof java.net.SocketTimeoutException || e instanceof java.net.ConnectException
+                    ? "网络连接失败，请稍后重试" : (e.getMessage() == null ? "请检查网络后重试" : e.getMessage());
+                if (!closed) activity.updateStatus("更新失败：" + message, false);
+            }
             finally { if (partial != null) partial.delete(); busy.set(false); activity.updateFinished(); }
         });
     }
@@ -112,7 +116,7 @@ final class AppUpdater {
     }
     private void install(File apk) {
         if (!activity.getPackageManager().canRequestPackageInstalls()) {
-            new AlertDialog.Builder(activity).setMessage("请允许 Remote Agent 安装更新，返回后再次检查更新并点安装。")
+            activity.alert().setMessage("请允许 Remote Agent 安装更新，返回后再次检查更新并点安装。")
                 .setPositiveButton("打开系统设置", (d, which) -> activity.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + activity.getPackageName())))).setNegativeButton("取消", null).show(); return;
         }
         try {
