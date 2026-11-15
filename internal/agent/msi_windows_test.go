@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,7 @@ import (
 	"unsafe"
 
 	"github.com/gorilla/websocket"
+	"github.com/string1225/remote-agent-cli/internal/clientupdate"
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -445,8 +447,8 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	// A new MSI deliberately activates its protected seed. Install a newer
 	// online runtime again so failed upgrades and same-MSI repair must retain it.
 	runtimeAcceptance(t, exe, assertRetained, func(handler http.Handler) { mu.Lock(); fixtureUpdates = handler; mu.Unlock() }, remoteCall)
-	runtimeStatePath := filepath.Join(filepath.Dir(serviceProfilePath()), "runtime", "state.json")
-	runtimeState, err := os.ReadFile(runtimeStatePath)
+	runtimeFiles := clientupdate.Store{Path: filepath.Join(filepath.Dir(serviceProfilePath()), "runtime"), Arch: "amd64"}
+	runtimeState, err := runtimeFiles.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +465,9 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	if got, e := fileDigest(exe); e != nil || got != goodDigest {
 		t.Fatal("failed upgrade did not restore previous program", e)
 	}
-	if got, e := os.ReadFile(runtimeStatePath); e != nil || !bytes.Equal(got, runtimeState) {
+	// Rollback can serialize the same state with different JSON whitespace;
+	// validate every field through the normal integrity/compatibility loader.
+	if got, e := runtimeFiles.Load(); e != nil || !reflect.DeepEqual(got, runtimeState) {
 		t.Fatal("failed upgrade did not restore previous runtime selection", e)
 	}
 	assertRetained()
