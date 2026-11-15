@@ -10472,31 +10472,33 @@ function _1({ action: o, onClose: b, onSend: j }) {
       /* @__PURE__ */ c.jsx("h2", { children: "选择执行管家" }),
       /* @__PURE__ */ c.jsx("button", { onClick: b, disabled: O, "aria-label": "关闭", children: "×" })
     ] }),
-    /* @__PURE__ */ c.jsx("p", { children: o.title }),
-    /* @__PURE__ */ c.jsx("p", { children: "Action 将交给选定管家，完成后回报 CEO；讨论和录音保存在 CEO 主机。" }),
-    /* @__PURE__ */ c.jsxs("label", { children: [
-      "执行目标",
-      /* @__PURE__ */ c.jsxs("select", { "aria-label": "执行目标", value: D, onChange: (B) => U(B.target.value), disabled: O, children: [
-        /* @__PURE__ */ c.jsx("option", { value: "", children: "请选择客户端管家或项目管家" }),
-        r.map((B, Z) => /* @__PURE__ */ c.jsxs("option", { value: String(Z), children: [
-          B.name || B.projectId || B.clientId,
-          B.online === !1 ? "（离线，等待重连）" : ""
-        ] }, Z))
+    /* @__PURE__ */ c.jsxs("div", { className: "modal-body", children: [
+      /* @__PURE__ */ c.jsx("p", { children: o.title }),
+      /* @__PURE__ */ c.jsx("p", { children: "Action 将交给选定管家，完成后回报 CEO；讨论和录音保存在 CEO 主机。" }),
+      /* @__PURE__ */ c.jsxs("label", { children: [
+        "执行目标",
+        /* @__PURE__ */ c.jsxs("select", { "aria-label": "执行目标", value: D, onChange: (B) => U(B.target.value), disabled: O, children: [
+          /* @__PURE__ */ c.jsx("option", { value: "", children: "请选择客户端管家或项目管家" }),
+          r.map((B, Z) => /* @__PURE__ */ c.jsxs("option", { value: String(Z), children: [
+            B.name || B.projectId || B.clientId,
+            B.online === !1 ? "（离线，等待重连）" : ""
+          ] }, Z))
+        ] })
+      ] }),
+      p && /* @__PURE__ */ c.jsx("p", { role: "alert", children: p }),
+      /* @__PURE__ */ c.jsxs("footer", { className: "modal-footer", children: [
+        /* @__PURE__ */ c.jsx("button", { onClick: b, disabled: O, children: "取消" }),
+        /* @__PURE__ */ c.jsx("button", { className: "primary-button", disabled: O || D === "", onClick: async () => {
+          M(!0), C("");
+          try {
+            await j(r[Number(D)]);
+          } catch (B) {
+            C(B instanceof Error ? B.message : "派工失败");
+          } finally {
+            M(!1);
+          }
+        }, children: O ? "正在加入派工队列…" : "确认派工" })
       ] })
-    ] }),
-    p && /* @__PURE__ */ c.jsx("p", { role: "alert", children: p }),
-    /* @__PURE__ */ c.jsxs("footer", { className: "modal-footer", children: [
-      /* @__PURE__ */ c.jsx("button", { onClick: b, disabled: O, children: "取消" }),
-      /* @__PURE__ */ c.jsx("button", { className: "primary-button", disabled: O || D === "", onClick: async () => {
-        M(!0), C("");
-        try {
-          await j(r[Number(D)]);
-        } catch (B) {
-          C(B instanceof Error ? B.message : "派工失败");
-        } finally {
-          M(!1);
-        }
-      }, children: O ? "正在加入派工队列…" : "确认派工" })
     ] })
   ] }) });
 }
@@ -10597,7 +10599,7 @@ function sa({
               ] }),
               /* @__PURE__ */ c.jsx("button", { className: "icon-button", onClick: r, "aria-label": "关闭", children: /* @__PURE__ */ c.jsx(A1, { size: 18 }) })
             ] }),
-            j
+            /* @__PURE__ */ c.jsx("div", { className: "modal-body", children: j })
           ]
         }
       )
