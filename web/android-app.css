@@ -1,0 +1,43 @@
+.phone-settings-entry { display:grid; place-items:center; flex-shrink:0; min-width:48px; min-height:48px; }
+.phone-settings-entry svg { width:22px; height:22px; }
+.phone-settings-dialog { width:min(480px,calc(100vw - 32px)); color:var(--ink); background:var(--panel); }
+.phone-settings-dialog .dialog-head { align-items:center; }
+.phone-eyebrow { margin:0 0 6px; color:var(--muted); font-size:11px; letter-spacing:.08em; }
+.phone-settings-section { padding:20px 0; border-bottom:1px solid var(--line); }
+.phone-settings-section:first-child { padding-top:0; }
+.phone-settings-section h3 { margin:0 0 16px; font-size:16px; }
+.phone-app-heading { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+.phone-app-heading h3 { margin:0 0 4px; }
+.phone-app-heading p { margin:0; }
+.phone-app-icon { display:grid; place-items:center; width:48px; height:48px; border-radius:14px; color:var(--blue,#486bdc); background:var(--accent); }
+.phone-app-icon svg { width:24px; height:24px; }
+.phone-settings-dialog button { min-height:48px; }
+.phone-settings-dialog .secondary { background:var(--hover); color:var(--ink); border:1px solid var(--line); border-radius:10px; }
+.phone-settings-dialog button:active { filter:brightness(.88); }
+.phone-settings-dialog button:disabled { opacity:.55; }
+.phone-settings-dialog button:focus-visible { outline:2px solid var(--blue,#486bdc); outline-offset:2px; }
+.phone-settings-dialog :is(input,.secondary) { font-size:16px; }
+.phone-settings-dialog input[type=url] { min-height:48px; width:100%; }
+.phone-status { min-height:1.5em; line-height:1.5; margin:10px 0 16px; overflow-wrap:anywhere; }
+.phone-toggle { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:0; min-height:56px; cursor:pointer; }
+.phone-toggle strong { display:block; color:var(--ink); font-size:15px; font-weight:500; }
+.phone-toggle small { display:block; margin-top:5px; color:var(--muted); font-size:12px; line-height:1.5; }
+.phone-toggle input { appearance:none; flex:none; position:relative; width:48px; height:28px; padding:0; margin:0; border:1px solid var(--muted); border-radius:18px; background:var(--line); cursor:pointer; }
+.phone-toggle input::after { content:""; position:absolute; width:20px; height:20px; top:3px; left:3px; border-radius:50%; background:var(--muted); transition:transform .15s ease; }
+.phone-settings-dialog .phone-toggle input:checked { background:var(--blue,#486bdc); border-color:var(--blue,#486bdc); }
+.phone-toggle input:checked::after { transform:translateX(20px); background:var(--panel); }
+.phone-toggle input:disabled { opacity:.5; cursor:wait; }
+.phone-actions { display:grid; gap:12px; border:0; padding-bottom:8px; }
+.phone-actions button { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; }
+.phone-settings-dialog .phone-error { color:#b52b3c; line-height:1.5; }
+html[data-theme=dark] .phone-settings-dialog .phone-error { color:#ffa5ae; }
+.phone-footnote { line-height:1.7; margin:12px 0 0; }
+.phone-auth-settings { min-height:48px; }
+@media(max-width:760px) {
+  .android-app .chat-header { gap:6px; padding-inline:12px; }
+  .android-app .chat-header > .icon-button { min-width:48px; min-height:48px; padding:8px; }
+  .phone-settings-dialog { width:100%; max-width:100%; height:100dvh; max-height:100dvh !important; margin:0; border:0; border-radius:0; }
+  .phone-settings-dialog > .dialog-scroll-body { padding:20px; }
+  .phone-settings-dialog > .fixed-dialog-heading { padding:16px 20px; }
+}
+@media(prefers-reduced-motion:reduce) { .phone-toggle input::after { transition:none; } }

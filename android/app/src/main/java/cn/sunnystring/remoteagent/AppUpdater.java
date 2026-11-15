@@ -1,6 +1,5 @@
 package cn.sunnystring.remoteagent;
 
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -38,13 +37,13 @@ final class AppUpdater {
     void check(boolean manual) {
         if (closed) return;
         if (!busy.compareAndSet(false, true)) { if (manual) activity.toast("正在检查或下载更新，请稍候"); return; }
-        if (manual) activity.toast("正在通过 gh-proxy 检查更新…");
+        activity.updateStatus("正在检查更新…", true);
         worker.execute(() -> {
             File partial = null;
             try {
                 JSONObject update = new JSONObject(new String(fetch(BuildConfig.UPDATE_URL + "?t=" + System.currentTimeMillis(), 64 * 1024), java.nio.charset.StandardCharsets.UTF_8));
                 int version = update.getInt("versionCode");
-                if (version <= BuildConfig.VERSION_CODE) { if (manual) activity.toast("当前已是最新版本"); return; }
+                if (version <= BuildConfig.VERSION_CODE) { activity.updateStatus("当前已是最新版本", false); return; }
                 String hash = update.getString("sha256").toLowerCase(java.util.Locale.ROOT);
                 if (!hash.matches("[a-f0-9]{64}")) throw new Exception("更新清单校验值无效");
                 String url = update.getString("apkUrl");
@@ -52,7 +51,7 @@ final class AppUpdater {
                 File directory = new File(activity.getFilesDir(), "updates");
                 if (!directory.isDirectory() && !directory.mkdirs()) throw new Exception("无法创建更新目录");
                 partial = new File(directory, "update.part"); File apk = new File(directory, "update.apk");
-                activity.toast("发现新版本，正在下载并校验 APK…");
+                activity.updateStatus("发现新版本，正在下载并校验…", true);
                 HttpURLConnection connection = connect(url);
                 try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(partial)) {
                     byte[] buffer = new byte[32768]; long count = 0; int n;
@@ -63,13 +62,14 @@ final class AppUpdater {
                 verifyPackage(partial, version);
                 Files.move(partial.toPath(), apk.toPath(), StandardCopyOption.REPLACE_EXISTING); partial = null;
                 String versionName = update.optString("versionName", String.valueOf(version));
+                activity.updateStatus("更新已就绪 · " + versionName, false);
                 activity.runOnUiThread(() -> {
                     if (closed || activity.isFinishing() || activity.isDestroyed()) return;
-                    new AlertDialog.Builder(activity).setTitle("更新已就绪 · " + versionName).setMessage("已通过校验。安装将保留登录状态与本地草稿，电脑上的任务继续运行。")
+                    activity.alert().setTitle("更新已就绪 · " + versionName).setMessage("已通过校验。安装将保留登录状态与本地草稿，电脑上的任务继续运行。")
                         .setPositiveButton("安装更新", (d, which) -> install(apk)).setNegativeButton("稍后", null).show();
                 });
-            } catch (Exception e) { if (manual || !closed) activity.toast("更新失败：" + (e.getMessage() == null ? "请检查网络后重试" : e.getMessage())); }
-            finally { if (partial != null) partial.delete(); busy.set(false); }
+            } catch (Exception e) { if (!closed) activity.updateStatus("更新失败：" + (e.getMessage() == null ? "请检查网络后重试" : e.getMessage()), false); }
+            finally { if (partial != null) partial.delete(); busy.set(false); activity.updateFinished(); }
         });
     }
     private byte[] fetch(String url, int limit) throws Exception {
