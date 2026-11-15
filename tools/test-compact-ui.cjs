@@ -99,7 +99,7 @@ async function fixture(page) {
         assert((await logo.evaluate(element=>getComputedStyle(element).content)).includes(file));
         assert.equal(await page.evaluate(async file=>(await fetch('icons/'+file)).status,file),200);
       }
-      if (screenshots) await page.screenshot({path:path.join(screenshots,`sidebar-dark-${width}.png`),fullPage:true});
+      if (screenshots) await page.screenshot({path:path.join(screenshots,`sidebar-dark-${width}.png`),fullPage:true,animations:'disabled'});
       await page.evaluate(()=>{document.documentElement.dataset.theme='light';document.documentElement.style.colorScheme='light';closeDrawers();});
       const badge = page.locator('.workbench-status');
       assert.equal(await page.locator('.workbench-bar .workbench-status').count(),0);
