@@ -25,9 +25,29 @@ func (h historyStore) transact(write bool, fn func(*bolt.Tx) error) error {
 	if err := os.MkdirAll(filepath.Dir(h.path), 0700); err != nil {
 		return err
 	}
-	db, err := bolt.Open(h.path, 0600, &bolt.Options{Timeout: 5 * time.Second})
+	db, err := bolt.Open(h.path, 0600, &bolt.Options{ReadOnly: !write, Timeout: 5 * time.Second})
+	if !write && os.IsNotExist(err) {
+		return h.transact(true, fn)
+	}
 	if err != nil {
 		return err
+	}
+	if !write {
+		initialize := false
+		err = db.View(func(tx *bolt.Tx) error {
+			initialize = tx.Bucket([]byte("sessions")) == nil || tx.Bucket([]byte("entries")) == nil
+			if initialize {
+				return nil
+			}
+			return fn(tx)
+		})
+		err = errors.Join(err, db.Close())
+		if err != nil || !initialize {
+			return err
+		}
+		// An absent/legacy schema is initialized once; ordinary reads never
+		// rewrite Bolt metadata, including the idle startup recovery scans.
+		return h.transact(true, fn)
 	}
 	defer db.Close()
 	if err = db.Update(func(tx *bolt.Tx) error {
@@ -40,10 +60,7 @@ func (h historyStore) transact(write bool, fn func(*bolt.Tx) error) error {
 	}); err != nil {
 		return err
 	}
-	if write {
-		return db.Update(fn)
-	}
-	return db.View(fn)
+	return db.Update(fn)
 }
 
 func sessionFrom(tx *bolt.Tx, id string) (s protocol.Conversation, err error) {

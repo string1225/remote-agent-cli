@@ -145,7 +145,9 @@ func (f *fixture) connectedDevice(c *http.Client) (store.Agent, string, *websock
 		f.t.Fatal("device heartbeat not ready", err)
 	}
 	_ = device.SetReadDeadline(time.Time{})
+	deviceReady := make(chan struct{})
 	go func() {
+		defer close(deviceReady)
 		for {
 			var msg protocol.Signal
 			if device.ReadJSON(&msg) != nil {
@@ -167,6 +169,9 @@ func (f *fixture) connectedDevice(c *http.Client) (store.Agent, string, *websock
 	if err := browser.ReadJSON(&ready); err != nil || ready.Type != "ready" {
 		f.t.Fatal("browser not ready", err)
 	}
+	// The server can forward ready before WriteJSON has finished releasing the
+	// device writer. Hand the connection back only after its owner has exited.
+	<-deviceReady
 	return a, enrollment.Credential, device, browser
 }
 
