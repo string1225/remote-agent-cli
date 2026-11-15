@@ -79,32 +79,35 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 			var call struct {
 				Name      string `json:"name"`
 				Arguments struct {
-					Checkpoints []string              `json:"checkpoints"`
-					Stage       string                `json:"stage"`
-					Summary     string                `json:"summary"`
-					Evidence    []string              `json:"evidence"`
-					Path        string                `json:"path"`
-					AgentID     string                `json:"clientId"`
-					ProjectID   string                `json:"projectId"`
-					Prompt      string                `json:"prompt"`
-					Title       string                `json:"title"`
-					Message     string                `json:"message"`
-					TaskID      string                `json:"taskId"`
-					Cursor      uint64                `json:"cursor"`
-					WaitSeconds int                   `json:"waitSeconds"`
-					SessionID   string                `json:"sessionId"`
-					TodoID      string                `json:"todoId"`
-					Body        string                `json:"body"`
-					Options     []protocol.TodoOption `json:"options"`
-					Status      string                `json:"status"`
-					Operation   string                `json:"operation"`
-					Version     uint64                `json:"version"`
-					PageCursor  string                `json:"pageCursor"`
-					Search      string                `json:"search"`
-					Topic       string                `json:"topic"`
-					Scope       string                `json:"scope"`
-					WorkID      string                `json:"workId"`
-					ReplyHandle string                `json:"replyHandle"`
+					Checkpoints   []string              `json:"checkpoints"`
+					Stage         string                `json:"stage"`
+					Summary       string                `json:"summary"`
+					Evidence      []string              `json:"evidence"`
+					Path          string                `json:"path"`
+					Class         string                `json:"class"`
+					UserConfirmed bool                  `json:"userConfirmed"`
+					FileID        string                `json:"fileId"`
+					AgentID       string                `json:"clientId"`
+					ProjectID     string                `json:"projectId"`
+					Prompt        string                `json:"prompt"`
+					Title         string                `json:"title"`
+					Message       string                `json:"message"`
+					TaskID        string                `json:"taskId"`
+					Cursor        uint64                `json:"cursor"`
+					WaitSeconds   int                   `json:"waitSeconds"`
+					SessionID     string                `json:"sessionId"`
+					TodoID        string                `json:"todoId"`
+					Body          string                `json:"body"`
+					Options       []protocol.TodoOption `json:"options"`
+					Status        string                `json:"status"`
+					Operation     string                `json:"operation"`
+					Version       uint64                `json:"version"`
+					PageCursor    string                `json:"pageCursor"`
+					Search        string                `json:"search"`
+					Topic         string                `json:"topic"`
+					Scope         string                `json:"scope"`
+					WorkID        string                `json:"workId"`
+					ReplyHandle   string                `json:"replyHandle"`
 				} `json:"arguments"`
 			}
 			if json.Unmarshal(request.Params, &call) != nil {
@@ -150,9 +153,14 @@ func runMCP(ctx context.Context, args []string, input io.Reader, output io.Write
 				})
 			case "upload_file":
 				var file protocol.SharedFile
-				file, err = agent.UploadFile(ctx, c, call.Arguments.Path)
+				file, err = agent.UploadFileWithOptions(ctx, c, call.Arguments.Path, agent.FileUploadOptions{Class: call.Arguments.Class, UserConfirmed: call.Arguments.UserConfirmed})
 				if err == nil {
 					data, err = json.Marshal(file)
+				}
+			case "delete_uploaded_file":
+				err = agent.DeleteUploadedFile(ctx, c, call.Arguments.FileID)
+				if err == nil {
+					data, err = json.Marshal(map[string]any{"fileId": call.Arguments.FileID, "deleted": true, "provider": "storage.to"})
 				}
 			case "list_clients_projects":
 				data, err = agent.ClientAPI(ctx, c, "GET", "/api/agent/catalog", nil)
@@ -260,7 +268,8 @@ func clientTools() []any {
 		tool("read_work", "读取当前会话派出的分层任务；保留 workId，不操作无关工作。", true, map[string]any{"workId": str("派工返回的 workId")}, "workId"),
 		tool("reply_work", "在下游原执行会话继续一轮，复用上下文，结果仍可靠回报当前会话。", false, map[string]any{"workId": str("workId"), "prompt": str("后续指令")}, "workId", "prompt"),
 		tool("cancel_work", "取消已核对的下游当前轮次，先读取任务 ID。", false, map[string]any{"workId": str("workId"), "taskId": str("当前 taskId")}, "workId", "taskId"),
-		tool("upload_file", "上传当前机器上的文件到 139，返回无需登录即可下载的随机链接、SHA-256 和 expiresAt。最多 100 MiB，下次北京时间凌晨 4 点失效；可在回复或已获授权的消息中附带链接。上传会公开文件内容，先核对分享范围。", false, map[string]any{"path": str("当前机器上要分享的普通文件的绝对路径")}, "path"),
+		tool("upload_file", "普通代码包等默认temporary，客户端直传storage.to，返回下载页面、SHA-256和实际expiresAt（默认3天），最多100 MiB。敏感文件必须先获用户对该文件和分享范围的明确确认，再用sensitive/userConfirmed=true走139（持链接可访问，次日北京时间4点失效）。确认参数不替代询问，不自动回退或改名规避拒收；本工具不发消息。", false, map[string]any{"path": str("当前机器普通文件的绝对路径，上传前核对分享范围，排除凭据/密钥"), "class": map[string]any{"type": "string", "enum": []string{"temporary", "sensitive"}, "default": "temporary"}, "userConfirmed": map[string]any{"type": "boolean", "description": "仅在用户明确确认该敏感文件及139公开分享范围后设为true；未确认必须先询问"}}, "path"),
+		tool("delete_uploaded_file", "删除本机持有管理回执的storage.to临时副本，保留原文件；不操作139的凌晨4点清理机制。", false, map[string]any{"fileId": str("upload_file返回的storage.to文件ID")}, "fileId"),
 		tool("list_todos", "查询本账号唯一待办清单，存于默认主机；默认主机离线时返回明确错误。", true, map[string]any{"status": str("筛选 open、completed 或 cancelled；省略表示全部"), "search": str("搜索标题和正文"), "pageCursor": str("返回的 nextCursor，继续分页")}),
 		tool("publish_todo", "工作需要人判断、选择或补充信息时发布待办。写清问题、可选方案和建议，然后结束本轮等待人工回复。待办自动关联当前客户端、项目和会话；人的回复将在原会话继续执行。", false, map[string]any{"title": str("问题标题，最多 480 字节"), "body": str("背景、问题和建议；纯通知无需选项"), "options": map[string]any{"type": "array", "maxItems": 12, "description": "可选方案，按顺序显示；通知省略。正文与选项编码后合计最多8000字节", "items": map[string]any{"type": "object", "properties": map[string]any{"label": str("选项名称，最多240字节"), "description": str("选项描述，最多1200字节")}, "required": []string{"label"}, "additionalProperties": false}}}, "title", "body"),
 		tool("update_todo", "维护本账号待办。先读取最新 version，避免覆盖其他人的修改；编辑时同时传 title 和 body。", false, map[string]any{"todoId": str("待办 ID"), "operation": str("update、complete、delete 或 reopen；完成与删除均不唤醒 Agent"), "version": number("读取到的 version"), "title": str("编辑后的标题"), "body": str("编辑后的正文")}, "todoId", "operation", "version"),

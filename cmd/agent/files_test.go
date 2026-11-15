@@ -44,13 +44,13 @@ func TestFileUploadCLIAndMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := runFiles(context.Background(), []string{"upload", "--config", c.Path, "--path", path}, &out); err != nil {
+	if err := runFiles(context.Background(), []string{"upload", "--class", "sensitive", "--confirm-sensitive", "--config", c.Path, "--path", path}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "/agents/files/") || strings.Contains(out.String(), "mock-secret") {
 		t.Fatal("invalid CLI output", out.String())
 	}
-	call, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "upload_file", "arguments": map[string]string{"path": path}}})
+	call, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "upload_file", "arguments": map[string]any{"path": path, "class": "sensitive", "userConfirmed": true}}})
 	out.Reset()
 	if err := runMCP(context.Background(), []string{"--config", c.Path}, bytes.NewReader(call), &out); err != nil {
 		t.Fatal(err)

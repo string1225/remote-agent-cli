@@ -24,7 +24,7 @@ func TestSharedHTMLReportPreviewIsSandboxedAndDownloadStaysAvailable(t *testing.
 			if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 				t.Fatal(err)
 			}
-			file, err := agent.UploadFile(context.Background(), cfg, path)
+			file, err := agent.UploadFileWithOptions(context.Background(), cfg, path, agent.FileUploadOptions{Class: "sensitive", UserConfirmed: true})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -6,6 +6,9 @@ const MaxSharedFileBytes int64 = 100 << 20
 
 // SharedFile is a temporary public download capability, never a server path.
 type SharedFile struct {
+	Provider   string    `json:"provider,omitempty"`
+	Class      string    `json:"class,omitempty"`
+	LinkType   string    `json:"linkType,omitempty"`
 	ID         string    `json:"id"`
 	Name       string    `json:"name"`
 	Size       int64     `json:"size"`

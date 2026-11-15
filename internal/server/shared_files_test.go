@@ -29,7 +29,7 @@ func TestSharedFilePublicDownloadAndDailyCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := agent.Config{ID: device.ID, Credential: credential, Server: f.url}
-	file, err := agent.UploadFile(context.Background(), c, path)
+	file, err := agent.UploadFileWithOptions(context.Background(), c, path, agent.FileUploadOptions{Class: "sensitive", UserConfirmed: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestSharedFilesExpireWithoutCleanupAndRetainOtherData(t *testing.T) {
 	device, credential, _, _ := f.connectedDevice(f.user("owner"))
 	path := filepath.Join(t.TempDir(), "empty.txt")
 	_ = os.WriteFile(path, nil, 0600)
-	file, err := agent.UploadFile(context.Background(), agent.Config{ID: device.ID, Credential: credential, Server: f.url}, path)
+	file, err := agent.UploadFileWithOptions(context.Background(), agent.Config{ID: device.ID, Credential: credential, Server: f.url}, path, agent.FileUploadOptions{Class: "sensitive", UserConfirmed: true})
 	if err != nil {
 		t.Fatal(err)
 	}

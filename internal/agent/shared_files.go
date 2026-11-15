@@ -16,9 +16,9 @@ import (
 	"github.com/string1225/remote-agent-cli/internal/protocol"
 )
 
-// UploadFile streams a regular file to the enrolled site and rejects redirects
+// uploadFile139 streams a regular file to the enrolled site and rejects redirects
 // so device credentials can never be forwarded to another host.
-func UploadFile(ctx context.Context, c Config, path string) (protocol.SharedFile, error) {
+func uploadFile139(ctx context.Context, c Config, path string) (protocol.SharedFile, error) {
 	var result protocol.SharedFile
 	if err := ValidateServer(c.Server); err != nil {
 		return result, err

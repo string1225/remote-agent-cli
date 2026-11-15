@@ -21,7 +21,7 @@ func TestUploadFileRejectsUnsafeInputAndRedirects(t *testing.T) {
 	}
 	c := Config{Server: site.URL, ID: "device", Credential: "mock"}
 	for _, candidate := range []string{"relative.txt", filepath.Dir(path), path} {
-		if _, err := UploadFile(context.Background(), c, candidate); err == nil {
+		if _, err := UploadFileWithOptions(context.Background(), c, candidate, FileUploadOptions{Class: "sensitive", UserConfirmed: true}); err == nil {
 			t.Errorf("accepted invalid upload: %s", candidate)
 		}
 	}
@@ -30,7 +30,7 @@ func TestUploadFileRejectsUnsafeInputAndRedirects(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := UploadFile(ctx, c, path); err == nil {
+	if _, err := UploadFileWithOptions(ctx, c, path, FileUploadOptions{Class: "sensitive", UserConfirmed: true}); err == nil {
 		t.Fatal("ignored cancellation")
 	}
 }
