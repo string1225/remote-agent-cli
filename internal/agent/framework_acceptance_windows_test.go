@@ -157,18 +157,19 @@ func runtimeAcceptance(t *testing.T, exe string, retained func(), setUpdateHandl
 	if out, err := run("update", "--rollback"); err != nil {
 		t.Fatal("explicit retained rollback", err, out)
 	}
-	// Restore the good runtime as the highest accepted release for later MSI
-	// upgrade/repair checks. They must preserve this runtime, not select seed.
+	// Commit the good runtime as the highest accepted release. Later MSI
+	// transactions exercise its replacement, rollback and repair preservation.
 	body = core
 	release = makeRelease(4, "acceptance-runtime")
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	op, err := remoteCall(ctx, "maintenance.start", maintenanceInput{Kind: "client", RequestID: "acceptance-remote-update"})
+	requestID := fmt.Sprintf("acceptance-remote-update-%d", release.Sequence)
+	op, err := remoteCall(ctx, "maintenance.start", maintenanceInput{Kind: "client", RequestID: requestID})
 	// CLI rollback waits for local worker readiness, independently of the
 	// network connection. Wait for its relay using the same idempotency key.
 	for ctx.Err() == nil && (err != nil || op.ID == "") {
 		time.Sleep(500 * time.Millisecond)
-		op, err = remoteCall(ctx, "maintenance.start", maintenanceInput{Kind: "client", RequestID: "acceptance-remote-update"})
+		op, err = remoteCall(ctx, "maintenance.start", maintenanceInput{Kind: "client", RequestID: requestID})
 	}
 	if err != nil || op.ID == "" {
 		t.Fatal("LocalService remote update could not start", err, op)

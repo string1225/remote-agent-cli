@@ -434,14 +434,22 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	assertCommandPath(true)
 	wait("heartbeat after major upgrade", func() bool { return connections.Load() > before })
 	t.Log("major upgrade restored the authenticated connection")
-	if version, e := exec.Command(exe, "version").CombinedOutput(); e != nil || !strings.Contains(string(version), "acceptance-runtime") {
-		t.Fatalf("major upgrade did not replace the executable: %v %s", e, version)
+	if version, e := exec.Command(exe, "version").CombinedOutput(); e != nil || !strings.Contains(string(version), "acceptance-upgrade") {
+		t.Fatalf("major upgrade did not activate its bundled runtime: %v %s", e, version)
 	}
 	goodDigest, err := fileDigest(exe)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertRetained()
+	// A new MSI deliberately activates its protected seed. Install a newer
+	// online runtime again so failed upgrades and same-MSI repair must retain it.
+	runtimeAcceptance(t, exe, assertRetained, func(handler http.Handler) { mu.Lock(); fixtureUpdates = handler; mu.Unlock() }, remoteCall)
+	runtimeStatePath := filepath.Join(filepath.Dir(serviceProfilePath()), "runtime", "state.json")
+	runtimeState, err := os.ReadFile(runtimeStatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	before = connections.Load()
 	msi("/i", badMSI, true)
 	if service, e := openWindowsService(windows.SERVICE_QUERY_CONFIG | windows.SERVICE_QUERY_STATUS); e == nil {
@@ -454,6 +462,9 @@ func TestMSIWindowsServiceLifecycle(t *testing.T) {
 	t.Log("failed upgrade restored the authenticated connection")
 	if got, e := fileDigest(exe); e != nil || got != goodDigest {
 		t.Fatal("failed upgrade did not restore previous program", e)
+	}
+	if got, e := os.ReadFile(runtimeStatePath); e != nil || !bytes.Equal(got, runtimeState) {
+		t.Fatal("failed upgrade did not restore previous runtime selection", e)
 	}
 	assertRetained()
 	before = connections.Load()
