@@ -24,7 +24,7 @@ const root = path.resolve(process.env.NAVIGATION_ROOT || '.');
     });
     await page.addInitScript(() => {
       const project = (id,name) => ({id,name,provider:'codex',workspace:'/'+name});
-      const session = (id,serviceId) => ({id,serviceId,title:id,updatedAt:'2026-11-03T00:00:00Z'});
+      const session = (id,serviceId) => ({id,serviceId,title:id,updatedAt:Date.now(),lastMessageAt:Date.now()});
       const entries = name => Array.from({length:35},(_,i) => ({seq:i+1,turnId:name+i,role:i%2?'assistant':'user',kind:'stdout',text:name+' message '+i+'\n'+('Long fixture transcript. '.repeat(8))}));
       const a = {id:'a',name:'Computer A',os:'windows',online:true,services:[project('p1','Project One'),project('p2','Project Two')]};
       const b = {id:'b',name:'Computer B',os:'linux',online:true,services:[project('p3','Project Three')]};

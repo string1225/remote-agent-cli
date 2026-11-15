@@ -22,6 +22,7 @@ type Conversation struct {
 	Workspace       string          `json:"workspace"`
 	CreatedAt       int64           `json:"createdAt"`
 	UpdatedAt       int64           `json:"updatedAt"`
+	LastMessageAt   int64           `json:"lastMessageAt"`
 	NativeID        string          `json:"nativeId,omitempty"`
 	Kind            string          `json:"kind,omitempty"`
 	Source          string          `json:"source,omitempty"`

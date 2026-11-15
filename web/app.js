@@ -595,25 +595,59 @@ async function refreshSessions(more = false, quiet = false) {
   }
   renderSessions();
 }
-let sessionSignature;
+let sessionSignature, sessionAgeTimer, olderSessionView;
+const hiddenSessionAge = 7 * 24 * 60 * 60 * 1000;
+function sessionLastMessageTime(session) {
+  // New clients distinguish message activity from renames/restores. Older
+  // clients expose only updatedAt; retain that compatibility until upgraded.
+  const raw = session.lastMessageAt === undefined
+    ? session.updatedAt || session.createdAt
+    : session.lastMessageAt || session.createdAt;
+  const value = typeof raw === "string" && !Number.isFinite(Number(raw)) ? Date.parse(raw) : Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) renderSessions(); });
 function renderSessions() {
-  $("conversation-count").textContent = state.sessions.length + (service() ? 1 : 0);
+  const search = $("session-search").value.trim(), now = Date.now();
+  const sessions = state.sessions.filter(s => !s.archivedAt && !s.deletedAt);
+  const older = new Set();
+  let nextExpiry = Infinity;
+  for (const session of sessions) {
+    if (search || ["queued", "running"].includes(session.taskStatus) || session.queuedMessages?.some(message => ["queued", "paused", "editing"].includes(message.status))) continue;
+    const last = sessionLastMessageTime(session);
+    if (!last) continue;
+    const expires = last + hiddenSessionAge;
+    if (expires <= now) older.add(session.id);
+    else nextExpiry = Math.min(nextExpiry, expires);
+  }
+  clearTimeout(sessionAgeTimer);
+  // One local deadline also handles cached/offline lists without polling.
+  if (Number.isFinite(nextExpiry)) sessionAgeTimer = setTimeout(renderSessions, Math.min(nextExpiry - now, 2147483647));
+  $("conversation-count").textContent = sessions.length - older.size + (service() ? 1 : 0);
   $("more-sessions").hidden = !state.listCursor;
-  $("conversation-empty").hidden = state.sessions.length > 0;
+  $("conversation-empty").hidden = sessions.length > older.size;
   $("conversation-empty").textContent = state.serviceId
     ? $("session-search").value
       ? "没有找到匹配的会话。"
-      : "还没有会话。\n点击右上角 ＋ 开始。"
+      : older.size ? "最近7天没有新消息，旧会话可在下方展开。" : "还没有会话。\n点击右上角 ＋ 开始。"
     : "连接设备，选择项目，\n从一个新会话开始。";
   const signature = JSON.stringify([state.selected?.id,state.serviceId,state.mode,state.session?.id,state.runSession,state.sessions,service()?.channel]);
-  if (signature === sessionSignature) return;
-  sessionSignature = signature;
+  const visibilitySignature = JSON.stringify([signature, state.user?.id, search, [...older]]);
+  if (visibilitySignature === sessionSignature) return;
+  sessionSignature = visibilitySignature;
   const fragment = document.createDocumentFragment();
   if (service()) {
     const sayso = node("button", undefined, "conversation-card pinned" + (state.mode === "sayso" ? " active" : ""));
     sayso.append(node("strong", "♫ SaySo"), node("p", "置顶 · 讨论、录音与 Action"));
     sayso.onclick = () => openSayso().catch(e => notice(e.message)); fragment.append(sayso);
   }
+  const scope = JSON.stringify([state.user?.id, state.selected?.id, state.serviceId]);
+  if (olderSessionView?.scope !== scope) {
+    const box = node("details", undefined, "older-sessions"), summary = node("summary"), list = node("div");
+    box.append(summary, list); olderSessionView = {scope, box, summary, list};
+  }
+  olderSessionView.summary.textContent = `7天前的会话 · ${older.size}`;
+  olderSessionView.list.replaceChildren();
   for (const s of [...state.sessions].sort((a,b)=>(b.kind==="im")-(a.kind==="im"))) {
     if (s.archivedAt || s.deletedAt) continue;
     const b = node(
@@ -644,8 +678,9 @@ function renderSessions() {
       loadSession(s)
         .then(closeDrawers)
         .catch((e) => notice(e.message));
-    fragment.append(b);
+    (older.has(s.id) ? olderSessionView.list : fragment).append(b);
   }
+  if (older.size) fragment.append(olderSessionView.box);
   $("conversation-list").replaceChildren(fragment);
   window.renderArchivedSessions?.($("conversation-list"));
 }

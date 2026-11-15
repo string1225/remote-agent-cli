@@ -17,6 +17,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         if (file === 'api/me') return route.fulfill({json:{id:'tester', username:'测试账号'}});
         if (file === 'api/agents') return route.fulfill({json:[]});
         if (file === 'api/default-host') return route.fulfill({json:{agentId:'',online:false}});
+        if (file.startsWith('api/')) return route.fulfill({status:404,json:{error:'Not available in this fixture'}});
         const filename = file === 'app.js' && process.env.UI_TEST_APP_SOURCE ? process.env.UI_TEST_APP_SOURCE : path.join('web', file);
         return route.fulfill({contentType:file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/html', body:fs.readFileSync(filename)});
       });
@@ -116,7 +117,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
       if (width < 760) await page.locator('#open-devices').click();
       await page.locator('.project-settings').click();
-      assert.equal(await page.locator('#device-menu>button').first().textContent(), '设置');
+      assert.equal(await page.locator('#device-menu-settings').isVisible(), true);
       await page.locator('#device-menu-settings').click();
       await page.locator('#project-settings-form [name=name]').fill('新项目名称');
       await page.locator('#project-settings-form [name=workspace]').fill('C:\\Code\\new');

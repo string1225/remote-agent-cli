@@ -61,6 +61,26 @@ func saveSession(tx *bolt.Tx, s protocol.Conversation) error {
 	}
 	return tx.Bucket([]byte("sessions")).Put([]byte(s.ID), b)
 }
+
+// Derive this from the final entry so legacy histories need no migration and
+// renaming or restoring a session cannot make old messages appear recent.
+func lastSessionMessageAt(tx *bolt.Tx, id string) (int64, error) {
+	bucket := tx.Bucket([]byte("entries")).Bucket([]byte(id))
+	if bucket == nil {
+		return 0, nil
+	}
+	_, data := bucket.Cursor().Last()
+	if data == nil {
+		return 0, nil
+	}
+	var entry struct {
+		CreatedAt int64 `json:"createdAt"`
+	}
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return 0, err
+	}
+	return entry.CreatedAt, nil
+}
 func (h historyStore) create(service protocol.Service, title string) (s protocol.Conversation, err error) {
 	return h.createWithMessage(service, title, "")
 }
@@ -105,7 +125,14 @@ func (h historyStore) createWithMessage(service protocol.Service, title, message
 	return
 }
 func (h historyStore) get(id string) (s protocol.Conversation, err error) {
-	err = h.transact(false, func(tx *bolt.Tx) error { var e error; s, e = sessionFrom(tx, id); return e })
+	err = h.transact(false, func(tx *bolt.Tx) error {
+		var err error
+		s, err = sessionFrom(tx, id)
+		if err == nil {
+			s.LastMessageAt, err = lastSessionMessageAt(tx, id)
+		}
+		return err
+	})
 	return
 }
 func (h historyStore) list(serviceID, search string, offset uint64) (page protocol.ConversationPage, err error) {
@@ -132,6 +159,11 @@ func (h historyStore) listArchived(serviceID, search string, offset uint64, arch
 				}
 			}
 			if s.DeletedAt == 0 && (s.ArchivedAt != 0) == archived && s.ServiceID == serviceID && strings.Contains(strings.ToLower(s.Title), strings.ToLower(search)) {
+				var err error
+				s.LastMessageAt, err = lastSessionMessageAt(tx, s.ID)
+				if err != nil {
+					return err
+				}
 				s.NativeID = ""
 				all = append(all, s)
 			}
@@ -177,6 +209,10 @@ func (h historyStore) readWindow(id string, after, before uint64, turns int) (pa
 	err = h.transact(false, func(tx *bolt.Tx) error {
 		var err error
 		page.Session, err = sessionFrom(tx, id)
+		if err != nil {
+			return err
+		}
+		page.Session.LastMessageAt, err = lastSessionMessageAt(tx, id)
 		if err != nil {
 			return err
 		}
