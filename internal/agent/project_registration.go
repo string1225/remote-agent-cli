@@ -37,7 +37,7 @@ func (a *Agent) registerProject(request protocol.Service) (result projectRegistr
 			return result, errors.New("100 service limit")
 		}
 		if !a.Providers[request.Provider].Available {
-			return result, errors.New("install and sign in to a compatible provider CLI locally first")
+			return result, providerSetupError(request.Provider)
 		}
 		if len(strings.TrimSpace(request.Name)) == 0 || len(request.Name) > 80 {
 			return result, errors.New("service name must be 1–80 bytes")

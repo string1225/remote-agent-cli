@@ -18,8 +18,6 @@ const state = {
   session: null,
   entries: [],
   olderCursor: 0,
-  running: null,
-  runSession: null,
   pending: new Map(),
   submitting: new Set(),
   expanded: new Set(),
@@ -226,13 +224,11 @@ function connectionStatus(text, good = false) {
   $("connection-status").textContent = text;
   $("connection-status").className = "status" + (good ? "" : " neutral");
 }
-function setRunning(id) {
-  state.running = id;
+function setRunning() {
   const submitting = state.submitting.has(state.session?.id);
-  const local = !!id && state.runSession === state.session?.id;
   const background = ["queued","running"].includes(state.session?.taskStatus);
-  $("cancel-run").hidden = !id && !(background && state.session?.taskId);
-  $("send-run").disabled = submitting || local || background || !state.session || !service() || !state.peer || state.peer.connecting || state.permissionMode!=="full";
+  $("cancel-run").hidden = !(background && state.session?.taskId);
+  $("send-run").disabled = submitting || background || !state.session || !service() || !state.peer || state.peer.connecting || state.permissionMode!=="full";
   $("new-session").disabled = !service() || !state.peer || state.peer.connecting || state.permissionMode!=="full";
   window.updateQueuedComposer?.();
 }
@@ -384,34 +380,8 @@ function receiveEvent(msg) {
             }
             return;
           }
-          if (msg.id !== state.running) return;
-          if(msg.type==="started" && state.runContext)WorkspaceCache.remove("pending",state.runContext);
-          if (msg.type === "output") {
-            if (state.session?.id === state.runSession) {
-              if (msg.data?.entries) mergeEntries(msg.data.entries, true);
-              else if (msg.data?.text)
-                mergeEntries(
-                  [
-                    {
-                      seq: Date.now(),
-                      turnId: msg.id,
-                      role: "assistant",
-                      text: msg.data.text,
-                      kind: "stdout",
-                    },
-                  ],
-                  true,
-                );
-            }
-          } else if (msg.type === "done" || msg.type === "error") {
-            const sid = state.runSession;
-            setRunning(null);
-            state.runSession = null;
-            if (msg.error) notice(msg.error);
-            if (state.session?.id === sid)
-              loadSession(state.session).catch((e) => notice(e.message));
-            refreshSessions().catch((e) => notice(e.message));
-          }
+          // Task output belongs to the client's persisted history. The browser
+          // only handles RPC replies here and polls the currently viewed session.
 }
 async function openWorkspace(agent, projectId, sessionId) {
   const ready = connectDevice(agent, {projectId, sessionId});
@@ -631,7 +601,7 @@ function renderSessions() {
       ? "没有找到匹配的会话。"
       : older.size ? "最近7天没有新消息，旧会话可在下方展开。" : "还没有会话。\n点击右上角 ＋ 开始。"
     : "连接设备，选择项目，\n从一个新会话开始。";
-  const signature = JSON.stringify([state.selected?.id,state.serviceId,state.mode,state.session?.id,state.runSession,state.sessions,service()?.channel]);
+  const signature = JSON.stringify([state.selected?.id,state.serviceId,state.mode,state.session?.id,state.sessions,service()?.channel]);
   const visibilitySignature = JSON.stringify([signature, state.user?.id, search, [...older]]);
   if (visibilitySignature === sessionSignature) return;
   sessionSignature = visibilitySignature;
@@ -671,7 +641,7 @@ function renderSessions() {
           minute: "2-digit",
         }),
       ),
-      node("span", s.id === state.runSession ? "生成中…" : ({queued:"排队中",running:"执行中",failed:"执行失败",cancelled:"已取消"})[s.taskStatus] || (s.kind === "im" ? s.channelChatType === "group" ? "群聊" : s.channelChatId ? "私聊" : "渠道历史" : "Web 会话")),
+      node("span", ({queued:"排队中",running:"执行中",failed:"执行失败",cancelled:"已取消"})[s.taskStatus] || (s.kind === "im" ? s.channelChatType === "group" ? "群聊" : s.channelChatId ? "私聊" : "渠道历史" : "Web 会话")),
     );
     b.append(meta);
     b.onclick = () =>
@@ -814,12 +784,12 @@ function sessionTitle(session) {
   if (peer && peer !== session.channelChatId && !/^(?:oc_|ou_|on_|cid)[A-Za-z0-9_-]+$/.test(peer)) return channel + " · " + peer;
   return channel + " · " + (session.channelChatType === "group" ? "群聊" : session.channelChatType === "user" ? "私聊" : "旧渠道历史");
 }
-function mergeEntries(entries, live = false) {
+function mergeEntries(entries) {
   const seq = new Set(state.entries.map((e) => e.seq));
   state.entries.push(...entries.filter((e) => !seq.has(e.seq)));
   state.entries.sort((a, b) => a.seq - b.seq);
-  if(live)reconcilePendingDraft(); cacheCurrentSession();
-  renderChat(live);
+  reconcilePendingDraft(); cacheCurrentSession();
+  renderChat();
 }
 function toolInvocation(text) {
   // Older histories contain command output split across entries. Keep only
@@ -840,7 +810,7 @@ function turnTimingText(timing) {
   }
   return text;
 }
-function renderChat(live = false) {
+function renderChat() {
   setRunning(state.running);
   updateSessionContext();
   const moreHistory = $("load-more-history");
@@ -953,7 +923,7 @@ function renderChat(live = false) {
       el.append(node("div", "", "message-text"));
       if (g.kind === "error") el.open = true;
     }
-    // Cache/live output may arrive before the earlier, IM-created user entry.
+    // Cached output may arrive before the earlier, IM-created user entry.
     // Move existing nodes as well as new nodes into authoritative seq order.
     container.append(el);
     const text = el.querySelector(".message-text");
@@ -968,10 +938,6 @@ function renderChat(live = false) {
     }
     else text.textContent = g.text;
     window.chatAttachments?.renderHistory(el, state.entries.filter(e=>e.turnId===g.turnId && e.role===g.role).flatMap(e=>e.attachments || []));
-    el.classList.toggle(
-      "typing",
-      g.role === "assistant" && g.turnId === state.running,
-    );
   }
   for (const [key, el] of existing) if (!keep.has(key)) el.remove();
   state.chatAtBottom = atBottom;
@@ -1202,7 +1168,28 @@ $("session-search").oninput = () => {
 };
 $("more-sessions").onclick = () =>
   refreshSessions(true).catch((e) => notice(e.message));
-$("new-session").onclick = async () => {
+function codexInstallCommand(action, server = location.origin + basePath) {
+  server = server.replace(/\/+$/, "");
+  const command = "remote-agent codex " + action;
+  return server === "https://codex.sunny-string.cn/agents" ? command : command + " --server " + server;
+}
+function showProviderSetup(provider = "codex") {
+  const codex = provider === "codex";
+  $("provider-setup-title").textContent = codex ? "安装 Codex 环境" : "安装 Qoder CLI";
+  $("provider-setup-target").textContent = "请在目标客户端「" + (state.selected?.name || "当前设备") + "」所属用户的终端执行，不是在服务器或当前浏览器所在电脑上执行。";
+  $("provider-setup-codex").hidden = !codex;
+  $("provider-setup-qoder").hidden = codex;
+  $("provider-setup-command").value = "remote-agent codex setup";
+  $("provider-setup-install").textContent = codexInstallCommand("install");
+  $("provider-setup-dialog").showModal();
+}
+async function createWebSession() {
+  const provider = service()?.provider;
+  if (!provider) return;
+  if (!state.providers[provider]?.available) {
+    showProviderSetup(provider);
+    return;
+  }
   try {
     const s = await rpc("sessions.create", { serviceId: state.serviceId });
     await refreshSessions();
@@ -1212,7 +1199,9 @@ $("new-session").onclick = async () => {
   } catch (e) {
     notice(e.message);
   }
-};
+}
+$("new-session").onclick = createWebSession;
+$("provider-install-guide").onclick = () => showProviderSetup("codex");
 function showService() {
   const select = $("provider-select");
   select.replaceChildren();
@@ -1228,8 +1217,9 @@ function showService() {
   select.selectedIndex = [...select.options].findIndex((o) => !o.disabled);
   $("provider-info").textContent =
     select.selectedIndex < 0
-      ? "设备连接正常。需要执行 AI 任务时，安装任意一种 CLI 并重启 Agent 即可。"
+      ? "设备连接正常，但尚未检测到可用的 CLI。请先按下方步骤安装 Codex，或安装并登录 Qoder CLI。"
       : "选择本次需要的 Agent，另一种无需安装。";
+  $("provider-install-help").hidden = !!state.providers.codex?.available;
   $("roots-info").textContent = "允许的根目录：" + state.roots.join("、");
   $("service-submit").disabled = select.selectedIndex < 0;
   $("service-dialog").showModal();
@@ -1376,13 +1366,17 @@ $("run-form").onsubmit = async (e) => {
     catch (e) { notice(e.message); } finally { button.disabled = false; }
     return;
   }
+  if (!state.providers[service().provider]?.available) {
+    showProviderSetup(service().provider);
+    return;
+  }
   if (!state.backgroundRuns) { notice("请更新目标客户端：当前版本不支持离开网页后继续执行和多会话后台任务。"); return; }
   const context=draftContext(), session=state.session, peer=state.peer, project=state.serviceId;
   const text=$("prompt").value, previous=WorkspaceCache.read("pending",context);
   const id=previous?.text===text && JSON.stringify(previous.attachments)===JSON.stringify(files) ? previous.turnId : crypto.randomUUID();
   WorkspaceCache.write("pending",context,{text,attachments:files,turnId:id});
   state.submitting.add(session.id);
-  setRunning(state.running);
+  setRunning();
   try {
     const result = await rpc("tasks.run", {
         id,
@@ -1391,18 +1385,19 @@ $("run-form").onsubmit = async (e) => {
         prompt,
         attachments:files.map(f=>f.id),
     });
-    WorkspaceCache.remove("pending",context);
-    WorkspaceCache.remove("draft",context);
+    if (WorkspaceCache.read("pending",context)?.turnId === id) WorkspaceCache.remove("pending",context);
+    const draft = WorkspaceCache.read("draft",context);
+    if (draft?.text === text && JSON.stringify(draft.attachments || []) === JSON.stringify(files)) WorkspaceCache.remove("draft",context);
     if (state.peer===peer && state.serviceId===project && state.session?.id===session.id) {
       state.session=result.session;
-      if ($("prompt").value===text) { $("prompt").value=""; window.chatAttachments?.restore([]); }
+      if ($("prompt").value===text && JSON.stringify(window.chatAttachments?.snapshot() || [])===JSON.stringify(files)) { $("prompt").value=""; window.chatAttachments?.restore([]); }
       await loadSession(result.session);
     }
   } catch (err) {
     notice(err.message);
   } finally {
     state.submitting.delete(session.id);
-    setRunning(state.running);
+    setRunning();
   }
 };
 $("prompt").onkeydown = (e) => {
@@ -1412,12 +1407,15 @@ $("prompt").onkeydown = (e) => {
   }
 };
 $("prompt").addEventListener("input",saveCurrentDraft);
-document.addEventListener("visibilitychange",()=>{if(document.hidden)saveCurrentDraft();else if(state.peer && state.session && state.mode!=="sayso")pollSession().catch(()=>{})});
+document.addEventListener("visibilitychange",()=>{if(document.hidden)saveCurrentDraft();else pollWorkspace().catch(()=>{})});
 $("fix-client").onclick=()=>window.openDeviceRepair?.(state.selected).catch(e=>notice(e.message));
 $("cancel-run").onclick = async () => {
   try {
-    if (state.running) await rpc("cancel", {runId:state.running});
-    else if (state.session?.taskId) await rpc("tasks.cancel", {runId:state.session.taskId});
+    if (state.session?.taskId) {
+      const peer = state.peer, session = state.session;
+      await rpc("tasks.cancel", {runId:session.taskId});
+      if (state.peer === peer && state.session?.id === session.id) await pollWorkspace();
+    }
   } catch (e) {
     notice(e.message);
   }
@@ -1427,13 +1425,8 @@ window.addEventListener("beforeunload", () => {
   state.peer?.ws.close();
 });
 setInterval(refresh, 10000);
-let historyPolling = false;
-setInterval(async () => {
-  if (historyPolling || !state.peer || !service() || $("app").hidden) return;
-  historyPolling = true;
-  try { await refreshSessions(false, true); if (state.mode !== "sayso" && state.session && !state.running) await pollSession(); }
-  catch {} finally { historyPolling = false; }
-}, 4000);
+let workspacePoll;
+setInterval(() => pollWorkspace().catch(()=>{}), 4000);
 (async () => {
   try {
     await signedIn();
@@ -1708,16 +1701,33 @@ function linkedSessionRoute() {
   return location.hash.startsWith("#client=") ? new URLSearchParams(location.hash.slice(1)) : null;
 }
 async function pollSession() {
-  const session = state.session, peer = state.peer, revision = state.readRevision;
-  if (!session || !peer || peer.connecting || state.loadingSession === revision) return;
+  const session = state.session, peer = state.peer, revision = state.readRevision, project = state.serviceId;
+  if (!session || !peer || peer.connecting || state.mode === "sayso" || state.loadingSession === revision) return;
   if (state.historyReady === false) return loadSession(session, {refreshOnly:true});
   let cursor = state.entries.at(-1)?.seq || 0;
   do {
     const page = await rpc("sessions.get", {sessionId:session.id,cursor});
-    if (state.peer !== peer || state.session?.id !== session.id || state.readRevision !== revision || state.mode === "sayso") return;
+    if (state.peer !== peer || state.serviceId !== project || state.session?.id !== session.id || state.readRevision !== revision || state.mode === "sayso") return;
+    if (page.session.serviceId !== project) throw Error("会话不属于当前项目");
     state.session = page.session;
-    setRunning(state.running);
-    if (page.entries.length) mergeEntries(page.entries, true);
+    state.historyLocal = false;
+    setRunning();
+    if (page.entries.length) mergeEntries(page.entries);
+    else cacheCurrentSession();
+    state.sessions = state.sessions.map(row => row.id === session.id ? page.session : row);
+    renderSessions();
     cursor = page.nextCursor || 0;
   } while (cursor);
+}
+async function pollWorkspace() {
+  if (document.hidden || !state.peer || !service() || $("app").hidden) return;
+  const peer = state.peer, project = state.serviceId, revision = state.readRevision, mode = state.mode;
+  if (workspacePoll?.peer === peer && workspacePoll.project === project && workspacePoll.revision === revision && workspacePoll.mode === mode) return workspacePoll.promise;
+  const poll = {peer, project, revision, mode};
+  workspacePoll = poll;
+  // Each view has its own in-flight poll. A slow reply from a previous view
+  // neither delays the new session nor changes its history or controls.
+  poll.promise = Promise.allSettled([refreshSessions(false, true), pollSession()]);
+  try { await poll.promise; }
+  finally { if (workspacePoll === poll) workspacePoll = null; }
 }

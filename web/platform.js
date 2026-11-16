@@ -65,8 +65,8 @@
     }
     const help = [
       ["remote-agent --help", "查看本地 CLI 命令"],
-      [`remote-agent codex install --server ${server}`, "安装官方 Codex CLI，无需 Node.js"],
-      [`remote-agent codex update --server ${server}`, "更新托管的 Codex CLI"],
+      [codexInstallCommand("install", server), "安装官方 Codex CLI，无需 Node.js；默认站点可省略 --server"],
+      [codexInstallCommand("update", server), "更新托管的 Codex CLI；默认使用设备绑定站点"],
       ["remote-agent codex setup", "使用设备绑定的账号申请 Token，显示所属账号并更新配置"],
       ["codex", "配置成功后，在终端启动 Codex CLI"],
       ["remote-agent app install", windows ? "打开 Windows 商店安装 Codex App" : "通过 Homebrew 安装 Codex App"],

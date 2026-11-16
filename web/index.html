@@ -414,6 +414,21 @@
       <p id="channel-progress-message" class="progress-message" role="status">正在验证应用凭据，请稍候。</p>
       <button id="channel-progress-close" class="primary full" type="button">关闭</button>
     </dialog>
+    <dialog id="provider-setup-dialog" aria-labelledby="provider-setup-title">
+      <div class="dialog-head"><h2 id="provider-setup-title">安装 Codex 环境</h2><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div>
+      <p id="provider-setup-target" class="muted"></p>
+      <section id="provider-setup-codex">
+        <ol class="setup-steps">
+          <li>在已绑定的客户端运行下方命令，自动安装缺少的官方 Codex CLI，并使用设备所属账号配置模型 Token。无需 Node.js，无需填写 --server。</li>
+          <li>等待终端显示完成。安装过程会显示下载进度、SHA-256 校验、解压和安装步骤。</li>
+          <li>安装后重启客户端服务，再重新连接网页中的这台客户端。Windows 重启服务需要管理员权限；前台运行的客户端可退出后重新运行 remote-agent run。</li>
+        </ol>
+        <label>安装并配置 Codex<textarea id="provider-setup-command" readonly rows="2"></textarea></label>
+        <button type="button" class="primary copy" data-copy="provider-setup-command">复制安装配置命令</button>
+        <p class="small muted">仅安装、不修改模型配置：<code id="provider-setup-install"></code>。已有配置会备份，项目、会话和录音保留。</p>
+      </section>
+      <section id="provider-setup-qoder" hidden><p>请在目标客户端安装并登录 Qoder CLI，再重启客户端服务并重新连接网页。Qoder 编辑器的同名启动器不能代替 Qoder CLI。</p></section>
+    </dialog>
     <dialog id="service-dialog">
       <div class="dialog-head">
         <div>
@@ -436,6 +451,10 @@
           >CLI 提供方<select name="provider" id="provider-select"></select
         ></label>
         <p class="small muted" id="provider-info"></p>
+        <section id="provider-install-help" hidden>
+          <p class="small muted">未检测到 Codex CLI？在目标客户端运行 <code>remote-agent codex setup</code>，即可自动安装并配置。</p>
+          <button id="provider-install-guide" type="button" class="secondary">查看 Codex 安装步骤</button>
+        </section>
         <label
           >项目目录<input
             id="workspace-input"

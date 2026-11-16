@@ -67,11 +67,23 @@ func Detect() map[string]Provider {
 			p.Error = "command found, but it is not a compatible CLI (the Qoder editor launcher is not Qoder CLI)"
 		}
 		if !p.Available && p.Error == "" {
-			p.Error = "CLI not found on the agent PATH; install and sign in locally, then restart the agent"
+			p.Error = providerSetupError(name).Error()
+		} else if !p.Available {
+			p.Error += "; " + providerSetupError(name).Error()
 		}
 		providers[name] = p
 	}
 	return providers
+}
+
+func providerSetupError(name string) error {
+	if name == "codex" {
+		return errors.New("Codex CLI 未安装或不可用。请在目标客户端所属用户的终端运行 remote-agent codex setup，自动安装并配置 Codex；仅安装可运行 remote-agent codex install（无需 --server）。完成后重启客户端服务并重新连接网页；Windows 重启服务需要管理员权限。已有项目和会话不会被删除。")
+	}
+	if name == "qoder" {
+		return errors.New("Qoder CLI 未安装或不可用。请在目标客户端电脑上安装并登录 Qoder CLI（不是 Qoder 编辑器启动器），重启客户端服务后重新连接网页。")
+	}
+	return fmt.Errorf("unknown provider %q; select Codex or Qoder CLI", name)
 }
 
 type boundedBuffer struct {
@@ -151,7 +163,7 @@ func (w *outputWriter) Write(p []byte) (written int, err error) {
 }
 func runProcess(ctx context.Context, p Provider, s protocol.Service, prompt string, write bool, send func(protocol.Event) error, id string) error {
 	if !p.Available {
-		return errors.New("provider unavailable")
+		return providerSetupError(s.Provider)
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

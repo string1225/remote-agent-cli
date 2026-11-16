@@ -84,12 +84,16 @@ go run ./cmd/server
 
 ## 本机 Codex 与持久 CLI
 
+`codex install/update` 的 `--server` 可省略：优先使用本机设备已绑定的站点，未绑定时默认 `https://codex.sunny-string.cn/agents`；自建站点仍可显式指定。命令显示实际使用的站点，以及获取发布信息、下载、SHA-256 校验、解压检查、安装和完成六个步骤；等待时每秒刷新已用时间，下载时显示已下载大小及百分比（服务器未提供总大小时显示累计下载量）。
+
+网页新增项目、新建会话或发送任务时若未检测到 Codex，会提供目标客户端上的安装配置指引和可复制的 `remote-agent codex setup` 命令。安装后重启客户端服务并重新连接网页；Windows 重启服务需要管理员权限。现有项目、会话及录音不会因安装指引被删除。
+
 Windows 从「Codex 接入与帮助」下载 MSI，安装后在新的 PowerShell 执行 `remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-prompt`，隐藏输入个人 Token。原 Windows 安装脚本已移除，旧 URL 返回 410。macOS/Linux 继续提供 `cli-macos.sh`、`cli-linux.sh`；这些命令不绑定设备或启用远程服务。
 
 ```sh
 remote-agent --help
-remote-agent codex install --server https://codex.sunny-string.cn/agents
-remote-agent codex update --server https://codex.sunny-string.cn/agents
+remote-agent codex install
+remote-agent codex update
 remote-agent codex setup --server https://codex.sunny-string.cn/agents --token-stdin
 remote-agent app install
 remote-agent app upgrade

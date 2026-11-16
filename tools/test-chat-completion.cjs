@@ -23,7 +23,7 @@ function harness(reply) {
   };
   vm.createContext(sandbox);
   vm.runInContext(source.slice(source.indexOf('function setRunning('), source.indexOf('function resetWorkspace(')), sandbox);
-  vm.runInContext(source.slice(source.indexOf('async function refreshSessions('), source.indexOf('let sessionSignature;')), sandbox);
+  vm.runInContext(source.slice(source.indexOf('async function refreshSessions('), source.indexOf('let sessionSignature')), sandbox);
   return {...sandbox, cached};
 }
 

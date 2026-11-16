@@ -54,10 +54,16 @@ func AssetName(goos, arch string) (string, error) {
 // Install accepts release metadata from the configured platform. GitHub's asset
 // SHA-256 is mandatory; a partial or mismatched archive never replaces a binary.
 func Install(ctx context.Context, releaseURL, bin, goos, arch string, client *http.Client) (string, error) {
+	return InstallWithProgress(ctx, releaseURL, bin, goos, arch, client, nil)
+}
+
+func InstallWithProgress(ctx context.Context, releaseURL, bin, goos, arch string, client *http.Client, report func(Progress)) (string, error) {
 	name, err := AssetName(goos, arch)
 	if err != nil {
 		return "", err
 	}
+	progress := &downloadProgress{report: report, total: -1}
+	progress.stage("release")
 	req, err := http.NewRequestWithContext(ctx, "GET", releaseURL, nil)
 	if err != nil {
 		return "", err
@@ -96,6 +102,7 @@ func Install(ctx context.Context, releaseURL, bin, goos, arch string, client *ht
 		return "", fmt.Errorf("cannot lock Codex installation (if no installer is running, remove %s): %w", lockPath, err)
 	}
 	defer func() { lock.Close(); os.Remove(lockPath) }()
+	progress.stage("download")
 	req, err = http.NewRequestWithContext(ctx, "GET", asset.URL, nil)
 	if err != nil {
 		return "", err
@@ -108,6 +115,8 @@ func Install(ctx context.Context, releaseURL, bin, goos, arch string, client *ht
 	if response.StatusCode != 200 {
 		return "", fmt.Errorf("Codex download returned HTTP %d", response.StatusCode)
 	}
+	progress.total = response.ContentLength
+	progress.stage("download")
 	archive, err := os.CreateTemp(bin, ".codex-archive-*")
 	if err != nil {
 		return "", err
@@ -115,13 +124,14 @@ func Install(ctx context.Context, releaseURL, bin, goos, arch string, client *ht
 	defer os.Remove(archive.Name())
 	defer archive.Close()
 	hash := sha256.New()
-	size, err := io.Copy(io.MultiWriter(archive, hash), io.LimitReader(response.Body, (256<<20)+1))
+	size, err := io.Copy(io.MultiWriter(archive, hash, progress), io.LimitReader(response.Body, (256<<20)+1))
 	if err != nil {
 		return "", fmt.Errorf("Codex archive download failed: %w", err)
 	}
 	if size > 256<<20 {
 		return "", errors.New("Codex archive exceeded 256 MiB")
 	}
+	progress.stage("verify")
 	if !bytes.Equal(digest, hash.Sum(nil)) {
 		return "", errors.New("Codex archive checksum mismatch")
 	}
@@ -142,6 +152,7 @@ func Install(ctx context.Context, releaseURL, bin, goos, arch string, client *ht
 		main = "bin/codex"
 	}
 	packageFiles := &packageExtractor{directory: staging, main: main, exe: exe, seen: map[string]bool{}}
+	progress.stage("extract")
 	if strings.HasSuffix(name, ".zip") {
 		err = extractZIP(archive, size, packageFiles)
 	} else {
@@ -161,9 +172,11 @@ func Install(ctx context.Context, releaseURL, bin, goos, arch string, client *ht
 	if err := commandAlias(filepath.Join(staging, main), filepath.Join(staging, exe), goos); err != nil {
 		return "", err
 	}
+	progress.stage("publish")
 	if err := publishPackage(staging, bin, exe); err != nil {
 		return "", err
 	}
+	progress.stage("complete")
 	return filepath.Join(bin, exe), nil
 }
 

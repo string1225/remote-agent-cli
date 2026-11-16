@@ -16,13 +16,26 @@ import (
 	"github.com/string1225/remote-agent-cli/internal/codexsetup"
 )
 
+const defaultCodexServer = "https://codex.sunny-string.cn/agents"
+
+func codexInstallServer(server, configPath string) string {
+	if server == "" {
+		if config, err := agent.Load(configPath); err == nil {
+			server = config.Server
+		} else {
+			server = defaultCodexServer
+		}
+	}
+	return strings.TrimRight(server, "/")
+}
+
 func runCodex(args []string) error {
 	if len(args) == 0 || (args[0] != "setup" && args[0] != "install" && args[0] != "update") {
 		return errors.New(tr("use codex install/update [--server URL] or codex setup [--config PATH] [--server URL --token-stdin]"))
 	}
 	flags := newCLIFlagSet("codex " + args[0])
 	configPath := flags.String("config", agent.DefaultPath(), tr("enrolled device configuration"))
-	serverURL := flags.String("server", "", tr("platform URL for personal-token setup"))
+	serverURL := flags.String("server", "", tr("platform URL (install/update default: enrolled server or https://codex.sunny-string.cn/agents)"))
 	tokenStdin := flags.Bool("token-stdin", false, tr("read a personal model token from stdin, without device enrollment"))
 	tokenPrompt := flags.Bool("token-prompt", false, tr("prompt for a personal model token without echo or shell history"))
 	if err := flags.Parse(args[1:]); err != nil {
@@ -40,13 +53,7 @@ func runCodex(args []string) error {
 	var connection codexsetup.Connection
 	server := strings.TrimSuffix(*serverURL, "/")
 	if args[0] != "setup" {
-		if server == "" {
-			if config, err := agent.Load(*configPath); err == nil {
-				server = config.Server
-			} else {
-				server = "https://codex.sunny-string.cn/agents"
-			}
-		}
+		server = codexInstallServer(server, *configPath)
 		if err := agent.ValidateServer(server); err != nil {
 			return err
 		}
@@ -54,7 +61,8 @@ func runCodex(args []string) error {
 		if err != nil {
 			return err
 		}
-		path, err := codexsetup.Install(ctx, server+"/install/codex-release", filepath.Join(home, ".remote-agent", "bin"), runtime.GOOS, runtime.GOARCH, client)
+		fmt.Printf(tr("Codex installation server: %s\n"), server)
+		path, err := installCodex(ctx, server+"/install/codex-release", filepath.Join(home, ".remote-agent", "bin"), runtime.GOOS, runtime.GOARCH, client, os.Stdout)
 		if err != nil {
 			return err
 		}
@@ -75,6 +83,7 @@ func runCodex(args []string) error {
 		if !strings.HasPrefix(token, "ra_codex_") || len(token) < 40 || strings.ContainsAny(token, "\r\n") {
 			return errors.New(tr("supply a personal token created in /agents"))
 		}
+		fmt.Println(tr("Validating the supplied Token and requesting Codex configuration..."))
 		connection, err = codexsetup.PersonalConnection(client, server, token)
 		if err != nil {
 			return err
@@ -89,6 +98,7 @@ func runCodex(args []string) error {
 			return errors.New(tr("setup server differs from enrolled server"))
 		}
 		server = config.Server
+		fmt.Println(tr("Requesting Codex configuration for the enrolled device..."))
 		connection, err = codexsetup.DeviceConnection(client, server, config.ID, config.Credential)
 		if err != nil {
 			return err
@@ -103,9 +113,10 @@ func runCodex(args []string) error {
 		return err
 	}
 	bin := filepath.Join(home, ".remote-agent", "bin")
+	fmt.Println(tr("Checking the local Codex CLI environment..."))
 	if !agent.Detect()["codex"].Available {
 		fmt.Println(tr("Installing official Codex CLI (SHA-256 verified)..."))
-		if _, err := codexsetup.Install(ctx, server+"/install/codex-release", bin, runtime.GOOS, runtime.GOARCH, client); err != nil {
+		if _, err := installCodex(ctx, server+"/install/codex-release", bin, runtime.GOOS, runtime.GOARCH, client, os.Stdout); err != nil {
 			return err
 		}
 	}
@@ -113,6 +124,7 @@ func runCodex(args []string) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println(tr("Backing up and updating local Codex configuration..."))
 	if err := installRemoteAgentSkill(); err != nil {
 		return err
 	}
