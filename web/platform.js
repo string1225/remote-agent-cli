@@ -4,6 +4,25 @@
   let codexPoll, codexLoginID, codexLoading = false;
   const dialog = $("platform-dialog");
   const server = location.origin + basePath;
+  const endpoint = server + "/codex/v1";
+  $("token-api-endpoint").value = endpoint;
+  $("copy-token-endpoint").onclick = () => copy("token-api-endpoint");
+  $("copy-codex-config").onclick = () => copy("codex-config-example");
+  $("show-codex-config-guide").onclick = () => {
+    $("codex-config-example").value = `model_provider = "sunny_agents"
+model = ${JSON.stringify(gateway?.model || "gpt-6.1-sol")}
+
+[model_providers.sunny_agents]
+name = "Sunny Codex"
+base_url = ${JSON.stringify(endpoint)}
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+
+[model_providers.sunny_agents.http_headers]
+Authorization = "Bearer YOUR_TOKEN"`;
+    $("codex-config-guide").showModal();
+  };
   const shellQuote = (s) => "'" + s.replaceAll("'", "'\"'\"'") + "'";
   const psQuote = (s) => "'" + s.replaceAll("'", "''") + "'";
   const platform = () => $("setup-platform").value;
@@ -26,6 +45,7 @@
     $("account-form").elements.username.value = user.username;
   };
   window.platformSignedOut = () => {
+    $("codex-config-guide").close();
     user = null;
     revision++;
     clearTimeout(codexPoll);

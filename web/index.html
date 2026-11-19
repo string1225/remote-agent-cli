@@ -353,6 +353,11 @@
       </section>
       <section id="platform-tokens" class="platform-panel" hidden>
         <h3>我的代理 Token</h3><p class="muted">绑定设备时自动创建，也可以手动创建。Token 属于申请它的平台账号；复制后请妥善保管。</p>
+        <div class="platform-note">
+          <label>OpenAI 兼容 API 接入端点（Base URL）<input id="token-api-endpoint" readonly spellcheck="false"></label>
+          <div class="token-actions"><button id="copy-token-endpoint" class="secondary" type="button">复制端点</button><button id="show-codex-config-guide" class="secondary" type="button">手动配置 Codex</button></div>
+          <p class="small muted">使用下方 Token 作为 API Key，通过 Responses API 调用；客户端选择 Responses 协议。</p>
+        </div>
         <form id="token-form" class="inline-form"><label>名称<input name="name" required maxlength="80" placeholder="例如：我的笔记本"></label><button class="primary" type="submit">创建 Token</button></form>
         <div id="token-secret-box" class="token-secret" hidden><strong>请勿分享；关闭后可从列表再次复制</strong><label>Token<input id="token-secret" readonly autocomplete="off"></label><button id="copy-token-secret" class="secondary">复制 Token</button><label>手动使用此 Token（运行命令后粘贴）<textarea id="token-config-command" readonly rows="2"></textarea></label><button id="copy-token-command" class="primary">复制配置命令</button><p class="small muted">已绑定的设备直接运行 remote-agent codex setup 即可。手动粘贴时使用此 Token 所属账号，终端会显示账号名称。</p></div>
         <div id="token-list" class="platform-list"></div>
@@ -386,6 +391,15 @@
         </section>
         <section id="admin-tokens-panel" class="platform-panel" role="tabpanel" aria-labelledby="admin-tokens-tab" hidden><h3>全部代理 Token</h3><div id="admin-token-list" class="platform-list"></div></section>
       </section>
+    </dialog>
+    <dialog id="codex-config-guide" class="platform-dialog" aria-labelledby="codex-config-guide-title">
+      <div class="dialog-head"><h2 id="codex-config-guide-title">手动配置 Codex</h2><button type="button" class="icon-button close-dialog" aria-label="关闭配置指导">×</button></div>
+      <p>1. 退出 Codex，先备份现有 config.toml。Windows 默认路径为 <code>%USERPROFILE%\.codex\config.toml</code>，macOS / Linux 为 <code>~/.codex/config.toml</code>；设置了 CODEX_HOME 时使用该目录下的 config.toml。</p>
+      <p>2. 合并以下配置，将 <code>YOUR_TOKEN</code> 替换为“我的 Token”中复制的 Token。顶层配置放在第一个 <code>[表名]</code> 之前；已有同名项或 provider 时修改原项，保留其他项目和配置，避免重复定义。</p>
+      <label>config.toml 示例<textarea id="codex-config-example" readonly rows="15" spellcheck="false"></textarea></label>
+      <button id="copy-codex-config" class="secondary" type="button">复制配置示例</button>
+      <p>3. 若设置了默认 <code>profile</code> 或使用 <code>codex --profile 名称</code>，也将对应 <code>[profiles.名称]</code> 中的 model_provider 改为 <code>sunny_agents</code>，并检查 model 是否覆盖了上述模型。</p>
+      <p>4. 保存后完全退出并重新打开 Codex App / CLI，新建本地会话验证。旧会话可能保留原 provider；如需恢复，退出 Codex 后还原备份。配置包含 Token，请仅保存在本机，不要提交到 Git 或分享。</p>
     </dialog>
     <dialog id="channel-dialog" aria-labelledby="channel-title">
       <div class="dialog-head channel-header">
