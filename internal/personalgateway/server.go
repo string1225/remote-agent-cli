@@ -288,14 +288,38 @@ func (server *Server) models(w http.ResponseWriter, response *http.Response) {
 		fail(w, 502, "Invalid model catalog", "upstream_error")
 		return
 	}
-	var models []struct {
-		Slug string `json:"slug"`
-	}
+	var models []map[string]json.RawMessage
 	if json.Unmarshal(catalog["models"], &models) == nil {
+		// The backend accepts 6.2 Sol before advertising it in its catalog.
+		// Reuse Sol's capabilities until the upstream publishes its own entry.
+		var sol map[string]json.RawMessage
+		hasSol62 := false
+		for _, model := range models {
+			var slug string
+			json.Unmarshal(model["slug"], &slug)
+			if slug == "gpt-6.2-sol" {
+				hasSol62 = true
+			}
+			if slug == "gpt-6-sol" {
+				sol = model
+			}
+		}
+		if !hasSol62 && sol != nil {
+			entry := make(map[string]json.RawMessage, len(sol))
+			for key, value := range sol {
+				entry[key] = value
+			}
+			entry["slug"] = json.RawMessage(`"gpt-6.2-sol"`)
+			entry["display_name"] = json.RawMessage(`"GPT-6.2 Sol"`)
+			models = append(models, entry)
+		}
+		catalog["models"], _ = json.Marshal(models)
 		items := []map[string]any{}
 		for _, model := range models {
-			if model.Slug != "" {
-				items = append(items, map[string]any{"id": model.Slug, "object": "model", "owned_by": "openai"})
+			var slug string
+			json.Unmarshal(model["slug"], &slug)
+			if slug != "" {
+				items = append(items, map[string]any{"id": slug, "object": "model", "owned_by": "openai"})
 			}
 		}
 		catalog["object"] = json.RawMessage(`"list"`)

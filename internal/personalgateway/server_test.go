@@ -121,6 +121,54 @@ func TestReplaceCredentialAndRemoveCallerIdentity(t *testing.T) {
 	}
 }
 
+func TestSol62Catalog(t *testing.T) {
+	for _, published := range []bool{false, true} {
+		t.Run(fmt.Sprint(published), func(t *testing.T) {
+			server, token, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+				models := []map[string]any{{"slug": "gpt-6-sol", "visibility": "list", "context_window": 12345}}
+				if published {
+					models = append(models, map[string]any{"slug": "gpt-6.2-sol", "context_window": 67890})
+				}
+				json.NewEncoder(w).Encode(map[string]any{"models": models})
+			})
+			w := request(t, server, token, "GET", "/models", "")
+			var catalog struct {
+				Models []struct {
+					Slug    string `json:"slug"`
+					Context int    `json:"context_window"`
+				}
+				Data []struct {
+					ID string `json:"id"`
+				}
+			}
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &catalog) != nil {
+				t.Fatalf("invalid catalog: %d %s", w.Code, w.Body.String())
+			}
+			count, ids := 0, 0
+			for _, model := range catalog.Models {
+				if model.Slug == "gpt-6.2-sol" {
+					count++
+					want := 12345
+					if published {
+						want = 67890
+					}
+					if model.Context != want {
+						t.Fatalf("context = %d, want %d", model.Context, want)
+					}
+				}
+			}
+			for _, model := range catalog.Data {
+				if model.ID == "gpt-6.2-sol" {
+					ids++
+				}
+			}
+			if count != 1 || ids != 1 {
+				t.Fatalf("6.2 entries: models=%d data=%d", count, ids)
+			}
+		})
+	}
+}
+
 func TestRefreshOn401AndPreserveStreaming(t *testing.T) {
 	var calls atomic.Int32
 	server, token, credentials := testServer(t, func(w http.ResponseWriter, r *http.Request) {
