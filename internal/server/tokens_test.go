@@ -78,7 +78,7 @@ func TestAgentSetupPreservesPriorTokenAndReturnsOnlyPersonalCredential(t *testin
 			BaseURL string `json:"baseUrl"`
 			Model   string `json:"model"`
 		}
-		if json.Unmarshal(b, &out) != nil || out.BaseURL != f.url+"/codex/v1" || out.Model != "gpt-6.1-sol" {
+		if json.Unmarshal(b, &out) != nil || out.BaseURL != f.url+"/codex/v1" || out.Model != "gpt-6.2-sol" {
 			t.Fatalf("bad setup %s", b)
 		}
 		return out.Token
@@ -111,7 +111,7 @@ func TestCodexConfigurationDisabledByDefault(t *testing.T) {
 		BaseURL string `json:"baseUrl"`
 		Model   string `json:"model"`
 	}
-	if json.Unmarshal(body, &cfg) != nil || cfg.Enabled || cfg.BaseURL != f.url+"/codex/v1" || cfg.Model != "gpt-6.1-sol" {
+	if json.Unmarshal(body, &cfg) != nil || cfg.Enabled || cfg.BaseURL != f.url+"/codex/v1" || cfg.Model != "gpt-6.2-sol" {
 		t.Fatalf("unexpected disabled config: %s", body)
 	}
 }

@@ -177,9 +177,11 @@ func runProcess(ctx context.Context, p Provider, s protocol.Service, prompt stri
 	}
 	if s.Provider == "codex" && s.ResumeID == "" {
 		args = args[:len(args)-1]
-		if s.Model != "" && s.Model != "default" {
-			args = append(args, "--model", s.Model)
+		model := s.Model
+		if model == "" || model == "default" {
+			model = "gpt-6.2-sol"
 		}
+		args = append(args, "--model", model)
 		if s.OutputSchema != "" {
 			args = append(args, "--ephemeral", "--output-schema", s.OutputSchema)
 		}

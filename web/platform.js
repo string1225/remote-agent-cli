@@ -10,7 +10,7 @@
   $("copy-codex-config").onclick = () => copy("codex-config-example");
   $("show-codex-config-guide").onclick = () => {
     $("codex-config-example").value = `model_provider = "sunny_agents"
-model = ${JSON.stringify(gateway?.model || "gpt-6.1-sol")}
+model = ${JSON.stringify(gateway?.model || "gpt-6.2-sol")}
 
 [model_providers.sunny_agents]
 name = "Sunny Codex"

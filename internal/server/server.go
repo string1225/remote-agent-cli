@@ -55,7 +55,7 @@ func New(db *store.Store, cfg Config, web fs.FS) (*Server, http.Handler, error) 
 	}
 	cfg.PublicURL = u.String()
 	if cfg.GatewayModel == "" {
-		cfg.GatewayModel = "gpt-6.1-sol"
+		cfg.GatewayModel = "gpt-6.2-sol"
 	}
 	if err := validateGateway(cfg); err != nil {
 		return nil, nil, err

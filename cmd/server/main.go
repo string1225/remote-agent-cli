@@ -84,7 +84,7 @@ func run() error {
 }
 
 func configFromEnv() (server.Config, error) {
-	cfg := server.Config{PublicURL: env("PUBLIC_URL", "http://localhost:8080"), Downloads: env("DOWNLOADS_DIR", "dist"), GatewayURL: strings.TrimSpace(os.Getenv("CODEX_GATEWAY_URL")), GatewayModel: env("CODEX_MODEL", "gpt-6.1-sol")}
+	cfg := server.Config{PublicURL: env("PUBLIC_URL", "http://localhost:8080"), Downloads: env("DOWNLOADS_DIR", "dist"), GatewayURL: strings.TrimSpace(os.Getenv("CODEX_GATEWAY_URL")), GatewayModel: env("CODEX_MODEL", "gpt-6.2-sol")}
 	cfg.SharedFiles = env("SHARED_FILES_DIR", filepath.Join(filepath.Dir(env("DATABASE_PATH", "data/remote-agent.db")), "shared-files"))
 	if cfg.GatewayURL == "" {
 		return cfg, nil
